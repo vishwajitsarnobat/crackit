@@ -9,7 +9,7 @@
 --   - UUID primary keys for scalability
 
 -- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; -- for unique ids that are unguessable
 
 -- SECTION 1: CORE IDENTITY & ACCESS CONTROL
 
@@ -18,12 +18,12 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- Flexibility: New roles can be added without schema changes
 CREATE TABLE roles (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    role_name VARCHAR(50) UNIQUE NOT NULL, -- 'ceo', 'state_admin', 'district_admin', 'centre_head', 'teacher', 'student', 'parent', 'accountant'
+    role_name VARCHAR(50) UNIQUE NOT NULL CHECK (role_name IN ('ceo', 'state_admin', 'district_admin', 'centre_head', 'teacher', 'student', 'accountant')), -- 'ceo', 'state_admin', 'district_admin', 'centre_head', 'teacher', 'student', 'parent', 'accountant'
     display_name VARCHAR(100) NOT NULL,
     description TEXT,
     level INTEGER NOT NULL, -- Hierarchical level: 1=CEO, 2=State, 3=District, 4=Centre, 5=Teacher, 6=Student
     permissions JSONB DEFAULT '{}', -- Flexible permissions: {"can_view_all_centers": true, "can_manage_fees": true}
-    is_active BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE, -- to diable roles
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -39,16 +39,14 @@ INSERT INTO roles (role_name, display_name, level, permissions) VALUES
 ('student', 'Student', 6, '{"can_view_content": true, "can_view_marks": true}'),
 ('parent', 'Parent', 6, '{"can_view_child_progress": true, "can_request_meeting": true}');
 
--- ----------------------------------------------------------------------------
 -- Table: users (extends Supabase auth.users)
 -- Purpose: Core user information for all user types
 -- Note: Links to Supabase auth.users via id
--- ----------------------------------------------------------------------------
 CREATE TABLE users (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE, -- automatically deletes related entries, avoid ghost data
     role_id UUID REFERENCES roles(id) NOT NULL,
     full_name VARCHAR(200) NOT NULL,
-    email VARCHAR(255) UNIQUE,
+    email VARCHAR(255) UNIQUE, -- unique automatically creates the index
     phone VARCHAR(20),
     alternate_phone VARCHAR(20),
     address TEXT,
@@ -59,18 +57,14 @@ CREATE TABLE users (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- without index, db has to scan all the user entries, indexes reduce that work
 CREATE INDEX idx_users_role ON users(role_id);
-CREATE INDEX idx_users_email ON users(email);
-CREATE INDEX idx_users_active ON users(is_active);
+CREATE INDEX idx_users_active ON users(is_active); -- low cardinality, but maybe needed later
 
--- ============================================================================
 -- SECTION 2: ORGANIZATIONAL HIERARCHY
--- ============================================================================
 
--- ----------------------------------------------------------------------------
 -- Table: states
 -- Purpose: State-level organization (for future state admin feature)
--- ----------------------------------------------------------------------------
 CREATE TABLE states (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     state_name VARCHAR(100) UNIQUE NOT NULL,
@@ -87,29 +81,26 @@ INSERT INTO states (state_name, state_code) VALUES
 ('Karnataka', 'KA'),
 ('Uttar Pradesh', 'UP');
 
--- ----------------------------------------------------------------------------
 -- Table: districts
 -- Purpose: District-level organization
--- ----------------------------------------------------------------------------
 CREATE TABLE districts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    state_id UUID REFERENCES states(id) ON DELETE CASCADE,
+    state_id UUID REFERENCES states(id) ON DELETE RESTRICT,
     district_name VARCHAR(100) NOT NULL,
     district_code VARCHAR(10) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(state_id, district_code)
+    UNIQUE(state_id, district_code) -- district from different states can have same code
 );
 
-CREATE INDEX idx_districts_state ON districts(state_id);
+CREATE INDEX idx_districts_state ON districts(state_id); -- helpful for delete cascade when removing a state
 
--- ----------------------------------------------------------------------------
 -- Table: centers
 -- Purpose: Individual coaching centers
--- ----------------------------------------------------------------------------
 CREATE TABLE centers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    district_id UUID REFERENCES districts(id) ON DELETE CASCADE,
+    -- cascade deletes all underlying entries, restrict dp not allow deleting district if any active coaching centres found
+    district_id UUID REFERENCES districts(id) ON DELETE RESTRICT, 
     center_code VARCHAR(20) UNIQUE NOT NULL, -- e.g., 'MH-PUN-001'
     center_name VARCHAR(200) NOT NULL,
     address TEXT NOT NULL,
@@ -127,13 +118,11 @@ CREATE TABLE centers (
 );
 
 CREATE INDEX idx_centers_district ON centers(district_id);
-CREATE INDEX idx_centers_active ON centers(is_active);
+CREATE INDEX idx_centers_district_city ON centers(district_id, city);
 
--- ----------------------------------------------------------------------------
 -- Table: user_center_assignments
 -- Purpose: Many-to-many relationship between users and centers
 -- Flexibility: Users (especially teachers/admins) can work at multiple centers
--- ----------------------------------------------------------------------------
 CREATE TABLE user_center_assignments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -142,20 +131,16 @@ CREATE TABLE user_center_assignments (
     assigned_date DATE DEFAULT CURRENT_DATE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, center_id)
+    UNIQUE(user_id, center_id) -- can be ised for indexing user_id, and not center_id
 );
 
-CREATE INDEX idx_user_center_user ON user_center_assignments(user_id);
+CREATE INDEX idx_user_center_user ON user_center_assignments(user_id); -- gives all entries having user_id
 CREATE INDEX idx_user_center_center ON user_center_assignments(center_id);
 
--- ============================================================================
 -- SECTION 3: ACADEMIC STRUCTURE
--- ============================================================================
 
--- ----------------------------------------------------------------------------
 -- Table: courses
 -- Purpose: Different course offerings (IIT-JEE, NEET, Olympiad, etc.)
--- ----------------------------------------------------------------------------
 CREATE TABLE courses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     course_code VARCHAR(20) UNIQUE NOT NULL,
@@ -171,6 +156,11 @@ CREATE TABLE courses (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE INDEX idx_courses_active ON courses(is_active);
+CREATE INDEX idx_courses_exam ON courses(target_exam);
+-- Generalized inverted index, instead of going to each row Row 1: {9,10}, Row 2: {10,11}, it stores 10: {Row 1, Row 2} and so on
+CREATE INDEX idx_courses_class_levels ON courses USING GIN(class_levels); -- without this, database scans every single row for class query
+
 -- Sample data
 INSERT INTO courses (course_code, course_name, target_exam, class_levels, fees_structure) VALUES
 ('IIT-JEE-11', 'IIT-JEE Preparation Class 11', 'IIT-JEE', ARRAY[11], '{"monthly": 3000, "yearly": 30000}'),
@@ -178,19 +168,15 @@ INSERT INTO courses (course_code, course_name, target_exam, class_levels, fees_s
 ('NEET-11', 'NEET Preparation Class 11', 'NEET', ARRAY[11], '{"monthly": 3000, "yearly": 30000}'),
 ('OLYMPIAD', 'Olympiad Preparation', 'Olympiad', ARRAY[8,9,10], '{"monthly": 2000, "yearly": 20000}');
 
-CREATE INDEX idx_courses_active ON courses(is_active);
-
--- ----------------------------------------------------------------------------
 -- Table: subjects
 -- Purpose: Subjects within courses
--- ----------------------------------------------------------------------------
 CREATE TABLE subjects (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     subject_code VARCHAR(20) UNIQUE NOT NULL,
     subject_name VARCHAR(100) NOT NULL,
     description TEXT,
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
 );
 
 -- Sample data
@@ -202,10 +188,8 @@ INSERT INTO subjects (subject_code, subject_name) VALUES
 ('ENG', 'English'),
 ('GK', 'General Knowledge');
 
--- ----------------------------------------------------------------------------
 -- Table: course_subjects
 -- Purpose: Many-to-many relationship between courses and subjects
--- ----------------------------------------------------------------------------
 CREATE TABLE course_subjects (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     course_id UUID REFERENCES courses(id) ON DELETE CASCADE,
@@ -219,14 +203,12 @@ CREATE TABLE course_subjects (
 CREATE INDEX idx_course_subjects_course ON course_subjects(course_id);
 CREATE INDEX idx_course_subjects_subject ON course_subjects(subject_id);
 
--- ----------------------------------------------------------------------------
 -- Table: batches
 -- Purpose: Physical batches/sections within a center
--- ----------------------------------------------------------------------------
 CREATE TABLE batches (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    course_id UUID REFERENCES courses(id) ON DELETE CASCADE,
+    course_id UUID REFERENCES courses(id) ON DELETE RESTRICT, -- on deleting a course, we ensure the batch history isn't automatically deleted
     batch_code VARCHAR(50) NOT NULL,
     batch_name VARCHAR(200) NOT NULL,
     class_level INTEGER NOT NULL, -- 9, 10, 11, 12
@@ -246,16 +228,14 @@ CREATE INDEX idx_batches_center ON batches(center_id);
 CREATE INDEX idx_batches_course ON batches(course_id);
 CREATE INDEX idx_batches_active ON batches(is_active);
 
--- ----------------------------------------------------------------------------
 -- Table: batch_teachers
 -- Purpose: Many-to-many relationship between batches and teachers
 -- Flexibility: Multiple teachers can teach a batch, a teacher can teach multiple batches
--- ----------------------------------------------------------------------------
 CREATE TABLE batch_teachers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    subject_id UUID REFERENCES subjects(id) ON DELETE SET NULL,
+    subject_id UUID REFERENCES subjects(id) ON DELETE RESTRICT, -- if a subject is deleted, the teachers teaching them should be looked after first
     is_primary BOOLEAN DEFAULT FALSE, -- Primary teacher for the batch
     assigned_date DATE DEFAULT CURRENT_DATE,
     is_active BOOLEAN DEFAULT TRUE,
@@ -266,14 +246,10 @@ CREATE TABLE batch_teachers (
 CREATE INDEX idx_batch_teachers_batch ON batch_teachers(batch_id);
 CREATE INDEX idx_batch_teachers_user ON batch_teachers(user_id);
 
--- ============================================================================
 -- SECTION 4: STUDENT MANAGEMENT
--- ============================================================================
 
--- ----------------------------------------------------------------------------
 -- Table: students
 -- Purpose: Student-specific information
--- ----------------------------------------------------------------------------
 CREATE TABLE students (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE UNIQUE,
@@ -281,7 +257,7 @@ CREATE TABLE students (
     date_of_birth DATE,
     gender VARCHAR(10), -- 'Male', 'Female', 'Other'
     blood_group VARCHAR(5),
-    class_level INTEGER NOT NULL,
+    class_level INTEGER NOT NULL CHECK (check class_level > 0),
     enrollment_date DATE DEFAULT CURRENT_DATE,
     parent_name VARCHAR(200),
     parent_email VARCHAR(255),
@@ -299,20 +275,18 @@ CREATE INDEX idx_students_user ON students(user_id);
 CREATE INDEX idx_students_class ON students(class_level);
 CREATE INDEX idx_students_active ON students(is_active);
 
--- ----------------------------------------------------------------------------
 -- Table: student_batch_enrollments
 -- Purpose: Many-to-many relationship between students and batches
 -- Flexibility: Students can enroll in multiple courses/batches
--- ----------------------------------------------------------------------------
 CREATE TABLE student_batch_enrollments (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
     enrollment_date DATE DEFAULT CURRENT_DATE,
     completion_date DATE,
-    status VARCHAR(20) DEFAULT 'active', -- 'active', 'completed', 'withdrawn', 'suspended'
+    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'withdrawn', 'suspended')), -- can add more
     withdrawal_reason TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE, -- remember to manage this along with status
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(student_id, batch_id)
@@ -322,20 +296,14 @@ CREATE INDEX idx_student_enrollments_student ON student_batch_enrollments(studen
 CREATE INDEX idx_student_enrollments_batch ON student_batch_enrollments(batch_id);
 CREATE INDEX idx_student_enrollments_status ON student_batch_enrollments(status);
 
--- ============================================================================
 -- SECTION 5: CONTENT MANAGEMENT
--- ============================================================================
 
--- ----------------------------------------------------------------------------
 -- Table: content_types
--- Purpose: Define different types of content (extensible for new types)
--- Flexibility: Easy to add new content types like 'quiz', 'simulation', etc.
--- ----------------------------------------------------------------------------
+-- Purpose: Define different types of content
 CREATE TABLE content_types (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    type_code VARCHAR(50) UNIQUE NOT NULL, -- 'video', 'pdf', 'notes', 'quiz', 'mcq_test'
+    type_code VARCHAR(50) UNIQUE NOT NULL, -- 'video', 'pdf', 'ppt', 'notes'
     type_name VARCHAR(100) NOT NULL,
-    description TEXT,
     icon VARCHAR(50), -- Icon name for UI
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -345,14 +313,12 @@ CREATE TABLE content_types (
 INSERT INTO content_types (type_code, type_name, icon) VALUES
 ('video', 'Video Lecture', 'play_circle'),
 ('pdf', 'PDF Document', 'picture_as_pdf'),
-('notes', 'Study Notes', 'note'),
-('quiz', 'Practice Quiz', 'quiz'),
-('mcq_test', 'MCQ Test', 'assignment');
+('ppt', 'Presentation', 'slideshow'),
+('notes', 'Study Notes', 'description');
 
--- ----------------------------------------------------------------------------
 -- Table: content
--- Purpose: All learning content (videos, PDFs, notes, etc.)
--- ----------------------------------------------------------------------------
+-- Purpose: All learning content (YouTube videos, Drive PDFs/PPTs)
+-- Content depends on batch and subject taught, course not needed
 CREATE TABLE content (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
@@ -364,27 +330,21 @@ CREATE TABLE content (
     description TEXT,
     order_index INTEGER DEFAULT 0, -- For sorting content
     
-    -- Content Storage
-    video_url TEXT, -- Bunny.net URL or video ID
-    file_url TEXT, -- Supabase Storage path for PDFs/docs
-    external_url TEXT, -- For external resources
-    thumbnail_url TEXT,
+    -- Content Link (YouTube or Google Drive)
+    content_url TEXT NOT NULL, -- Direct link to YouTube video or Drive file
+    thumbnail_url TEXT, -- Optional thumbnail
     
     -- Metadata
-    duration_seconds INTEGER, -- For videos
-    file_size_bytes BIGINT,
+    duration_minutes INTEGER, -- Approximate duration (manually entered)
     tags TEXT[], -- Array of tags for searchability
     
-    -- Access Control
-    is_free BOOLEAN DEFAULT FALSE, -- Free preview content
+    -- Publishing
     is_published BOOLEAN DEFAULT FALSE,
     publish_date TIMESTAMPTZ,
     
     -- Tracking
     uploaded_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    view_count INTEGER DEFAULT 0,
     
-    metadata JSONB DEFAULT '{}', -- Flexible field: transcript, chapters, etc.
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -394,50 +354,23 @@ CREATE INDEX idx_content_subject ON content(subject_id);
 CREATE INDEX idx_content_type ON content(content_type_id);
 CREATE INDEX idx_content_published ON content(is_published);
 CREATE INDEX idx_content_order ON content(batch_id, subject_id, order_index);
+-- The GIN Index for faster Tags querying
+CREATE INDEX idx_content_tags ON content USING GIN(tags);
 
--- ----------------------------------------------------------------------------
--- Table: content_prerequisites
--- Purpose: Define content dependencies (e.g., must watch Video A before Video B)
--- Flexibility: Supports complex learning paths
--- ----------------------------------------------------------------------------
-CREATE TABLE content_prerequisites (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    content_id UUID REFERENCES content(id) ON DELETE CASCADE,
-    prerequisite_content_id UUID REFERENCES content(id) ON DELETE CASCADE,
-    is_mandatory BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(content_id, prerequisite_content_id)
-);
-
-CREATE INDEX idx_prerequisites_content ON content_prerequisites(content_id);
-
--- ----------------------------------------------------------------------------
 -- Table: content_progress
--- Purpose: Track student progress on each content item
--- ----------------------------------------------------------------------------
+-- Purpose: Track student progress
 CREATE TABLE content_progress (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     content_id UUID REFERENCES content(id) ON DELETE CASCADE,
     
-    -- Progress Tracking
-    is_started BOOLEAN DEFAULT FALSE,
+    -- Simple Progress Tracking
     is_completed BOOLEAN DEFAULT FALSE,
-    completion_percentage INTEGER DEFAULT 0, -- 0-100
     
-    -- Timestamps
+    -- Timestamps needed for revision
     first_accessed_at TIMESTAMPTZ,
-    last_accessed_at TIMESTAMPTZ,
     completed_at TIMESTAMPTZ,
     
-    -- Video-specific
-    watch_time_seconds INTEGER DEFAULT 0,
-    last_position_seconds INTEGER DEFAULT 0,
-    
-    -- Engagement
-    times_accessed INTEGER DEFAULT 0,
-    
-    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(student_id, content_id)
@@ -447,41 +380,32 @@ CREATE INDEX idx_content_progress_student ON content_progress(student_id);
 CREATE INDEX idx_content_progress_content ON content_progress(content_id);
 CREATE INDEX idx_content_progress_completion ON content_progress(student_id, is_completed);
 
--- ============================================================================
--- SECTION 6: ASSESSMENT SYSTEM (FLEXIBLE FOR MULTIPLE EXAM TYPES)
--- ============================================================================
+-- SECTION 6: ASSESSMENT SYSTEM
 
--- ----------------------------------------------------------------------------
 -- Table: exam_types
 -- Purpose: Define different types of assessments
--- Flexibility: Easy to add new exam types (MCQ, subjective, practical, etc.)
--- ----------------------------------------------------------------------------
 CREATE TABLE exam_types (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    type_code VARCHAR(50) UNIQUE NOT NULL, -- 'unit_test', 'chapter_test', 'mcq_test', 'mock_test', 'final_exam'
+    type_code VARCHAR(50) UNIQUE NOT NULL, -- 'unit_test', 'monthly_test', 'final_exam', etc.
     type_name VARCHAR(100) NOT NULL,
     description TEXT,
-    default_weightage INTEGER DEFAULT 100, -- For grade calculation
-    allows_negative_marking BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
-    metadata JSONB DEFAULT '{}', -- Additional config
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Sample data
-INSERT INTO exam_types (type_code, type_name, allows_negative_marking) VALUES
-('unit_test', 'Unit Test', FALSE),
-('chapter_test', 'Chapter Test', FALSE),
-('mcq_test', 'MCQ Test', TRUE),
-('mock_test', 'Mock Test', TRUE),
-('monthly_test', 'Monthly Test', FALSE),
-('final_exam', 'Final Exam', FALSE);
+INSERT INTO exam_types (type_code, type_name) VALUES
+('unit_test', 'Unit Test'),
+('chapter_test', 'Chapter Test'),
+('monthly_test', 'Monthly Test'),
+('quarterly_exam', 'Quarterly Exam'),
+('half_yearly', 'Half Yearly Exam'),
+('final_exam', 'Final Exam'),
+('mock_test', 'Mock Test');
 
--- ----------------------------------------------------------------------------
 -- Table: exams
--- Purpose: Individual exam instances
--- Flexibility: Supports all types of exams with extensible structure
--- ----------------------------------------------------------------------------
+-- Purpose: Exam details (conducted offline, marks entered manually)
+-- Exam mapped to batch and subject and not Courses
 CREATE TABLE exams (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
@@ -489,35 +413,26 @@ CREATE TABLE exams (
     exam_type_id UUID REFERENCES exam_types(id) NOT NULL,
     
     -- Basic Info
-    exam_code VARCHAR(50),
     exam_name VARCHAR(300) NOT NULL,
     description TEXT,
     
-    -- Scheduling
-    exam_date DATE,
-    start_time TIME,
-    end_time TIME,
-    duration_minutes INTEGER,
+    -- Date & Time
+    exam_date DATE NOT NULL,
     
     -- Marking Scheme
     total_marks DECIMAL(10, 2) NOT NULL,
     passing_marks DECIMAL(10, 2),
-    negative_marking_ratio DECIMAL(5, 2) DEFAULT 0, -- e.g., 0.25 for -1/4 per wrong answer
-    
-    -- Exam Structure (for MCQ/online tests)
-    total_questions INTEGER,
-    question_paper_url TEXT, -- For uploaded question papers
-    answer_key_url TEXT,
     
     -- Status
-    status VARCHAR(20) DEFAULT 'scheduled', -- 'scheduled', 'ongoing', 'completed', 'cancelled'
+    status VARCHAR(20) DEFAULT 'scheduled', -- 'scheduled', 'completed', 'cancelled'
     
-    -- Access Control
+    -- Results Publishing
+    results_published BOOLEAN DEFAULT FALSE,
+    results_published_date DATE,
+    
+    -- Tracking
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    is_published BOOLEAN DEFAULT FALSE,
-    publish_results_date DATE,
     
-    metadata JSONB DEFAULT '{}', -- Section-wise marks, instructions, etc.
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -525,164 +440,42 @@ CREATE TABLE exams (
 CREATE INDEX idx_exams_batch ON exams(batch_id);
 CREATE INDEX idx_exams_subject ON exams(subject_id);
 CREATE INDEX idx_exams_type ON exams(exam_type_id);
-CREATE INDEX idx_exams_date ON exams(exam_date);
+CREATE INDEX idx_exams_date ON exams(exam_date DESC);
 CREATE INDEX idx_exams_status ON exams(status);
 
--- ----------------------------------------------------------------------------
--- Table: exam_sections (for MCQ tests with multiple sections)
--- Purpose: Define sections within an exam (e.g., Physics, Chemistry, Maths in JEE)
--- Flexibility: Supports complex exam structures
--- ----------------------------------------------------------------------------
-CREATE TABLE exam_sections (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    exam_id UUID REFERENCES exams(id) ON DELETE CASCADE,
-    section_name VARCHAR(100) NOT NULL,
-    section_order INTEGER DEFAULT 1,
-    total_questions INTEGER NOT NULL,
-    marks_per_question DECIMAL(5, 2) NOT NULL,
-    negative_marks DECIMAL(5, 2) DEFAULT 0,
-    duration_minutes INTEGER,
-    instructions TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_exam_sections_exam ON exam_sections(exam_id);
-
--- ----------------------------------------------------------------------------
--- Table: mcq_questions
--- Purpose: Store MCQ questions for online tests
--- Flexibility: Reusable question bank
--- ----------------------------------------------------------------------------
-CREATE TABLE mcq_questions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    subject_id UUID REFERENCES subjects(id) ON DELETE CASCADE,
-    
-    -- Question Content
-    question_text TEXT NOT NULL,
-    question_image_url TEXT,
-    
-    -- Options (stored as JSONB for flexibility)
-    options JSONB NOT NULL, -- [{"key": "A", "text": "...", "image": "..."}, ...]
-    correct_answer VARCHAR(10) NOT NULL, -- 'A', 'B', 'C', 'D' or '1,3' for multiple correct
-    
-    -- Metadata
-    difficulty_level VARCHAR(20), -- 'easy', 'medium', 'hard'
-    topic VARCHAR(200),
-    explanation TEXT,
-    marks DECIMAL(5, 2) DEFAULT 1,
-    negative_marks DECIMAL(5, 2) DEFAULT 0,
-    
-    -- Tracking
-    times_used INTEGER DEFAULT 0,
-    average_score DECIMAL(5, 2),
-    
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_mcq_questions_subject ON mcq_questions(subject_id);
-CREATE INDEX idx_mcq_questions_difficulty ON mcq_questions(difficulty_level);
-CREATE INDEX idx_mcq_questions_topic ON mcq_questions(topic);
-
--- ----------------------------------------------------------------------------
--- Table: exam_questions
--- Purpose: Link questions to specific exams
--- ----------------------------------------------------------------------------
-CREATE TABLE exam_questions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    exam_id UUID REFERENCES exams(id) ON DELETE CASCADE,
-    exam_section_id UUID REFERENCES exam_sections(id) ON DELETE CASCADE,
-    mcq_question_id UUID REFERENCES mcq_questions(id) ON DELETE CASCADE,
-    question_order INTEGER NOT NULL,
-    marks_override DECIMAL(5, 2), -- Override question's default marks
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(exam_id, question_order)
-);
-
-CREATE INDEX idx_exam_questions_exam ON exam_questions(exam_id);
-CREATE INDEX idx_exam_questions_section ON exam_questions(exam_section_id);
-
--- ----------------------------------------------------------------------------
 -- Table: student_marks
--- Purpose: Store student marks for all types of exams
--- Flexibility: Supports both traditional and MCQ-based exams
--- ----------------------------------------------------------------------------
+-- Purpose: Student marks for each exam (manually entered by teacher)
 CREATE TABLE student_marks (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     exam_id UUID REFERENCES exams(id) ON DELETE CASCADE,
     
     -- Marks
-    marks_obtained DECIMAL(10, 2),
-    total_marks DECIMAL(10, 2),
-    percentage DECIMAL(5, 2) GENERATED ALWAYS AS (
-        CASE 
-            WHEN total_marks > 0 THEN (marks_obtained * 100.0 / total_marks)
-            ELSE 0 
-        END
-    ) STORED,
-    grade VARCHAR(5), -- A+, A, B+, B, C, etc.
-    rank_in_batch INTEGER,
+    marks_obtained DECIMAL(10, 2) NOT NULL,
     
-    -- MCQ-specific
-    correct_answers INTEGER,
-    incorrect_answers INTEGER,
-    unanswered INTEGER,
-    
-    -- Status
+    -- Attendance
     is_absent BOOLEAN DEFAULT FALSE,
-    submission_status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'submitted', 'evaluated'
     
     -- Tracking
     entered_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    entered_at TIMESTAMPTZ,
-    remarks TEXT,
+    entered_at TIMESTAMPTZ DEFAULT NOW(),
+    remarks TEXT, -- Optional teacher comments
     
-    metadata JSONB DEFAULT '{}', -- Section-wise breakdown, time taken, etc.
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),
+    
     UNIQUE(student_id, exam_id)
 );
 
 CREATE INDEX idx_student_marks_student ON student_marks(student_id);
 CREATE INDEX idx_student_marks_exam ON student_marks(exam_id);
-CREATE INDEX idx_student_marks_percentage ON student_marks(percentage DESC);
 
--- ----------------------------------------------------------------------------
--- Table: student_mcq_responses
--- Purpose: Store individual MCQ responses for detailed analysis
--- ----------------------------------------------------------------------------
-CREATE TABLE student_mcq_responses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    exam_id UUID REFERENCES exams(id) ON DELETE CASCADE,
-    mcq_question_id UUID REFERENCES mcq_questions(id) ON DELETE CASCADE,
-    
-    -- Response
-    selected_answer VARCHAR(10), -- 'A', 'B', 'C', 'D' or NULL if unanswered
-    is_correct BOOLEAN,
-    marks_awarded DECIMAL(5, 2),
-    time_taken_seconds INTEGER,
-    
-    -- Metadata
-    attempt_number INTEGER DEFAULT 1,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_mcq_responses_student ON student_mcq_responses(student_id, exam_id);
-CREATE INDEX idx_mcq_responses_question ON student_mcq_responses(mcq_question_id);
-
--- ============================================================================
 -- SECTION 7: ATTENDANCE MANAGEMENT
--- ============================================================================
 
--- ----------------------------------------------------------------------------
+-- NOTE for myself: Update the lazy sync logic using trigger.
+
 -- Table: attendance
 -- Purpose: Daily attendance records
--- ----------------------------------------------------------------------------
 CREATE TABLE attendance (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
@@ -710,11 +503,9 @@ CREATE INDEX idx_attendance_batch ON attendance(batch_id);
 CREATE INDEX idx_attendance_date ON attendance(attendance_date DESC);
 CREATE INDEX idx_attendance_status ON attendance(student_id, status);
 
--- ----------------------------------------------------------------------------
 -- Table: attendance_summary
 -- Purpose: Cached monthly attendance statistics (for performance)
 -- Note: Updated by triggers or cron jobs
--- ----------------------------------------------------------------------------
 CREATE TABLE attendance_summary (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
@@ -729,7 +520,7 @@ CREATE TABLE attendance_summary (
     
     attendance_percentage DECIMAL(5, 2) GENERATED ALWAYS AS (
         CASE 
-            WHEN total_days > 0 THEN (present_days * 100.0 / total_days)
+            WHEN total_days > 0 THEN ROUND((present_days::DECIMAL / total_days) * 100, 2) -- else division gives integer (0 or 100 only)
             ELSE 0 
         END
     ) STORED,
@@ -741,18 +532,17 @@ CREATE TABLE attendance_summary (
 CREATE INDEX idx_attendance_summary_student ON attendance_summary(student_id);
 CREATE INDEX idx_attendance_summary_month ON attendance_summary(month_year DESC);
 
--- ============================================================================
 -- SECTION 8: FEE MANAGEMENT
--- ============================================================================
 
--- ----------------------------------------------------------------------------
+-- NOTE for myself: A student can enroll in batches, a batch has a course, so student have to pay for batch
+-- and not course. As there might be premium JEE batch and normal JEE batch.
+
 -- Table: fee_structures
 -- Purpose: Define fee structure for courses/batches
 -- Flexibility: Supports different fee types and installment plans
--- ----------------------------------------------------------------------------
 CREATE TABLE fee_structures (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    course_id UUID REFERENCES courses(id) ON DELETE CASCADE,
+    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
     
     -- Fee Details
@@ -760,29 +550,27 @@ CREATE TABLE fee_structures (
     amount DECIMAL(10, 2) NOT NULL,
     frequency VARCHAR(20) NOT NULL, -- 'monthly', 'quarterly', 'yearly', 'one_time'
     
-    -- Validity
-    valid_from DATE NOT NULL,
-    valid_to DATE,
     is_active BOOLEAN DEFAULT TRUE,
     
     metadata JSONB DEFAULT '{}', -- Discounts, late fee rules, etc.
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(batch_id, fee_type)
 );
 
-CREATE INDEX idx_fee_structures_course ON fee_structures(course_id);
+CREATE INDEX idx_fee_structures_course ON fee_structures(batch_id);
 CREATE INDEX idx_fee_structures_center ON fee_structures(center_id);
 
--- ----------------------------------------------------------------------------
--- Table: student_fees
+-- Table: student_invoices
 -- Purpose: Fee records for individual students
--- ----------------------------------------------------------------------------
-CREATE TABLE student_fees (
+-- it is like how many money student owes, so points redeemed is suitable here
+-- cretaed when stduent enrolls in a batch
+CREATE TABLE student_invoices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
-    fee_structure_id UUID REFERENCES fee_structures(id) ON DELETE SET NULL,
-    
+    fee_structure_id UUID REFERENCES fee_structures(id) ON DELETE SET NULL, -- it has both batch id and centre id
+    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE, -- batch_id here too for fast dashboard queries
+
     -- Fee Details
     fee_type VARCHAR(50) NOT NULL,
     due_date DATE NOT NULL,
@@ -797,64 +585,49 @@ CREATE TABLE student_fees (
     -- Status
     payment_status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'partial', 'paid', 'overdue'
     
-    -- Payment Details
-    payment_date DATE,
-    payment_method VARCHAR(50), -- 'cash', 'online', 'cheque', 'card'
-    transaction_reference VARCHAR(100),
-    receipt_number VARCHAR(50) UNIQUE,
-    
     -- Points
     points_redeemed INTEGER DEFAULT 0,
-    
-    -- Tracking
-    collected_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    remarks TEXT,
-    
+        
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_student_fees_student ON student_fees(student_id);
-CREATE INDEX idx_student_fees_batch ON student_fees(batch_id);
-CREATE INDEX idx_student_fees_status ON student_fees(payment_status);
-CREATE INDEX idx_student_fees_due_date ON student_fees(due_date);
-CREATE INDEX idx_student_fees_month ON student_fees(month_year);
+CREATE INDEX idx_student_invoices_student ON student_invoices(student_id);
+CREATE INDEX idx_student_invoices_batch ON student_invoices(batch_id);
+CREATE INDEX idx_student_invoices_status ON student_invoices(payment_status);
+CREATE INDEX idx_student_invoices_month ON student_invoices(month_year);
+CREATE INDEX idx_student_invoices_date ON student_invoices(due_date);
 
--- ----------------------------------------------------------------------------
--- Table: fee_payment_history
+-- Table: fee_transactions
 -- Purpose: Detailed payment transaction log
--- ----------------------------------------------------------------------------
-CREATE TABLE fee_payment_history (
+CREATE TABLE fee_transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_fee_id UUID REFERENCES student_fees(id) ON DELETE CASCADE,
+    student_invoice_id UUID REFERENCES student_invoices(id) ON DELETE CASCADE,
     
     -- Payment Details
-    payment_date DATE NOT NULL,
+    payment_date DATE DEFAULT CURRENT_DATE,
     amount DECIMAL(10, 2) NOT NULL,
     payment_method VARCHAR(50) NOT NULL,
-    transaction_reference VARCHAR(100),
+    transaction_reference VARCHAR(100), -- Optional: UPI ID or Cheque No
     
     -- Tracking
-    received_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    collected_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    receipt_number VARCHAR(50) UNIQUE, -- Generated by backend
     remarks TEXT,
     
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_fee_history_student_fee ON fee_payment_history(student_fee_id);
-CREATE INDEX idx_fee_history_date ON fee_payment_history(payment_date DESC);
+CREATE INDEX idx_fee_transactions_invoice ON fee_transactions(student_invoice_id);
+CREATE INDEX idx_fee_transactions_date ON fee_transactions(payment_date DESC);
 
--- ============================================================================
 -- SECTION 9: POINTS & REWARDS SYSTEM
--- ============================================================================
 
--- ----------------------------------------------------------------------------
 -- Table: points_rules
 -- Purpose: Define rules for earning/redeeming points
 -- Flexibility: Easy to modify point calculation logic
--- ----------------------------------------------------------------------------
 CREATE TABLE points_rules (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     rule_name VARCHAR(100) UNIQUE NOT NULL,
@@ -883,10 +656,9 @@ INSERT INTO points_rules (rule_name, rule_type, calculation_formula, redemption_
  '{"attendance_weight": 0.3, "marks_weight": 0.7, "min_attendance": 75, "min_marks": 40}',
  1.0, ARRAY[2, 3]);
 
--- ----------------------------------------------------------------------------
 -- Table: points_transactions
 -- Purpose: Log of all points earned and redeemed
--- ----------------------------------------------------------------------------
+-- NOTE for myself: Input negative number when used, and add to invoice points_redeemed and update current_points in students
 CREATE TABLE points_transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
@@ -906,7 +678,6 @@ CREATE TABLE points_transactions (
     
     -- Tracking
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
     
     metadata JSONB DEFAULT '{}', -- Calculation breakdown
     created_at TIMESTAMPTZ DEFAULT NOW()
@@ -916,14 +687,10 @@ CREATE INDEX idx_points_trans_student ON points_transactions(student_id);
 CREATE INDEX idx_points_trans_type ON points_transactions(transaction_type);
 CREATE INDEX idx_points_trans_month ON points_transactions(month_year DESC);
 
--- ============================================================================
 -- SECTION 10: COMMUNICATION & NOTIFICATIONS
--- ============================================================================
 
--- ----------------------------------------------------------------------------
 -- Table: notification_types
 -- Purpose: Define different types of notifications
--- ----------------------------------------------------------------------------
 CREATE TABLE notification_types (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     type_code VARCHAR(50) UNIQUE NOT NULL,
@@ -947,10 +714,8 @@ INSERT INTO notification_types (type_code, type_name, priority) VALUES
 ('marks_published', 'Marks Published', 'normal'),
 ('meeting_request', 'Meeting Request', 'normal');
 
--- ----------------------------------------------------------------------------
 -- Table: notifications
 -- Purpose: Individual notification records
--- ----------------------------------------------------------------------------
 CREATE TABLE notifications (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -981,10 +746,8 @@ CREATE INDEX idx_notifications_type ON notifications(notification_type_id);
 CREATE INDEX idx_notifications_read ON notifications(user_id, is_read);
 CREATE INDEX idx_notifications_scheduled ON notifications(scheduled_for) WHERE is_sent = FALSE;
 
--- ----------------------------------------------------------------------------
 -- Table: user_notification_preferences
 -- Purpose: User preferences for notification types
--- ----------------------------------------------------------------------------
 CREATE TABLE user_notification_preferences (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
@@ -1552,15 +1315,11 @@ JOIN centers c ON b.center_id = c.id
 JOIN courses co ON b.course_id = co.id
 WHERE b.is_active = TRUE;
 
--- ============================================================================
--- END OF SCHEMA
--- ============================================================================
-
 -- Performance Notes:
 -- 1. All foreign keys are indexed automatically
 -- 2. Additional indexes created for frequent query patterns
 -- 3. Composite indexes for multi-column queries
--- 4. JSONB fields use GIN indexes where needed (add as required)
+-- 4. JSONB fields use GIN indexes where needed
 -- 5. Partial indexes for filtered queries (is_active = TRUE)
 
 -- Scalability Notes:
