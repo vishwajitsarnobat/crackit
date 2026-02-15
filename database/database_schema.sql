@@ -1070,11 +1070,9 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- ----------------------------------------------------------------------------
 -- Function: Update attendance summary for a student/batch/month
 -- Purpose: Aggregates daily attendance into monthly summary
 -- Usage: Called by trigger automatically, or manually via cron
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION update_attendance_summary(
     p_student_id UUID,
     p_batch_id UUID,
@@ -1099,7 +1097,7 @@ BEGIN
     FROM attendance
     WHERE student_id = p_student_id
     AND batch_id = p_batch_id
-    AND DATE_TRUNC('month', attendance_date) = p_month_year;
+    AND DATE_TRUNC('month', attendance_date) = p_month_year; -- NOTE for myself: We are saving month_year as first day of the month, so this will work, else it won't
     
     -- Upsert into summary table
     INSERT INTO attendance_summary (
@@ -1111,6 +1109,7 @@ BEGIN
         v_total, v_present, v_absent, v_late, v_leave,
         NOW()
     )
+    -- if the same row already exists, just update the value instead of throwing the error
     ON CONFLICT (student_id, batch_id, month_year)
     DO UPDATE SET
         total_days = v_total,
@@ -1122,18 +1121,16 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- ----------------------------------------------------------------------------
 -- Trigger: Auto-update attendance summary when attendance is marked
 -- Purpose: Keeps attendance_summary table in sync
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION trigger_update_attendance_summary()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Update summary for the month of the attendance record
+    -- Update summary for the month of the attendance record, perform calls a function
     PERFORM update_attendance_summary(
         NEW.student_id,
         NEW.batch_id,
-        DATE_TRUNC('month', NEW.attendance_date)::DATE
+        DATE_TRUNC('month', NEW.attendance_date)::DATE -- truncates to first day of the month and removes time completely
     );
     RETURN NEW;
 END;
@@ -1144,19 +1141,18 @@ AFTER INSERT OR UPDATE ON attendance
 FOR EACH ROW
 EXECUTE FUNCTION trigger_update_attendance_summary();
 
--- ----------------------------------------------------------------------------
 -- Function: Generate unique student code
 -- Purpose: Auto-generates student code like STU20250001
--- ----------------------------------------------------------------------------
 CREATE SEQUENCE IF NOT EXISTS student_code_seq START 1;
 
 CREATE OR REPLACE FUNCTION generate_student_code()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- Use only when manual student code isn't provided
     IF NEW.student_code IS NULL THEN
         NEW.student_code := 'STU' || 
                            TO_CHAR(CURRENT_DATE, 'YYYY') || 
-                           LPAD(NEXTVAL('student_code_seq')::TEXT, 5, '0');
+                           LPAD(NEXTVAL('student_code_seq')::TEXT, 5, '0'); -- pad to 5 digits, 1 becomes 00001
     END IF;
     RETURN NEW;
 END;
