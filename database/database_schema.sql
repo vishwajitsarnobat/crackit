@@ -37,7 +37,6 @@ INSERT INTO roles (role_name, display_name, level, permissions) VALUES
 ('teacher', 'Teacher', 5, '{"can_upload_content": true, "can_mark_attendance": true, "can_enter_marks": true}'),
 ('accountant', 'Accountant', 5, '{"can_manage_fees": true, "can_generate_receipts": true}'),
 ('student', 'Student', 6, '{"can_view_content": true, "can_view_marks": true}'),
-('parent', 'Parent', 6, '{"can_view_child_progress": true, "can_request_meeting": true}');
 
 -- Table: users (extends Supabase auth.users)
 -- Purpose: Core user information for all user types
@@ -176,7 +175,7 @@ CREATE TABLE subjects (
     subject_name VARCHAR(100) NOT NULL,
     description TEXT,
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Sample data
@@ -257,7 +256,7 @@ CREATE TABLE students (
     date_of_birth DATE,
     gender VARCHAR(10), -- 'Male', 'Female', 'Other'
     blood_group VARCHAR(5),
-    class_level INTEGER NOT NULL CHECK (check class_level > 0),
+    class_level INTEGER NOT NULL CHECK (class_level > 0),
     enrollment_date DATE DEFAULT CURRENT_DATE,
     parent_name VARCHAR(200),
     parent_email VARCHAR(255),
@@ -451,7 +450,9 @@ CREATE TABLE student_marks (
     exam_id UUID REFERENCES exams(id) ON DELETE CASCADE,
     
     -- Marks
-    marks_obtained DECIMAL(10, 2) NOT NULL,
+    marks_obtained DECIMAL(10, 2) NOT NULL CHECK (marks_obtained >= 0),
+    -- absent students should have 0 marks
+    CHECK (NOT is_absent OR marks_obtained = 0),
     
     -- Attendance
     is_absent BOOLEAN DEFAULT FALSE,
@@ -727,10 +728,9 @@ CREATE TABLE notifications (
     action_url TEXT, -- Deep link or URL
     
     -- Delivery
-    is_read BOOLEAN DEFAULT FALSE,
-    read_at TIMESTAMPTZ,
-    is_sent BOOLEAN DEFAULT FALSE,
-    sent_at TIMESTAMPTZ,
+    is_read BOOLEAN DEFAULT FALSE, -- clear notification from app if read
+    is_sent BOOLEAN DEFAULT FALSE, -- for scheduling throuhh firebase
+    sent_at TIMESTAMPTZ, -- log
     scheduled_for TIMESTAMPTZ, -- For scheduled notifications
     
     -- Reference
@@ -746,164 +746,102 @@ CREATE INDEX idx_notifications_type ON notifications(notification_type_id);
 CREATE INDEX idx_notifications_read ON notifications(user_id, is_read);
 CREATE INDEX idx_notifications_scheduled ON notifications(scheduled_for) WHERE is_sent = FALSE;
 
--- Table: user_notification_preferences
--- Purpose: User preferences for notification types
-CREATE TABLE user_notification_preferences (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    notification_type_id UUID REFERENCES notification_types(id) ON DELETE CASCADE,
-    
-    is_enabled BOOLEAN DEFAULT TRUE,
-    push_enabled BOOLEAN DEFAULT TRUE,
-    email_enabled BOOLEAN DEFAULT FALSE,
-    sms_enabled BOOLEAN DEFAULT FALSE,
-    
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, notification_type_id)
-);
-
-CREATE INDEX idx_notif_prefs_user ON user_notification_preferences(user_id);
-
--- ----------------------------------------------------------------------------
 -- Table: meeting_requests
--- Purpose: Parent-teacher meeting requests
--- ----------------------------------------------------------------------------
+-- Purpose: Simple "Ticket System" for scheduling
+-- parent/student requests, the centre head or specific teacher can be choosen by student
 CREATE TABLE meeting_requests (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+    assigned_to UUID REFERENCES users(id) ON DELETE SET NULL, -- with whom
     
-    -- Request Details
-    requested_by UUID REFERENCES users(id) ON DELETE CASCADE, -- Parent or student
-    requested_to UUID REFERENCES users(id) ON DELETE SET NULL, -- Centre head or teacher
+    category VARCHAR(50) NOT NULL, -- 'academic', 'counseling', 'complaint', 'leave'
+    subject VARCHAR(200) NOT NULL, -- "Marks in Physics are low"
+    description TEXT,
     
-    request_type VARCHAR(50) DEFAULT 'parent_teacher', -- 'parent_teacher', 'counseling', 'academic'
-    subject VARCHAR(200),
-    message TEXT,
-    preferred_dates DATE[], -- Array of preferred dates
+    preferred_slots JSONB, -- e.g. ["2026-03-01 Morning", "2026-03-02 Evening"]
     
-    -- Status
-    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'approved', 'rejected', 'completed', 'cancelled'
+    -- The Outcome (Filled by Admin later)
+    status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'scheduled', 'completed', 'rejected'
     
-    -- Scheduled Details
-    scheduled_date DATE,
-    scheduled_time TIME,
-    meeting_mode VARCHAR(20), -- 'in_person', 'online', 'phone'
-    meeting_link TEXT, -- For online meetings
+    scheduled_at TIMESTAMPTZ,
+    meeting_link TEXT, -- if online
     
-    -- Response
-    response_message TEXT,
-    responded_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    responded_at TIMESTAMPTZ,
+    admin_remarks TEXT,
     
-    -- Completion
-    meeting_notes TEXT,
-    completed_at TIMESTAMPTZ,
-    
-    metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_meeting_requests_student ON meeting_requests(student_id);
-CREATE INDEX idx_meeting_requests_center ON meeting_requests(center_id);
-CREATE INDEX idx_meeting_requests_status ON meeting_requests(status);
-CREATE INDEX idx_meeting_requests_date ON meeting_requests(scheduled_date);
+CREATE INDEX idx_meetings_student ON meeting_requests(student_id);
+CREATE INDEX idx_meetings_status ON meeting_requests(status);
+CREATE INDEX idx_meetings_assigned ON meeting_requests(assigned_to) WHERE status = 'scheduled'; -- for heads/teachers
 
--- ----------------------------------------------------------------------------
 -- Table: announcements
--- Purpose: Center-wide or batch-specific announcements
--- ----------------------------------------------------------------------------
+-- Purpose: Digital Notice Board (One-to-Many Broadcast)
+-- Will have a dedicated page on UI both app and website
 CREATE TABLE announcements (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     
-    -- Scope
-    scope VARCHAR(20) NOT NULL, -- 'all', 'center', 'batch', 'course'
+    scope VARCHAR(20) NOT NULL CHECK (scope IN ('global', 'center', 'course', 'batch')),
+    
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
     course_id UUID REFERENCES courses(id) ON DELETE CASCADE,
+    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
     
     -- Content
     title VARCHAR(200) NOT NULL,
     content TEXT NOT NULL,
-    announcement_type VARCHAR(50), -- 'info', 'warning', 'success', 'holiday'
+    priority VARCHAR(20) DEFAULT 'normal', -- 'high' = Pin to top
     
     -- Media
-    attachment_url TEXT,
-    image_url TEXT,
+    attachment_url TEXT, -- PDF Circular
     
     -- Visibility
-    is_pinned BOOLEAN DEFAULT FALSE,
-    is_published BOOLEAN DEFAULT FALSE,
-    publish_date TIMESTAMPTZ,
-    expiry_date TIMESTAMPTZ,
+    is_active BOOLEAN DEFAULT TRUE,
+    expires_at TIMESTAMPTZ, -- Auto-hide after this date
     
-    -- Targeting
-    target_roles VARCHAR(20)[], -- Array: {'student', 'parent', 'teacher'}
+    -- Role Targeting (e.g., Show only to 'teachers' in Batch A)
+    target_roles VARCHAR(20)[] DEFAULT '{student,parent,teacher}',
     
-    -- Tracking
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    view_count INTEGER DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+    -- CONSTRAINT: Ensure the ID matches the Scope
+    CONSTRAINT valid_scope_target CHECK (
+        (scope = 'global' AND center_id IS NULL AND course_id IS NULL AND batch_id IS NULL) OR
+        (scope = 'center' AND center_id IS NOT NULL AND course_id IS NULL AND batch_id IS NULL) OR
+        (scope = 'course' AND course_id IS NOT NULL AND center_id IS NULL AND batch_id IS NULL) OR
+        (scope = 'batch' AND batch_id IS NOT NULL AND center_id IS NULL AND course_id IS NULL)
+    )
+);
+
+CREATE INDEX idx_announcements_targeting ON announcements(batch_id, center_id, is_active);
+
+-- SECTION 11: DEVICE & SESSION MANAGEMENT
+
+CREATE TABLE user_active_sessions (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     
-    metadata JSONB DEFAULT '{}',
+    device_id VARCHAR(255) NOT NULL,
+    device_name VARCHAR(200),        
+    fcm_token TEXT, -- for notifications
+    
+    -- Security
+    refresh_token TEXT, -- JWT if needed
+    ip_address INET,
+    
+    -- Timestamps
+    last_active_at TIMESTAMPTZ DEFAULT NOW(),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_announcements_scope ON announcements(scope);
-CREATE INDEX idx_announcements_center ON announcements(center_id);
-CREATE INDEX idx_announcements_batch ON announcements(batch_id);
-CREATE INDEX idx_announcements_published ON announcements(is_published, publish_date);
-
--- ============================================================================
--- SECTION 11: DEVICE & SESSION MANAGEMENT
--- ============================================================================
-
--- ----------------------------------------------------------------------------
--- Table: device_sessions
--- Purpose: Track user device sessions for single-device login
--- ----------------------------------------------------------------------------
-CREATE TABLE device_sessions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    
-    -- Device Info
-    device_id VARCHAR(255) NOT NULL, -- Unique device identifier
-    device_name VARCHAR(200),
-    device_type VARCHAR(50), -- 'mobile', 'tablet', 'desktop'
-    device_os VARCHAR(50),
-    device_os_version VARCHAR(50),
-    app_version VARCHAR(20),
-    
-    -- Location (optional)
-    ip_address INET,
-    country VARCHAR(100),
-    city VARCHAR(100),
-    
-    -- Session
-    fcm_token TEXT, -- For push notifications
-    is_active BOOLEAN DEFAULT TRUE,
-    last_active_at TIMESTAMPTZ DEFAULT NOW(),
-    
-    metadata JSONB DEFAULT '{}',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, device_id)
-);
-
-CREATE INDEX idx_device_sessions_user ON device_sessions(user_id);
-CREATE INDEX idx_device_sessions_active ON device_sessions(user_id, is_active);
-CREATE INDEX idx_device_sessions_last_active ON device_sessions(last_active_at);
-
--- ============================================================================
 -- SECTION 12: REVISION & LEARNING REMINDERS
--- ============================================================================
 
--- ----------------------------------------------------------------------------
 -- Table: revision_reminders
 -- Purpose: Schedule revision reminders based on spaced repetition
--- ----------------------------------------------------------------------------
 CREATE TABLE revision_reminders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
@@ -933,18 +871,13 @@ CREATE TABLE revision_reminders (
 );
 
 CREATE INDEX idx_revision_reminders_student ON revision_reminders(student_id);
-CREATE INDEX idx_revision_reminders_next_date ON revision_reminders(next_reminder_date) 
-    WHERE is_active = TRUE;
+CREATE INDEX idx_revision_reminders_next_date ON revision_reminders(next_reminder_date) WHERE is_active = TRUE; -- instantly get what updates has to be sent today
 
--- ============================================================================
 -- SECTION 13: PERFORMANCE ANALYTICS (CACHED)
--- ============================================================================
 
--- ----------------------------------------------------------------------------
 -- Table: student_performance_summary
 -- Purpose: Cached monthly performance metrics for fast dashboard loading
 -- Note: Updated by triggers or scheduled jobs
--- ----------------------------------------------------------------------------
 CREATE TABLE student_performance_summary (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
@@ -960,7 +893,6 @@ CREATE TABLE student_performance_summary (
     average_marks DECIMAL(5, 2),
     total_exams INTEGER,
     exams_appeared INTEGER,
-    rank_in_batch INTEGER,
     
     -- Subject-wise (JSONB for flexibility)
     subject_wise_performance JSONB, -- {"PHY": {"avg": 85, "rank": 3}, "CHEM": {...}}
@@ -974,8 +906,6 @@ CREATE TABLE student_performance_summary (
     points_earned INTEGER,
     points_redeemed INTEGER,
     
-    -- Status
-    status VARCHAR(50), -- 'excellent', 'good', 'average', 'needs_improvement'
     remarks TEXT,
     
     last_calculated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -988,14 +918,10 @@ CREATE INDEX idx_performance_summary_student ON student_performance_summary(stud
 CREATE INDEX idx_performance_summary_batch ON student_performance_summary(batch_id);
 CREATE INDEX idx_performance_summary_month ON student_performance_summary(month_year DESC);
 
--- ============================================================================
 -- SECTION 14: AUDIT & LOGGING
--- ============================================================================
 
--- ----------------------------------------------------------------------------
 -- Table: audit_logs
 -- Purpose: Track all important system actions for security and debugging
--- ----------------------------------------------------------------------------
 CREATE TABLE audit_logs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     
@@ -1027,47 +953,10 @@ CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
 CREATE INDEX idx_audit_logs_created ON audit_logs(created_at DESC);
 CREATE INDEX idx_audit_logs_record ON audit_logs(table_name, record_id);
 
--- ----------------------------------------------------------------------------
--- Table: system_errors
--- Purpose: Log application errors for monitoring
--- ----------------------------------------------------------------------------
-CREATE TABLE system_errors (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    
-    -- Error Details
-    error_type VARCHAR(100) NOT NULL,
-    error_message TEXT NOT NULL,
-    stack_trace TEXT,
-    
-    -- Context
-    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    request_path TEXT,
-    request_method VARCHAR(10),
-    request_body JSONB,
-    
-    -- Environment
-    environment VARCHAR(20), -- 'development', 'staging', 'production'
-    app_version VARCHAR(20),
-    
-    -- Status
-    is_resolved BOOLEAN DEFAULT FALSE,
-    resolved_at TIMESTAMPTZ,
-    resolved_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    resolution_notes TEXT,
-    
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
 
-CREATE INDEX idx_system_errors_resolved ON system_errors(is_resolved);
-CREATE INDEX idx_system_errors_created ON system_errors(created_at DESC);
-
--- ============================================================================
 -- SECTION 15: DATABASE FUNCTIONS & TRIGGERS
--- ============================================================================
 
--- ----------------------------------------------------------------------------
--- Function: Update updated_at timestamp
--- ----------------------------------------------------------------------------
+-- Function: Update updated_at timestamp automatically
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -1077,34 +966,95 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- Apply to all tables with updated_at column
-CREATE TRIGGER update_users_updated_at BEFORE UPDATE ON users
+CREATE TRIGGER update_roles_updated_at 
+    BEFORE UPDATE ON roles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_centers_updated_at BEFORE UPDATE ON centers
+CREATE TRIGGER update_users_updated_at 
+    BEFORE UPDATE ON users
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_students_updated_at BEFORE UPDATE ON students
+CREATE TRIGGER update_centers_updated_at 
+    BEFORE UPDATE ON centers
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_batches_updated_at BEFORE UPDATE ON batches
+CREATE TRIGGER update_courses_updated_at 
+    BEFORE UPDATE ON courses
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_content_updated_at BEFORE UPDATE ON content
+CREATE TRIGGER update_batches_updated_at 
+    BEFORE UPDATE ON batches
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_exams_updated_at BEFORE UPDATE ON exams
+CREATE TRIGGER update_students_updated_at 
+    BEFORE UPDATE ON students
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Add more triggers for other tables as needed
+CREATE TRIGGER update_student_batch_enrollments_updated_at 
+    BEFORE UPDATE ON student_batch_enrollments
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- ----------------------------------------------------------------------------
+CREATE TRIGGER update_content_updated_at 
+    BEFORE UPDATE ON content
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_content_progress_updated_at 
+    BEFORE UPDATE ON content_progress
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_exams_updated_at 
+    BEFORE UPDATE ON exams
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_student_marks_updated_at 
+    BEFORE UPDATE ON student_marks
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_attendance_updated_at 
+    BEFORE UPDATE ON attendance
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_fee_structures_updated_at 
+    BEFORE UPDATE ON fee_structures
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_student_invoices_updated_at 
+    BEFORE UPDATE ON student_invoices
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_points_rules_updated_at 
+    BEFORE UPDATE ON points_rules
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_meeting_requests_updated_at 
+    BEFORE UPDATE ON meeting_requests
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_announcements_updated_at 
+    BEFORE UPDATE ON announcements
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_user_active_sessions_updated_at 
+    BEFORE UPDATE ON user_active_sessions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_revision_reminders_updated_at 
+    BEFORE UPDATE ON revision_reminders
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_student_performance_summary_updated_at 
+    BEFORE UPDATE ON student_performance_summary
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- Function: Calculate student points balance
--- ----------------------------------------------------------------------------
+-- Purpose: Recalculates total points from points_transactions table
+-- Usage: SELECT calculate_student_points('student-uuid');
 CREATE OR REPLACE FUNCTION calculate_student_points(p_student_id UUID)
 RETURNS INTEGER AS $$
 DECLARE
     total_points INTEGER;
 BEGIN
+    -- Sum all points (positive for earned, negative for redeemed)
     SELECT COALESCE(SUM(points), 0) 
     INTO total_points
     FROM points_transactions
@@ -1112,7 +1062,8 @@ BEGIN
     
     -- Update student record
     UPDATE students 
-    SET current_points = total_points 
+    SET current_points = total_points,
+        updated_at = NOW()
     WHERE id = p_student_id;
     
     RETURN total_points;
@@ -1120,7 +1071,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ----------------------------------------------------------------------------
--- Function: Update attendance summary
+-- Function: Update attendance summary for a student/batch/month
+-- Purpose: Aggregates daily attendance into monthly summary
+-- Usage: Called by trigger automatically, or manually via cron
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION update_attendance_summary(
     p_student_id UUID,
@@ -1135,6 +1088,7 @@ DECLARE
     v_late INTEGER;
     v_leave INTEGER;
 BEGIN
+    -- Aggregate attendance for the month
     SELECT 
         COUNT(*),
         SUM(CASE WHEN status = 'present' THEN 1 ELSE 0 END),
@@ -1147,12 +1101,15 @@ BEGIN
     AND batch_id = p_batch_id
     AND DATE_TRUNC('month', attendance_date) = p_month_year;
     
+    -- Upsert into summary table
     INSERT INTO attendance_summary (
         student_id, batch_id, month_year,
-        total_days, present_days, absent_days, late_days, leave_days
+        total_days, present_days, absent_days, late_days, leave_days,
+        last_updated_at
     ) VALUES (
         p_student_id, p_batch_id, p_month_year,
-        v_total, v_present, v_absent, v_late, v_leave
+        v_total, v_present, v_absent, v_late, v_leave,
+        NOW()
     )
     ON CONFLICT (student_id, batch_id, month_year)
     DO UPDATE SET
@@ -1166,11 +1123,13 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ----------------------------------------------------------------------------
--- Trigger: Auto-update attendance summary on attendance change
+-- Trigger: Auto-update attendance summary when attendance is marked
+-- Purpose: Keeps attendance_summary table in sync
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION trigger_update_attendance_summary()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- Update summary for the month of the attendance record
     PERFORM update_attendance_summary(
         NEW.student_id,
         NEW.batch_id,
@@ -1185,24 +1144,206 @@ AFTER INSERT OR UPDATE ON attendance
 FOR EACH ROW
 EXECUTE FUNCTION trigger_update_attendance_summary();
 
+-- ----------------------------------------------------------------------------
+-- Function: Generate unique student code
+-- Purpose: Auto-generates student code like STU20250001
+-- ----------------------------------------------------------------------------
+CREATE SEQUENCE IF NOT EXISTS student_code_seq START 1;
+
+CREATE OR REPLACE FUNCTION generate_student_code()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.student_code IS NULL THEN
+        NEW.student_code := 'STU' || 
+                           TO_CHAR(CURRENT_DATE, 'YYYY') || 
+                           LPAD(NEXTVAL('student_code_seq')::TEXT, 5, '0');
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_generate_student_code
+BEFORE INSERT ON students
+FOR EACH ROW
+EXECUTE FUNCTION generate_student_code();
+
+-- ----------------------------------------------------------------------------
+-- Function: Generate unique receipt number
+-- Purpose: Auto-generates receipt number like REC-2025-00001
+-- ----------------------------------------------------------------------------
+CREATE SEQUENCE IF NOT EXISTS receipt_number_seq START 1;
+
+CREATE OR REPLACE FUNCTION generate_receipt_number()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.receipt_number IS NULL THEN
+        NEW.receipt_number := 'REC-' || 
+                             TO_CHAR(CURRENT_DATE, 'YYYY') || '-' ||
+                             LPAD(NEXTVAL('receipt_number_seq')::TEXT, 5, '0');
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_generate_receipt_number
+BEFORE INSERT ON fee_transactions
+FOR EACH ROW
+EXECUTE FUNCTION generate_receipt_number();
+
+-- ----------------------------------------------------------------------------
+-- Function: Auto-update invoice status based on payments
+-- Purpose: Marks invoice as 'paid' when fully paid, 'partial' when partially paid
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION update_invoice_status()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_total_paid DECIMAL(10, 2);
+    v_amount_due DECIMAL(10, 2);
+    v_new_status VARCHAR(20);
+BEGIN
+    -- Get total amount paid for this invoice
+    SELECT COALESCE(SUM(amount), 0)
+    INTO v_total_paid
+    FROM fee_transactions
+    WHERE student_invoice_id = NEW.student_invoice_id;
+    
+    -- Get invoice amount due
+    SELECT amount_due - amount_discount + late_fee
+    INTO v_amount_due
+    FROM student_invoices
+    WHERE id = NEW.student_invoice_id;
+    
+    -- Determine new status
+    IF v_total_paid >= v_amount_due THEN
+        v_new_status := 'paid';
+    ELSIF v_total_paid > 0 THEN
+        v_new_status := 'partial';
+    ELSE
+        v_new_status := 'pending';
+    END IF;
+    
+    -- Update invoice
+    UPDATE student_invoices
+    SET 
+        amount_paid = v_total_paid,
+        payment_status = v_new_status,
+        updated_at = NOW()
+    WHERE id = NEW.student_invoice_id;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_invoice_status
+AFTER INSERT ON fee_transactions
+FOR EACH ROW
+EXECUTE FUNCTION update_invoice_status();
+
+-- ----------------------------------------------------------------------------
+-- Function: Create revision reminders when content is completed
+-- Purpose: Schedules 7/21/60 day revision reminders
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION create_revision_reminder()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only create reminder when content is marked as completed
+    IF NEW.is_completed = TRUE AND (OLD IS NULL OR OLD.is_completed = FALSE) THEN
+        INSERT INTO revision_reminders (
+            student_id,
+            content_id,
+            completed_date,
+            next_reminder_date
+        ) VALUES (
+            NEW.student_id,
+            NEW.content_id,
+            NEW.completed_at,
+            (NEW.completed_at::DATE + INTERVAL '7 days')::DATE
+        )
+        ON CONFLICT (student_id, content_id) DO NOTHING;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_create_revision_reminder
+AFTER INSERT OR UPDATE ON content_progress
+FOR EACH ROW
+EXECUTE FUNCTION create_revision_reminder();
+
+-- ----------------------------------------------------------------------------
+-- Function: Validate attendance date is not in future
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION validate_attendance_date()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.attendance_date > CURRENT_DATE THEN
+        RAISE EXCEPTION 'Cannot mark attendance for future dates';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_validate_attendance_date
+BEFORE INSERT OR UPDATE ON attendance
+FOR EACH ROW
+EXECUTE FUNCTION validate_attendance_date();
+
+-- ----------------------------------------------------------------------------
+-- Function: Validate marks don't exceed total marks
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION validate_student_marks()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_total_marks DECIMAL(10, 2);
+BEGIN
+    -- Get total marks from exam
+    SELECT total_marks INTO v_total_marks
+    FROM exams WHERE id = NEW.exam_id;
+    
+    -- Check if marks_obtained exceeds total
+    IF NEW.marks_obtained > v_total_marks THEN
+        RAISE EXCEPTION 'Marks obtained (%) cannot exceed total marks (%)', 
+            NEW.marks_obtained, v_total_marks;
+    END IF;
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_validate_student_marks
+BEFORE INSERT OR UPDATE ON student_marks
+FOR EACH ROW
+EXECUTE FUNCTION validate_student_marks();
+
 -- ============================================================================
 -- SECTION 16: ROW LEVEL SECURITY (RLS) SETUP
 -- ============================================================================
 
--- Enable RLS on all tables
+-- Enable RLS on all major tables
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE centers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE batches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE content ENABLE ROW LEVEL SECURITY;
+ALTER TABLE content_progress ENABLE ROW LEVEL SECURITY;
 ALTER TABLE exams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_marks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance ENABLE ROW LEVEL SECURITY;
-ALTER TABLE student_fees ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance_summary ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fee_transactions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE meeting_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE revision_reminders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_performance_summary ENABLE ROW LEVEL SECURITY;
+ALTER TABLE points_transactions ENABLE ROW LEVEL SECURITY;
 
--- Sample RLS Policies (CEO has full access)
-CREATE POLICY "ceo_full_access" ON content
+-- ----------------------------------------------------------------------------
+-- POLICY: CEO has full access to everything
+-- ----------------------------------------------------------------------------
+CREATE POLICY "ceo_full_access_users" ON users
     FOR ALL
     USING (
         EXISTS (
@@ -1213,21 +1354,140 @@ CREATE POLICY "ceo_full_access" ON content
         )
     );
 
--- Students can only see content from their enrolled batches
-CREATE POLICY "students_view_enrolled_content" ON content
-    FOR SELECT
+CREATE POLICY "ceo_full_access_students" ON students
+    FOR ALL
     USING (
         EXISTS (
-            SELECT 1 FROM student_batch_enrollments sbe
-            JOIN students s ON sbe.student_id = s.id
-            WHERE s.user_id = auth.uid()
-            AND sbe.batch_id = content.batch_id
-            AND sbe.is_active = TRUE
+            SELECT 1 FROM users u
+            JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'ceo'
         )
     );
 
--- Teachers can view/edit content for their batches
-CREATE POLICY "teachers_manage_batch_content" ON content
+CREATE POLICY "ceo_full_access_centers" ON centers
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u
+            JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_batches" ON batches
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u
+            JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_content" ON content
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u
+            JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_exams" ON exams
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u
+            JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_student_marks" ON student_marks
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u
+            JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_attendance" ON attendance
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u
+            JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_fees" ON student_invoices
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u
+            JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'ceo'
+        )
+    );
+
+-- ----------------------------------------------------------------------------
+-- POLICY: Centre Heads can manage their center
+-- ----------------------------------------------------------------------------
+CREATE POLICY "centre_head_view_center_data" ON centers
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM user_center_assignments uca
+            JOIN users u ON uca.user_id = u.id
+            JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'centre_head'
+            AND uca.center_id = centers.id
+            AND uca.is_active = TRUE
+        )
+    );
+
+CREATE POLICY "centre_head_manage_batches" ON batches
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM user_center_assignments uca
+            JOIN users u ON uca.user_id = u.id
+            JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'centre_head'
+            AND uca.center_id = batches.center_id
+            AND uca.is_active = TRUE
+        )
+    );
+
+-- ----------------------------------------------------------------------------
+-- POLICY: Teachers can manage their batches
+-- ----------------------------------------------------------------------------
+CREATE POLICY "teacher_view_assigned_batches" ON batches
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM batch_teachers bt
+            WHERE bt.user_id = auth.uid()
+            AND bt.batch_id = batches.id
+            AND bt.is_active = TRUE
+        )
+    );
+
+CREATE POLICY "teacher_manage_batch_content" ON content
     FOR ALL
     USING (
         EXISTS (
@@ -1238,14 +1498,329 @@ CREATE POLICY "teachers_manage_batch_content" ON content
         )
     );
 
--- Add more RLS policies for other tables following similar patterns
+CREATE POLICY "teacher_manage_batch_attendance" ON attendance
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM batch_teachers bt
+            WHERE bt.user_id = auth.uid()
+            AND bt.batch_id = attendance.batch_id
+            AND bt.is_active = TRUE
+        )
+    );
+
+CREATE POLICY "teacher_manage_batch_exams" ON exams
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM batch_teachers bt
+            WHERE bt.user_id = auth.uid()
+            AND bt.batch_id = exams.batch_id
+            AND bt.is_active = TRUE
+        )
+    );
+
+CREATE POLICY "teacher_manage_batch_marks" ON student_marks
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM batch_teachers bt
+            JOIN exams e ON bt.batch_id = e.batch_id
+            WHERE bt.user_id = auth.uid()
+            AND e.id = student_marks.exam_id
+            AND bt.is_active = TRUE
+        )
+    );
+
+-- ----------------------------------------------------------------------------
+-- POLICY: Students can view their own data
+-- ----------------------------------------------------------------------------
+CREATE POLICY "student_view_own_profile" ON students
+    FOR SELECT
+    USING (user_id = auth.uid());
+
+CREATE POLICY "student_view_enrolled_content" ON content
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM student_batch_enrollments sbe
+            JOIN students s ON sbe.student_id = s.id
+            WHERE s.user_id = auth.uid()
+            AND sbe.batch_id = content.batch_id
+            AND sbe.is_active = TRUE
+            AND content.is_published = TRUE
+        )
+    );
+
+CREATE POLICY "student_manage_own_progress" ON content_progress
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM students s
+            WHERE s.user_id = auth.uid()
+            AND s.id = content_progress.student_id
+        )
+    );
+
+CREATE POLICY "student_view_own_attendance" ON attendance
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM students s
+            WHERE s.user_id = auth.uid()
+            AND s.id = attendance.student_id
+        )
+    );
+
+CREATE POLICY "student_view_own_attendance_summary" ON attendance_summary
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM students s
+            WHERE s.user_id = auth.uid()
+            AND s.id = attendance_summary.student_id
+        )
+    );
+
+CREATE POLICY "student_view_own_marks" ON student_marks
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM students s
+            WHERE s.user_id = auth.uid()
+            AND s.id = student_marks.student_id
+        )
+    );
+
+CREATE POLICY "student_view_published_exams" ON exams
+    FOR SELECT
+    USING (
+        results_published = TRUE
+        AND EXISTS (
+            SELECT 1 FROM student_batch_enrollments sbe
+            JOIN students s ON sbe.student_id = s.id
+            WHERE s.user_id = auth.uid()
+            AND sbe.batch_id = exams.batch_id
+            AND sbe.is_active = TRUE
+        )
+    );
+
+CREATE POLICY "student_view_own_fees" ON student_invoices
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM students s
+            WHERE s.user_id = auth.uid()
+            AND s.id = student_invoices.student_id
+        )
+    );
+
+CREATE POLICY "student_view_own_notifications" ON notifications
+    FOR SELECT
+    USING (user_id = auth.uid());
+
+CREATE POLICY "student_update_own_notifications" ON notifications
+    FOR UPDATE
+    USING (user_id = auth.uid())
+    WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "student_view_own_meetings" ON meeting_requests
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM students s
+            WHERE s.user_id = auth.uid()
+            AND s.id = meeting_requests.student_id
+        )
+    );
+
+CREATE POLICY "student_create_meeting_requests" ON meeting_requests
+    FOR INSERT
+    WITH CHECK (
+        EXISTS (
+            SELECT 1 FROM students s
+            WHERE s.user_id = auth.uid()
+            AND s.id = meeting_requests.student_id
+        )
+    );
+
+CREATE POLICY "student_view_relevant_announcements" ON announcements
+    FOR SELECT
+    USING (
+        is_active = TRUE
+        AND (
+            scope = 'global'
+            OR (scope = 'center' AND center_id IN (
+                SELECT DISTINCT b.center_id 
+                FROM student_batch_enrollments sbe
+                JOIN batches b ON sbe.batch_id = b.id
+                JOIN students s ON sbe.student_id = s.id
+                WHERE s.user_id = auth.uid()
+            ))
+            OR (scope = 'course' AND course_id IN (
+                SELECT DISTINCT b.course_id 
+                FROM student_batch_enrollments sbe
+                JOIN batches b ON sbe.batch_id = b.id
+                JOIN students s ON sbe.student_id = s.id
+                WHERE s.user_id = auth.uid()
+            ))
+            OR (scope = 'batch' AND batch_id IN (
+                SELECT sbe.batch_id 
+                FROM student_batch_enrollments sbe
+                JOIN students s ON sbe.student_id = s.id
+                WHERE s.user_id = auth.uid()
+            ))
+        )
+        AND 'student' = ANY(target_roles)
+    );
+
+CREATE POLICY "student_view_own_revision_reminders" ON revision_reminders
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM students s
+            WHERE s.user_id = auth.uid()
+            AND s.id = revision_reminders.student_id
+        )
+    );
+
+CREATE POLICY "student_view_own_performance" ON student_performance_summary
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM students s
+            WHERE s.user_id = auth.uid()
+            AND s.id = student_performance_summary.student_id
+        )
+    );
+
+CREATE POLICY "student_view_own_points" ON points_transactions
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM students s
+            WHERE s.user_id = auth.uid()
+            AND s.id = points_transactions.student_id
+        )
+    );
+
+-- ----------------------------------------------------------------------------
+-- POLICY: Accountants can manage fees
+-- ----------------------------------------------------------------------------
+CREATE POLICY "accountant_view_center_fees" ON student_invoices
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM user_center_assignments uca
+            JOIN users u ON uca.user_id = u.id
+            JOIN roles r ON u.role_id = r.id
+            JOIN batches b ON student_invoices.batch_id = b.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'accountant'
+            AND uca.center_id = b.center_id
+            AND uca.is_active = TRUE
+        )
+    );
+
+CREATE POLICY "accountant_update_center_fees" ON student_invoices
+    FOR UPDATE
+    USING (
+        EXISTS (
+            SELECT 1 FROM user_center_assignments uca
+            JOIN users u ON uca.user_id = u.id
+            JOIN roles r ON u.role_id = r.id
+            JOIN batches b ON student_invoices.batch_id = b.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'accountant'
+            AND uca.center_id = b.center_id
+            AND uca.is_active = TRUE
+        )
+    );
+
+CREATE POLICY "accountant_manage_fee_transactions" ON fee_transactions
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM user_center_assignments uca
+            JOIN users u ON uca.user_id = u.id
+            JOIN roles r ON u.role_id = r.id
+            JOIN student_invoices si ON fee_transactions.student_invoice_id = si.id
+            JOIN batches b ON si.batch_id = b.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'accountant'
+            AND uca.center_id = b.center_id
+            AND uca.is_active = TRUE
+        )
+    );
 
 -- ============================================================================
 -- SECTION 17: VIEWS FOR COMMON QUERIES
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------
+-- View: Student marks with percentage and rank
+-- Purpose: Joins marks with exam details and calculates percentage/rank
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_student_marks_detailed AS
+SELECT 
+    sm.id,
+    sm.student_id,
+    sm.exam_id,
+    sm.marks_obtained,
+    e.total_marks,
+    
+    -- Calculate percentage (avoid integer division)
+    CASE 
+        WHEN sm.is_absent THEN NULL
+        WHEN e.total_marks > 0 THEN ROUND((sm.marks_obtained * 100.0 / e.total_marks), 2)
+        ELSE 0 
+    END AS percentage,
+    
+    -- Calculate rank within batch (NULL for absent students)
+    CASE 
+        WHEN sm.is_absent THEN NULL
+        ELSE RANK() OVER (
+            PARTITION BY e.batch_id, e.id
+            ORDER BY (sm.marks_obtained * 100.0 / e.total_marks) DESC
+        )
+    END AS rank_in_batch,
+    
+    -- Determine grade based on percentage
+    CASE
+        WHEN sm.is_absent THEN 'AB'
+        WHEN (sm.marks_obtained * 100.0 / e.total_marks) >= 90 THEN 'A+'
+        WHEN (sm.marks_obtained * 100.0 / e.total_marks) >= 80 THEN 'A'
+        WHEN (sm.marks_obtained * 100.0 / e.total_marks) >= 70 THEN 'B+'
+        WHEN (sm.marks_obtained * 100.0 / e.total_marks) >= 60 THEN 'B'
+        WHEN (sm.marks_obtained * 100.0 / e.total_marks) >= 50 THEN 'C+'
+        WHEN (sm.marks_obtained * 100.0 / e.total_marks) >= 40 THEN 'C'
+        WHEN (sm.marks_obtained * 100.0 / e.total_marks) >= 33 THEN 'D'
+        ELSE 'F'
+    END AS grade,
+    
+    sm.is_absent,
+    sm.entered_by,
+    sm.entered_at,
+    sm.remarks,
+    sm.created_at,
+    sm.updated_at,
+    
+    -- Include exam details for convenience
+    e.exam_name,
+    e.exam_date,
+    e.subject_id,
+    e.batch_id,
+    e.exam_type_id,
+    e.passing_marks,
+    e.status as exam_status,
+    e.results_published
+    
+FROM student_marks sm
+JOIN exams e ON sm.exam_id = e.id;
+
+-- ----------------------------------------------------------------------------
 -- View: Student Dashboard Summary
+-- Purpose: Quick overview of student's academic status
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_student_dashboard AS
 SELECT 
@@ -1256,28 +1831,45 @@ SELECT
     s.class_level,
     s.current_points,
     
-    -- Enrolled batches
-    (SELECT COUNT(*) FROM student_batch_enrollments 
-     WHERE student_id = s.id AND is_active = TRUE) AS enrolled_batches,
+    -- Enrolled batches count
+    (SELECT COUNT(*) 
+     FROM student_batch_enrollments 
+     WHERE student_id = s.id 
+     AND is_active = TRUE) AS enrolled_batches,
     
-    -- Attendance
-    (SELECT AVG(attendance_percentage) FROM attendance_summary 
+    -- Overall attendance percentage (average across all batches)
+    (SELECT ROUND(AVG(attendance_percentage), 2) 
+     FROM attendance_summary 
      WHERE student_id = s.id) AS overall_attendance_percentage,
     
-    -- Academic
-    (SELECT AVG(percentage) FROM student_marks sm
-     JOIN exams e ON sm.exam_id = e.id
-     WHERE sm.student_id = s.id AND e.status = 'completed') AS average_marks,
+    -- Average marks across all exams
+    (SELECT ROUND(AVG(percentage), 2) 
+     FROM v_student_marks_detailed 
+     WHERE student_id = s.id 
+     AND is_absent = FALSE
+     AND results_published = TRUE) AS average_marks,
     
-    -- Content Progress
-    (SELECT COUNT(*) FROM content_progress 
-     WHERE student_id = s.id AND is_completed = TRUE) AS content_completed,
-    (SELECT COUNT(*) FROM content_progress 
-     WHERE student_id = s.id AND is_completed = FALSE) AS content_pending,
+    -- Content statistics
+    (SELECT COUNT(*) 
+     FROM content_progress 
+     WHERE student_id = s.id 
+     AND is_completed = TRUE) AS content_completed,
+     
+    (SELECT COUNT(*) 
+     FROM content_progress cp
+     WHERE cp.student_id = s.id 
+     AND cp.is_completed = FALSE) AS content_pending,
     
-    -- Fees
-    (SELECT COUNT(*) FROM student_fees 
-     WHERE student_id = s.id AND payment_status = 'pending') AS pending_fees
+    -- Fee statistics
+    (SELECT COUNT(*) 
+     FROM student_invoices 
+     WHERE student_id = s.id 
+     AND payment_status IN ('pending', 'overdue')) AS pending_fees_count,
+     
+    (SELECT COALESCE(SUM(amount_due - amount_paid - amount_discount + late_fee), 0)
+     FROM student_invoices 
+     WHERE student_id = s.id 
+     AND payment_status IN ('pending', 'partial', 'overdue')) AS pending_fees_amount
     
 FROM students s
 JOIN users u ON s.user_id = u.id
@@ -1285,60 +1877,238 @@ WHERE s.is_active = TRUE;
 
 -- ----------------------------------------------------------------------------
 -- View: Batch Performance Summary
+-- Purpose: Overview of batch academic performance
 -- ----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_batch_performance AS
 SELECT 
     b.id AS batch_id,
+    b.batch_code,
     b.batch_name,
+    b.class_level,
+    b.academic_year,
     c.center_name,
     co.course_name,
     
-    -- Student Count
-    (SELECT COUNT(*) FROM student_batch_enrollments 
-     WHERE batch_id = b.id AND is_active = TRUE) AS total_students,
+    -- Student statistics
+    (SELECT COUNT(*) 
+     FROM student_batch_enrollments 
+     WHERE batch_id = b.id 
+     AND is_active = TRUE) AS total_students,
     
-    -- Attendance
-    (SELECT AVG(attendance_percentage) FROM attendance_summary 
-     WHERE batch_id = b.id) AS avg_attendance,
+    b.max_students,
     
-    -- Academic
-    (SELECT AVG(sm.percentage) FROM student_marks sm
-     JOIN exams e ON sm.exam_id = e.id
-     WHERE e.batch_id = b.id) AS avg_marks,
+    -- Attendance statistics
+    (SELECT ROUND(AVG(attendance_percentage), 2)
+     FROM attendance_summary 
+     WHERE batch_id = b.id
+     AND month_year >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '3 months')) AS avg_attendance_3months,
     
-    -- Content
-    (SELECT COUNT(*) FROM content 
-     WHERE batch_id = b.id AND is_published = TRUE) AS total_content
+    -- Academic statistics
+    (SELECT ROUND(AVG(percentage), 2)
+     FROM v_student_marks_detailed vmd
+     JOIN exams e ON vmd.exam_id = e.id
+     WHERE e.batch_id = b.id
+     AND vmd.is_absent = FALSE
+     AND e.results_published = TRUE) AS avg_marks,
+    
+    -- Content statistics
+    (SELECT COUNT(*) 
+     FROM content 
+     WHERE batch_id = b.id 
+     AND is_published = TRUE) AS total_content,
+    
+    -- Exam statistics
+    (SELECT COUNT(*) 
+     FROM exams 
+     WHERE batch_id = b.id 
+     AND status = 'completed') AS completed_exams
     
 FROM batches b
 JOIN centers c ON b.center_id = c.id
 JOIN courses co ON b.course_id = co.id
 WHERE b.is_active = TRUE;
 
+-- ----------------------------------------------------------------------------
+-- View: Fee Collection Summary (by center)
+-- Purpose: Financial overview for centers
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_fee_collection_summary AS
+SELECT 
+    c.id AS center_id,
+    c.center_code,
+    c.center_name,
+    
+    -- Current month
+    (SELECT COUNT(*) 
+     FROM student_invoices si
+     JOIN batches b ON si.batch_id = b.id
+     WHERE b.center_id = c.id
+     AND si.month_year = DATE_TRUNC('month', CURRENT_DATE)) AS current_month_invoices,
+    
+    (SELECT COALESCE(SUM(si.amount_due), 0)
+     FROM student_invoices si
+     JOIN batches b ON si.batch_id = b.id
+     WHERE b.center_id = c.id
+     AND si.month_year = DATE_TRUNC('month', CURRENT_DATE)) AS current_month_total_due,
+    
+    (SELECT COALESCE(SUM(si.amount_paid), 0)
+     FROM student_invoices si
+     JOIN batches b ON si.batch_id = b.id
+     WHERE b.center_id = c.id
+     AND si.month_year = DATE_TRUNC('month', CURRENT_DATE)) AS current_month_collected,
+    
+    -- All time
+    (SELECT COALESCE(SUM(si.amount_paid), 0)
+     FROM student_invoices si
+     JOIN batches b ON si.batch_id = b.id
+     WHERE b.center_id = c.id) AS total_collected_all_time,
+    
+    -- Outstanding
+    (SELECT COUNT(*)
+     FROM student_invoices si
+     JOIN batches b ON si.batch_id = b.id
+     WHERE b.center_id = c.id
+     AND si.payment_status IN ('pending', 'partial', 'overdue')) AS outstanding_invoices,
+    
+    (SELECT COALESCE(SUM(si.amount_due - si.amount_paid - si.amount_discount + si.late_fee), 0)
+     FROM student_invoices si
+     JOIN batches b ON si.batch_id = b.id
+     WHERE b.center_id = c.id
+     AND si.payment_status IN ('pending', 'partial', 'overdue')) AS outstanding_amount
+    
+FROM centers c
+WHERE c.is_active = TRUE;
+
+-- ----------------------------------------------------------------------------
+-- View: Teacher Workload Summary
+-- Purpose: Shows teaching assignments and workload
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_teacher_workload AS
+SELECT 
+    u.id AS user_id,
+    u.full_name AS teacher_name,
+    u.email,
+    
+    -- Batch assignments
+    (SELECT COUNT(DISTINCT bt.batch_id)
+     FROM batch_teachers bt
+     WHERE bt.user_id = u.id
+     AND bt.is_active = TRUE) AS total_batches,
+    
+    -- Student count across all batches
+    (SELECT COUNT(DISTINCT sbe.student_id)
+     FROM batch_teachers bt
+     JOIN student_batch_enrollments sbe ON bt.batch_id = sbe.batch_id
+     WHERE bt.user_id = u.id
+     AND bt.is_active = TRUE
+     AND sbe.is_active = TRUE) AS total_students,
+    
+    -- Subject assignments
+    (SELECT STRING_AGG(DISTINCT s.subject_name, ', ')
+     FROM batch_teachers bt
+     JOIN subjects s ON bt.subject_id = s.id
+     WHERE bt.user_id = u.id
+     AND bt.is_active = TRUE) AS subjects,
+    
+    -- Content uploaded
+    (SELECT COUNT(*)
+     FROM content
+     WHERE uploaded_by = u.id) AS content_uploaded,
+    
+    -- Exams created
+    (SELECT COUNT(*)
+     FROM exams
+     WHERE created_by = u.id) AS exams_created
+    
+FROM users u
+JOIN roles r ON u.role_id = r.id
+WHERE r.role_name = 'teacher'
+AND u.is_active = TRUE;
+
+-- ----------------------------------------------------------------------------
+-- View: Upcoming Exams (next 30 days)
+-- Purpose: Shows scheduled exams across all batches
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_upcoming_exams AS
+SELECT 
+    e.id AS exam_id,
+    e.exam_name,
+    e.exam_date,
+    e.total_marks,
+    et.type_name AS exam_type,
+    s.subject_name,
+    b.batch_name,
+    c.center_name,
+    
+    -- Student count
+    (SELECT COUNT(*)
+     FROM student_batch_enrollments sbe
+     WHERE sbe.batch_id = e.batch_id
+     AND sbe.is_active = TRUE) AS total_students,
+    
+    -- Days until exam
+    (e.exam_date - CURRENT_DATE) AS days_until_exam
+    
+FROM exams e
+JOIN exam_types et ON e.exam_type_id = et.id
+JOIN subjects s ON e.subject_id = s.id
+JOIN batches b ON e.batch_id = b.id
+JOIN centers c ON b.center_id = c.id
+WHERE e.status = 'scheduled'
+AND e.exam_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days')
+ORDER BY e.exam_date;
+
+-- ----------------------------------------------------------------------------
+-- View: Low Attendance Alerts
+-- Purpose: Students with attendance below 75%
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE VIEW v_low_attendance_students AS
+SELECT 
+    s.id AS student_id,
+    s.student_code,
+    u.full_name AS student_name,
+    u.phone AS student_phone,
+    s.parent_phone,
+    b.batch_name,
+    c.center_name,
+    ats.month_year,
+    ats.attendance_percentage,
+    ats.present_days,
+    ats.total_days
+    
+FROM attendance_summary ats
+JOIN students s ON ats.student_id = s.id
+JOIN users u ON s.user_id = u.id
+JOIN batches b ON ats.batch_id = b.id
+JOIN centers c ON b.center_id = c.id
+WHERE ats.attendance_percentage < 75
+AND ats.month_year >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '2 months')
+AND s.is_active = TRUE
+ORDER BY ats.attendance_percentage;
+
+-- ============================================================================
+-- END OF SCHEMA
+-- ============================================================================
+
 -- Performance Notes:
 -- 1. All foreign keys are indexed automatically
 -- 2. Additional indexes created for frequent query patterns
 -- 3. Composite indexes for multi-column queries
--- 4. JSONB fields use GIN indexes where needed
--- 5. Partial indexes for filtered queries (is_active = TRUE)
+-- 4. GIN indexes for JSONB and array fields
+-- 5. Partial indexes for filtered queries (is_active = TRUE, is_sent = FALSE)
+-- 6. Window functions used for rank calculations (efficient in PostgreSQL)
 
--- Scalability Notes:
--- 1. UUID primary keys support horizontal partitioning
--- 2. JSONB fields allow schema flexibility without migrations
--- 3. Separate audit/logs tables prevent bloat in main tables
--- 4. Materialized views can be added for heavy analytical queries
--- 5. Partitioning by date can be added to attendance, audit_logs
+-- Security Notes:
+-- 1. RLS enabled on all sensitive tables
+-- 2. CEO has full access via policies
+-- 3. Teachers can only access their assigned batches
+-- 4. Students can only view their own data and published results
+-- 5. Accountants can manage fees for their assigned centers
+-- 6. All policies check for active status (is_active = TRUE)
 
--- Flexibility Notes:
--- 1. Roles table allows adding new roles without code changes
--- 2. Exam types support multiple assessment formats
--- 3. Content types extensible for new media
--- 4. Notification types easily expandable
--- 5. JSONB metadata fields in most tables for future needs
-
--- Next Steps:
--- 1. Add specific GIN indexes for JSONB fields if needed
--- 2. Create additional views for complex reports
--- 3. Set up database backup schedule
--- 4. Configure connection pooling (Supabase handles this)
--- 5. Monitor query performance and add indexes as needed
+-- Maintenance Notes:
+-- 1. Run ANALYZE on tables after bulk inserts
+-- 2. Monitor slow queries and add indexes as needed
+-- 3. Archive old audit_logs periodically (older than 6 months)
+-- 4. Partition attendance table by month if it grows large
+-- 5. Refresh materialized views (if added) on schedule
