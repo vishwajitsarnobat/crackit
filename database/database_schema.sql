@@ -495,7 +495,7 @@ CREATE TABLE attendance (
     
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(), -- allowing to update as sometimes incorrect attendance might be marked, not as srious as fees_transactions
     UNIQUE(student_id, batch_id, attendance_date)
 );
 
@@ -619,6 +619,7 @@ CREATE TABLE fee_transactions (
     
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()
+    -- explicitly not allowing to update or delete any transaction as it might be unethical
 );
 
 CREATE INDEX idx_fee_transactions_invoice ON fee_transactions(student_invoice_id);
@@ -1163,10 +1164,8 @@ BEFORE INSERT ON students
 FOR EACH ROW
 EXECUTE FUNCTION generate_student_code();
 
--- ----------------------------------------------------------------------------
 -- Function: Generate unique receipt number
 -- Purpose: Auto-generates receipt number like REC-2025-00001
--- ----------------------------------------------------------------------------
 CREATE SEQUENCE IF NOT EXISTS receipt_number_seq START 1;
 
 CREATE OR REPLACE FUNCTION generate_receipt_number()
@@ -1182,14 +1181,12 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trigger_generate_receipt_number
-BEFORE INSERT ON fee_transactions
+BEFORE INSERT ON fee_transactions -- needed only on insertion
 FOR EACH ROW
 EXECUTE FUNCTION generate_receipt_number();
 
--- ----------------------------------------------------------------------------
 -- Function: Auto-update invoice status based on payments
 -- Purpose: Marks invoice as 'paid' when fully paid, 'partial' when partially paid
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION update_invoice_status()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -1204,13 +1201,13 @@ BEGIN
     WHERE student_invoice_id = NEW.student_invoice_id;
     
     -- Get invoice amount due
-    SELECT amount_due - amount_discount + late_fee
+    SELECT amount_due - amount_discount + late_fee -- amount_due stores amount without any discount
     INTO v_amount_due
     FROM student_invoices
     WHERE id = NEW.student_invoice_id;
     
     -- Determine new status
-    IF v_total_paid >= v_amount_due THEN
+    IF v_total_paid >= v_amount_due THEN -- NOTE for myself: Manage overpayment in business logic, do not allow it
         v_new_status := 'paid';
     ELSIF v_total_paid > 0 THEN
         v_new_status := 'partial';
@@ -1235,29 +1232,41 @@ AFTER INSERT ON fee_transactions
 FOR EACH ROW
 EXECUTE FUNCTION update_invoice_status();
 
--- ----------------------------------------------------------------------------
 -- Function: Create revision reminders when content is completed
 -- Purpose: Schedules 7/21/60 day revision reminders
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION create_revision_reminder()
 RETURNS TRIGGER AS $$
 BEGIN
-    -- Only create reminder when content is marked as completed
-    IF NEW.is_completed = TRUE AND (OLD IS NULL OR OLD.is_completed = FALSE) THEN
+    -- Only when transitioning to completed
+    IF NEW.is_completed = TRUE 
+       AND (OLD IS NULL OR OLD.is_completed = FALSE) THEN
+
         INSERT INTO revision_reminders (
             student_id,
             content_id,
             completed_date,
             next_reminder_date
-        ) VALUES (
+        )
+        VALUES (
             NEW.student_id,
             NEW.content_id,
             NEW.completed_at,
             (NEW.completed_at::DATE + INTERVAL '7 days')::DATE
         )
-        ON CONFLICT (student_id, content_id) DO NOTHING;
+        ON CONFLICT (student_id, content_id) DO UPDATE
+        SET 
+            completed_date = EXCLUDED.completed_date,
+            next_reminder_date = (EXCLUDED.completed_date::DATE + INTERVAL '7 days')::DATE,
+            reminder_7_sent = FALSE,
+            reminder_21_sent = FALSE,
+            reminder_60_sent = FALSE,
+            reminder_7_sent_at = NULL,
+            reminder_21_sent_at = NULL,
+            reminder_60_sent_at = NULL,
+            is_active = TRUE,
+            updated_at = NOW();
     END IF;
-    
+
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -1267,9 +1276,47 @@ AFTER INSERT OR UPDATE ON content_progress
 FOR EACH ROW
 EXECUTE FUNCTION create_revision_reminder();
 
--- ----------------------------------------------------------------------------
+-- Function: Advance Reminder Stages
+CREATE OR REPLACE FUNCTION advance_revision_stage()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- 7-day reminder just sent
+    IF NEW.reminder_7_sent = TRUE 
+       AND OLD.reminder_7_sent = FALSE THEN
+
+        NEW.reminder_7_sent_at := NOW();
+        NEW.next_reminder_date := 
+            (NEW.completed_date::DATE + INTERVAL '21 days')::DATE;
+
+    -- 21-day reminder just sent
+    ELSIF NEW.reminder_21_sent = TRUE 
+          AND OLD.reminder_21_sent = FALSE THEN
+
+        NEW.reminder_21_sent_at := NOW();
+        NEW.next_reminder_date := 
+            (NEW.completed_date::DATE + INTERVAL '60 days')::DATE;
+
+    -- 60-day reminder just sent
+    ELSIF NEW.reminder_60_sent = TRUE 
+          AND OLD.reminder_60_sent = FALSE THEN
+
+        NEW.reminder_60_sent_at := NOW();
+        NEW.next_reminder_date := NULL;
+        NEW.is_active := FALSE;
+
+    END IF;
+
+    NEW.updated_at := NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_advance_revision_stage
+BEFORE UPDATE ON revision_reminders
+FOR EACH ROW
+EXECUTE FUNCTION advance_revision_stage();
+
 -- Function: Validate attendance date is not in future
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION validate_attendance_date()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -1285,9 +1332,7 @@ BEFORE INSERT OR UPDATE ON attendance
 FOR EACH ROW
 EXECUTE FUNCTION validate_attendance_date();
 
--- ----------------------------------------------------------------------------
 -- Function: Validate marks don't exceed total marks
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION validate_student_marks()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -1312,9 +1357,7 @@ BEFORE INSERT OR UPDATE ON student_marks
 FOR EACH ROW
 EXECUTE FUNCTION validate_student_marks();
 
--- ============================================================================
 -- SECTION 16: ROW LEVEL SECURITY (RLS) SETUP
--- ============================================================================
 
 -- Enable RLS on all major tables
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
