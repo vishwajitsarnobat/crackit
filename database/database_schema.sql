@@ -10,6 +10,7 @@
 
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; -- for unique ids that are unguessable
+CREATE EXTENSION IF NOT EXISTS pg_cron; -- for scheduling
 
 -- SECTION 1: CORE IDENTITY & ACCESS CONTROL
 
@@ -547,9 +548,9 @@ CREATE TABLE fee_structures (
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
     
     -- Fee Details
-    fee_type VARCHAR(50) NOT NULL, -- 'admission', 'tuition', 'exam', 'material'
+    fee_type VARCHAR(50) NOT NULL CHECK (fee_type IN ('admission', 'tuition', 'exam', 'material')),
     amount DECIMAL(10, 2) NOT NULL,
-    frequency VARCHAR(20) NOT NULL, -- 'monthly', 'quarterly', 'yearly', 'one_time'
+    frequency VARCHAR(20) NOT NULL CHECK (frequency IN ('monthly', 'quarterly', 'yearly', 'one_time')),
     
     is_active BOOLEAN DEFAULT TRUE,
     
@@ -573,7 +574,6 @@ CREATE TABLE student_invoices (
     batch_id UUID REFERENCES batches(id) ON DELETE CASCADE, -- batch_id here too for fast dashboard queries
 
     -- Fee Details
-    fee_type VARCHAR(50) NOT NULL,
     due_date DATE NOT NULL,
     month_year DATE, -- For monthly fees: '2025-01-01'
     
@@ -584,7 +584,7 @@ CREATE TABLE student_invoices (
     late_fee DECIMAL(10, 2) DEFAULT 0,
     
     -- Status
-    payment_status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'partial', 'paid', 'overdue'
+    payment_status VARCHAR(20) DEFAULT 'pending' CHECK (payment_status IN ('pending', 'partial', 'paid', 'overdue')),
     
     -- Points
     points_redeemed INTEGER DEFAULT 0,
@@ -609,7 +609,7 @@ CREATE TABLE fee_transactions (
     -- Payment Details
     payment_date DATE DEFAULT CURRENT_DATE,
     amount DECIMAL(10, 2) NOT NULL,
-    payment_method VARCHAR(50) NOT NULL,
+    payment_method VARCHAR(50) NOT NULL CHECK (payment_method IN ('cash', 'upi', 'cheque', 'bank_transfer', 'card')),
     transaction_reference VARCHAR(100), -- Optional: UPI ID or Cheque No
     
     -- Tracking
@@ -1144,16 +1144,20 @@ EXECUTE FUNCTION trigger_update_attendance_summary();
 
 -- Function: Generate unique student code
 -- Purpose: Auto-generates student code like STU20250001
-CREATE SEQUENCE IF NOT EXISTS student_code_seq START 1;
-
 CREATE OR REPLACE FUNCTION generate_student_code()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_year TEXT;
+    v_count INTEGER;
 BEGIN
-    -- Use only when manual student code isn't provided
     IF NEW.student_code IS NULL THEN
-        NEW.student_code := 'STU' || 
-                           TO_CHAR(CURRENT_DATE, 'YYYY') || 
-                           LPAD(NEXTVAL('student_code_seq')::TEXT, 5, '0'); -- pad to 5 digits, 1 becomes 00001
+        v_year := TO_CHAR(CURRENT_DATE, 'YYYY');
+        
+        SELECT COUNT(*) + 1 INTO v_count
+        FROM students
+        WHERE student_code LIKE 'STU' || v_year || '%';
+        
+        NEW.student_code := 'STU' || v_year || LPAD(v_count::TEXT, 5, '0');
     END IF;
     RETURN NEW;
 END;
@@ -1166,15 +1170,20 @@ EXECUTE FUNCTION generate_student_code();
 
 -- Function: Generate unique receipt number
 -- Purpose: Auto-generates receipt number like REC-2025-00001
-CREATE SEQUENCE IF NOT EXISTS receipt_number_seq START 1;
-
 CREATE OR REPLACE FUNCTION generate_receipt_number()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_year TEXT;
+    v_count INTEGER;
 BEGIN
     IF NEW.receipt_number IS NULL THEN
-        NEW.receipt_number := 'REC-' || 
-                             TO_CHAR(CURRENT_DATE, 'YYYY') || '-' ||
-                             LPAD(NEXTVAL('receipt_number_seq')::TEXT, 5, '0');
+        v_year := TO_CHAR(CURRENT_DATE, 'YYYY');
+        
+        SELECT COUNT(*) + 1 INTO v_count
+        FROM fee_transactions
+        WHERE receipt_number LIKE 'REC-' || v_year || '%';
+        
+        NEW.receipt_number := 'REC-' || v_year || '-' || LPAD(v_count::TEXT, 5, '0');
     END IF;
     RETURN NEW;
 END;
@@ -1184,6 +1193,18 @@ CREATE TRIGGER trigger_generate_receipt_number
 BEFORE INSERT ON fee_transactions -- needed only on insertion
 FOR EACH ROW
 EXECUTE FUNCTION generate_receipt_number();
+
+-- Runs daily at midnight to flip pending/partial past due_date to overdue
+SELECT cron.schedule(
+    'mark-overdue-invoices',
+    '0 0 * * *',
+    $$
+        UPDATE student_invoices
+        SET payment_status = 'overdue', updated_at = NOW()
+        WHERE payment_status IN ('pending', 'partial')
+        AND due_date < CURRENT_DATE;
+    $$
+);
 
 -- Function: Auto-update invoice status based on payments
 -- Purpose: Marks invoice as 'paid' when fully paid, 'partial' when partially paid
@@ -1376,9 +1397,25 @@ EXECUTE FUNCTION sync_enrollment_active_status();
 
 -- SECTION 16: ROW LEVEL SECURITY (RLS) SETUP
 
--- Enable RLS on all major tables
+-- Helper function: avoids self-referential recursion on users table
+-- SECURITY DEFINER means it runs as the function owner, bypassing RLS
+CREATE OR REPLACE FUNCTION get_my_role()
+RETURNS TEXT AS $$
+    SELECT r.role_name 
+    FROM users u 
+    JOIN roles r ON u.role_id = r.id 
+    WHERE u.id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
 
--- NOTE for myself: The authentication(who are you) is in application layer, and authorization(are you allowed to access this) is here.
+CREATE OR REPLACE FUNCTION get_my_center_ids()
+RETURNS UUID[] AS $$
+    SELECT ARRAY_AGG(center_id)
+    FROM user_center_assignments
+    WHERE user_id = auth.uid()
+    AND is_active = TRUE;
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Enable RLS
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE centers ENABLE ROW LEVEL SECURITY;
@@ -1397,226 +1434,170 @@ ALTER TABLE announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE revision_reminders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_performance_summary ENABLE ROW LEVEL SECURITY;
 ALTER TABLE points_transactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_center_assignments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE batch_teachers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_active_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fee_structures ENABLE ROW LEVEL SECURITY;
+ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE points_rules ENABLE ROW LEVEL SECURITY;
 
--- without any policy, bydefault access is denied to all the table by RLS
--- POLICY: CEO has full access to everything
--- SELECT for read and ALL for write
+
+-- CEO POLICIES
 CREATE POLICY "ceo_full_access_users" ON users
-    FOR ALL
-    USING ( -- USING determins which rows are visible and modifiable
-        EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_students" ON students
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_centers" ON centers
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_batches" ON batches
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_content" ON content
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_exams" ON exams
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_student_marks" ON student_marks
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_attendance" ON attendance
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_fees" ON student_invoices
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
--- CEO full access on remaining RLS-enabled tables
 CREATE POLICY "ceo_full_access_content_progress" ON content_progress
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_attendance_summary" ON attendance_summary
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 -- CEO can only VIEW fee_transactions, not modify
 CREATE POLICY "ceo_view_fee_transactions" ON fee_transactions
-    FOR SELECT
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
-        )
-    );
+    FOR SELECT USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_notifications" ON notifications
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_meeting_requests" ON meeting_requests
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_announcements" ON announcements
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_revision_reminders" ON revision_reminders
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_performance_summary" ON student_performance_summary
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
 CREATE POLICY "ceo_full_access_points_transactions" ON points_transactions
-    FOR ALL
-    USING (
-        EXISTS (
-            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
-        )
-    );
+    FOR ALL USING (get_my_role() = 'ceo');
 
--- POLICY: Centre Heads can manage their center
+CREATE POLICY "ceo_full_access_uca" ON user_center_assignments
+    FOR ALL USING (get_my_role() = 'ceo');
+
+CREATE POLICY "ceo_full_access_batch_teachers" ON batch_teachers
+    FOR ALL USING (get_my_role() = 'ceo');
+
+CREATE POLICY "ceo_view_all_sessions" ON user_active_sessions
+    FOR SELECT USING (get_my_role() = 'ceo');
+
+CREATE POLICY "ceo_full_access_audit_logs" ON audit_logs
+    FOR ALL USING (get_my_role() = 'ceo');
+
+CREATE POLICY "ceo_full_access_fee_structures" ON fee_structures
+    FOR ALL USING (get_my_role() = 'ceo');
+
+CREATE POLICY "ceo_full_access_roles" ON roles
+    FOR ALL USING (get_my_role() = 'ceo');
+
+CREATE POLICY "ceo_full_access_points_rules" ON points_rules
+    FOR ALL USING (get_my_role() = 'ceo');
+
+
+-- CENTRE HEAD POLICIES
 CREATE POLICY "centre_head_view_center_data" ON centers
     FOR SELECT
     USING (
-        EXISTS (
-            SELECT 1 FROM user_center_assignments uca
-            JOIN users u ON uca.user_id = u.id
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'centre_head'
-            AND uca.center_id = centers.id
-            AND uca.is_active = TRUE
-        )
+        get_my_role() = 'centre_head'
+        AND id = ANY(get_my_center_ids())
     );
 
 CREATE POLICY "centre_head_manage_batches" ON batches
     FOR ALL
     USING (
-        EXISTS (
-            SELECT 1 FROM user_center_assignments uca
-            JOIN users u ON uca.user_id = u.id
-            JOIN roles r ON u.role_id = r.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'centre_head'
-            AND uca.center_id = batches.center_id
-            AND uca.is_active = TRUE
+        get_my_role() = 'centre_head'
+        AND center_id = ANY(get_my_center_ids())
+    );
+
+CREATE POLICY "centre_head_manage_announcements" ON announcements
+    FOR ALL
+    USING (
+        get_my_role() = 'centre_head'
+        AND scope = 'center'
+        AND center_id = ANY(get_my_center_ids())
+    );
+
+CREATE POLICY "centre_head_manage_uca" ON user_center_assignments
+    FOR ALL
+    USING (
+        get_my_role() = 'centre_head'
+        AND center_id = ANY(get_my_center_ids())
+    );
+
+CREATE POLICY "centre_head_manage_batch_teachers" ON batch_teachers
+    FOR ALL
+    USING (
+        get_my_role() = 'centre_head'
+        AND EXISTS (
+            SELECT 1 FROM batches b
+            WHERE b.id = batch_teachers.batch_id
+            AND b.center_id = ANY(get_my_center_ids())
         )
     );
 
--- POLICY: Teachers can manage their batches
+CREATE POLICY "centre_head_manage_fee_structures" ON fee_structures
+    FOR ALL
+    USING (
+        get_my_role() = 'centre_head'
+        AND center_id = ANY(get_my_center_ids())
+    );
+
+
+-- SHARED / GENERIC POLICIES
+-- All authenticated users can read their own center assignments
+CREATE POLICY "user_view_own_uca" ON user_center_assignments
+    FOR SELECT USING (user_id = auth.uid());
+
+-- Each user manages only their own session
+CREATE POLICY "user_manage_own_session" ON user_active_sessions
+    FOR ALL USING (user_id = auth.uid());
+
+-- All authenticated users can read role definitions (needed for UI)
+CREATE POLICY "all_users_view_roles" ON roles
+    FOR SELECT USING (auth.uid() IS NOT NULL);
+
+-- All authenticated users can read points rules (needed for points display)
+CREATE POLICY "all_users_view_points_rules" ON points_rules
+    FOR SELECT USING (auth.uid() IS NOT NULL);
+
+
+-- TEACHER POLICIES
+-- Teachers view their own batch assignments
+CREATE POLICY "teacher_view_own_batch_assignments" ON batch_teachers
+    FOR SELECT USING (user_id = auth.uid());
+
 CREATE POLICY "teacher_view_assigned_batches" ON batches
     FOR SELECT
     USING (
-        EXISTS (
+        get_my_role() = 'teacher'
+        AND EXISTS (
             SELECT 1 FROM batch_teachers bt
             WHERE bt.user_id = auth.uid()
             AND bt.batch_id = batches.id
@@ -1627,7 +1608,8 @@ CREATE POLICY "teacher_view_assigned_batches" ON batches
 CREATE POLICY "teacher_manage_batch_content" ON content
     FOR ALL
     USING (
-        EXISTS (
+        get_my_role() = 'teacher'
+        AND EXISTS (
             SELECT 1 FROM batch_teachers bt
             WHERE bt.user_id = auth.uid()
             AND bt.batch_id = content.batch_id
@@ -1638,7 +1620,8 @@ CREATE POLICY "teacher_manage_batch_content" ON content
 CREATE POLICY "teacher_manage_batch_attendance" ON attendance
     FOR ALL
     USING (
-        EXISTS (
+        get_my_role() = 'teacher'
+        AND EXISTS (
             SELECT 1 FROM batch_teachers bt
             WHERE bt.user_id = auth.uid()
             AND bt.batch_id = attendance.batch_id
@@ -1649,7 +1632,8 @@ CREATE POLICY "teacher_manage_batch_attendance" ON attendance
 CREATE POLICY "teacher_manage_batch_exams" ON exams
     FOR ALL
     USING (
-        EXISTS (
+        get_my_role() = 'teacher'
+        AND EXISTS (
             SELECT 1 FROM batch_teachers bt
             WHERE bt.user_id = auth.uid()
             AND bt.batch_id = exams.batch_id
@@ -1660,7 +1644,8 @@ CREATE POLICY "teacher_manage_batch_exams" ON exams
 CREATE POLICY "teacher_manage_batch_marks" ON student_marks
     FOR ALL
     USING (
-        EXISTS (
+        get_my_role() = 'teacher'
+        AND EXISTS (
             SELECT 1 FROM batch_teachers bt
             JOIN exams e ON bt.batch_id = e.batch_id
             WHERE bt.user_id = auth.uid()
@@ -1669,15 +1654,16 @@ CREATE POLICY "teacher_manage_batch_marks" ON student_marks
         )
     );
 
--- POLICY: Students can view their own data
+
+-- STUDENT POLICIES
 CREATE POLICY "student_view_own_profile" ON students
-    FOR SELECT
-    USING (user_id = auth.uid());
+    FOR SELECT USING (user_id = auth.uid());
 
 CREATE POLICY "student_view_enrolled_content" ON content
     FOR SELECT
     USING (
-        EXISTS (
+        get_my_role() = 'student'
+        AND EXISTS (
             SELECT 1 FROM student_batch_enrollments sbe
             JOIN students s ON sbe.student_id = s.id
             WHERE s.user_id = auth.uid()
@@ -1730,7 +1716,8 @@ CREATE POLICY "student_view_own_marks" ON student_marks
 CREATE POLICY "student_view_published_exams" ON exams
     FOR SELECT
     USING (
-        results_published = TRUE
+        get_my_role() = 'student'
+        AND results_published = TRUE
         AND EXISTS (
             SELECT 1 FROM student_batch_enrollments sbe
             JOIN students s ON sbe.student_id = s.id
@@ -1751,8 +1738,7 @@ CREATE POLICY "student_view_own_fees" ON student_invoices
     );
 
 CREATE POLICY "student_view_own_notifications" ON notifications
-    FOR SELECT
-    USING (user_id = auth.uid());
+    FOR SELECT USING (user_id = auth.uid());
 
 CREATE POLICY "student_update_own_notifications" ON notifications
     FOR UPDATE
@@ -1782,28 +1768,32 @@ CREATE POLICY "student_create_meeting_requests" ON meeting_requests
 CREATE POLICY "student_view_relevant_announcements" ON announcements
     FOR SELECT
     USING (
-        is_active = TRUE
+        get_my_role() = 'student'
+        AND is_active = TRUE
         AND (
             scope = 'global'
             OR (scope = 'center' AND center_id IN (
-                SELECT DISTINCT b.center_id 
+                SELECT DISTINCT b.center_id
                 FROM student_batch_enrollments sbe
                 JOIN batches b ON sbe.batch_id = b.id
                 JOIN students s ON sbe.student_id = s.id
                 WHERE s.user_id = auth.uid()
+                AND sbe.is_active = TRUE
             ))
             OR (scope = 'course' AND course_id IN (
-                SELECT DISTINCT b.course_id 
+                SELECT DISTINCT b.course_id
                 FROM student_batch_enrollments sbe
                 JOIN batches b ON sbe.batch_id = b.id
                 JOIN students s ON sbe.student_id = s.id
                 WHERE s.user_id = auth.uid()
+                AND sbe.is_active = TRUE
             ))
             OR (scope = 'batch' AND batch_id IN (
-                SELECT sbe.batch_id 
+                SELECT sbe.batch_id
                 FROM student_batch_enrollments sbe
                 JOIN students s ON sbe.student_id = s.id
                 WHERE s.user_id = auth.uid()
+                AND sbe.is_active = TRUE
             ))
         )
         AND 'student' = ANY(target_roles)
@@ -1839,18 +1829,17 @@ CREATE POLICY "student_view_own_points" ON points_transactions
         )
     );
 
--- POLICY: Accountants can manage fees
+
+-- ACCOUNTANT POLICIES
 CREATE POLICY "accountant_view_center_fees" ON student_invoices
     FOR SELECT
     USING (
-        EXISTS (
+        get_my_role() = 'accountant'
+        AND EXISTS (
             SELECT 1 FROM user_center_assignments uca
-            JOIN users u ON uca.user_id = u.id
-            JOIN roles r ON u.role_id = r.id
-            JOIN batches b ON student_invoices.batch_id = b.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'accountant'
-            AND uca.center_id = b.center_id
+            JOIN batches b ON uca.center_id = b.center_id
+            WHERE uca.user_id = auth.uid()
+            AND b.id = student_invoices.batch_id
             AND uca.is_active = TRUE
         )
     );
@@ -1858,50 +1847,56 @@ CREATE POLICY "accountant_view_center_fees" ON student_invoices
 CREATE POLICY "accountant_update_center_fees" ON student_invoices
     FOR UPDATE
     USING (
-        EXISTS (
+        get_my_role() = 'accountant'
+        AND EXISTS (
             SELECT 1 FROM user_center_assignments uca
-            JOIN users u ON uca.user_id = u.id
-            JOIN roles r ON u.role_id = r.id
-            JOIN batches b ON student_invoices.batch_id = b.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'accountant'
-            AND uca.center_id = b.center_id
+            JOIN batches b ON uca.center_id = b.center_id
+            WHERE uca.user_id = auth.uid()
+            AND b.id = student_invoices.batch_id
             AND uca.is_active = TRUE
         )
     );
 
 CREATE POLICY "accountant_manage_fee_transactions" ON fee_transactions
-    FOR INSERT  -- accountants can only record new payments, never modify old ones
+    FOR INSERT
     WITH CHECK (
-        EXISTS (
+        get_my_role() = 'accountant'
+        AND EXISTS (
             SELECT 1 FROM user_center_assignments uca
-            JOIN users u ON uca.user_id = u.id
-            JOIN roles r ON u.role_id = r.id
             JOIN student_invoices si ON fee_transactions.student_invoice_id = si.id
             JOIN batches b ON si.batch_id = b.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'accountant'
+            WHERE uca.user_id = auth.uid()
             AND uca.center_id = b.center_id
             AND uca.is_active = TRUE
         )
     );
 
--- for viewing
 CREATE POLICY "accountant_view_fee_transactions" ON fee_transactions
     FOR SELECT
     USING (
-        EXISTS (
+        get_my_role() = 'accountant'
+        AND EXISTS (
             SELECT 1 FROM user_center_assignments uca
-            JOIN users u ON uca.user_id = u.id
-            JOIN roles r ON u.role_id = r.id
             JOIN student_invoices si ON fee_transactions.student_invoice_id = si.id
             JOIN batches b ON si.batch_id = b.id
-            WHERE u.id = auth.uid()
-            AND r.role_name = 'accountant'
+            WHERE uca.user_id = auth.uid()
             AND uca.center_id = b.center_id
             AND uca.is_active = TRUE
         )
     );
+
+CREATE POLICY "accountant_view_fee_structures" ON fee_structures
+    FOR SELECT
+    USING (
+        get_my_role() = 'accountant'
+        AND EXISTS (
+            SELECT 1 FROM user_center_assignments uca
+            WHERE uca.user_id = auth.uid()
+            AND uca.center_id = fee_structures.center_id
+            AND uca.is_active = TRUE
+        )
+    );
+
 -- SECTION 17: VIEWS FOR COMMON QUERIES
 
 -- View: Student marks with percentage and rank
