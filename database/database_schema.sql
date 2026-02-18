@@ -36,7 +36,7 @@ INSERT INTO roles (role_name, display_name, level, permissions) VALUES
 ('centre_head', 'Centre Head', 4, '{"scope": "center", "can_manage_center": true, "can_approve_meetings": true}'),
 ('teacher', 'Teacher', 5, '{"can_upload_content": true, "can_mark_attendance": true, "can_enter_marks": true}'),
 ('accountant', 'Accountant', 5, '{"can_manage_fees": true, "can_generate_receipts": true}'),
-('student', 'Student', 6, '{"can_view_content": true, "can_view_marks": true}'),
+('student', 'Student', 6, '{"can_view_content": true, "can_view_marks": true}');
 
 -- Table: users (extends Supabase auth.users)
 -- Purpose: Core user information for all user types
@@ -484,7 +484,7 @@ CREATE TABLE attendance (
     attendance_date DATE NOT NULL,
     
     -- Status
-    status VARCHAR(20) NOT NULL, -- 'present', 'absent', 'late', 'half_day', 'leave'
+    status VARCHAR(20) NOT NULL CHECK (status IN ('present', 'absent', 'late', 'leave')),
     check_in_time TIME,
     check_out_time TIME,
     
@@ -803,7 +803,7 @@ CREATE TABLE announcements (
     expires_at TIMESTAMPTZ, -- Auto-hide after this date
     
     -- Role Targeting (e.g., Show only to 'teachers' in Batch A)
-    target_roles VARCHAR(20)[] DEFAULT '{student,parent,teacher}',
+    target_roles VARCHAR(20)[] DEFAULT '{student,teacher}',
     
     created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -1228,7 +1228,7 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trigger_update_invoice_status
-AFTER INSERT ON fee_transactions
+AFTER INSERT ON fee_transactions -- we will never allow deleting or editing a transaction
 FOR EACH ROW
 EXECUTE FUNCTION update_invoice_status();
 
@@ -1357,6 +1357,23 @@ BEFORE INSERT OR UPDATE ON student_marks
 FOR EACH ROW
 EXECUTE FUNCTION validate_student_marks();
 
+CREATE OR REPLACE FUNCTION sync_enrollment_active_status()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status IN ('completed', 'withdrawn', 'suspended') THEN
+        NEW.is_active := FALSE;
+    ELSIF NEW.status = 'active' THEN
+        NEW.is_active := TRUE;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_sync_enrollment_active_status
+BEFORE UPDATE ON student_batch_enrollments
+FOR EACH ROW
+EXECUTE FUNCTION sync_enrollment_active_status();
+
 -- SECTION 16: ROW LEVEL SECURITY (RLS) SETUP
 
 -- Enable RLS on all major tables
@@ -1383,6 +1400,7 @@ ALTER TABLE points_transactions ENABLE ROW LEVEL SECURITY;
 
 -- without any policy, bydefault access is denied to all the table by RLS
 -- POLICY: CEO has full access to everything
+-- SELECT for read and ALL for write
 CREATE POLICY "ceo_full_access_users" ON users
     FOR ALL
     USING ( -- USING determins which rows are visible and modifiable
@@ -1482,7 +1500,88 @@ CREATE POLICY "ceo_full_access_fees" ON student_invoices
         )
     );
 
--- even ceo cannot modify fee_transactions
+-- CEO full access on remaining RLS-enabled tables
+CREATE POLICY "ceo_full_access_content_progress" ON content_progress
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_attendance_summary" ON attendance_summary
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
+        )
+    );
+
+-- CEO can only VIEW fee_transactions, not modify
+CREATE POLICY "ceo_view_fee_transactions" ON fee_transactions
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_notifications" ON notifications
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_meeting_requests" ON meeting_requests
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_announcements" ON announcements
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_revision_reminders" ON revision_reminders
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_performance_summary" ON student_performance_summary
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
+        )
+    );
+
+CREATE POLICY "ceo_full_access_points_transactions" ON points_transactions
+    FOR ALL
+    USING (
+        EXISTS (
+            SELECT 1 FROM users u JOIN roles r ON u.role_id = r.id
+            WHERE u.id = auth.uid() AND r.role_name = 'ceo'
+        )
+    );
 
 -- POLICY: Centre Heads can manage their center
 CREATE POLICY "centre_head_view_center_data" ON centers
@@ -1772,8 +1871,8 @@ CREATE POLICY "accountant_update_center_fees" ON student_invoices
     );
 
 CREATE POLICY "accountant_manage_fee_transactions" ON fee_transactions
-    FOR ALL
-    USING (
+    FOR INSERT  -- accountants can only record new payments, never modify old ones
+    WITH CHECK (
         EXISTS (
             SELECT 1 FROM user_center_assignments uca
             JOIN users u ON uca.user_id = u.id
@@ -1787,6 +1886,22 @@ CREATE POLICY "accountant_manage_fee_transactions" ON fee_transactions
         )
     );
 
+-- for viewing
+CREATE POLICY "accountant_view_fee_transactions" ON fee_transactions
+    FOR SELECT
+    USING (
+        EXISTS (
+            SELECT 1 FROM user_center_assignments uca
+            JOIN users u ON uca.user_id = u.id
+            JOIN roles r ON u.role_id = r.id
+            JOIN student_invoices si ON fee_transactions.student_invoice_id = si.id
+            JOIN batches b ON si.batch_id = b.id
+            WHERE u.id = auth.uid()
+            AND r.role_name = 'accountant'
+            AND uca.center_id = b.center_id
+            AND uca.is_active = TRUE
+        )
+    );
 -- SECTION 17: VIEWS FOR COMMON QUERIES
 
 -- View: Student marks with percentage and rank
@@ -1883,10 +1998,19 @@ SELECT
      WHERE student_id = s.id 
      AND is_completed = TRUE) AS content_completed,
      
-    (SELECT COUNT(*) 
-     FROM content_progress cp
-     WHERE cp.student_id = s.id 
-     AND cp.is_completed = FALSE) AS content_pending,
+    (SELECT COUNT(*)
+     FROM content c
+     JOIN student_batch_enrollments sbe ON c.batch_id = sbe.batch_id
+     WHERE sbe.student_id = s.id
+     AND sbe.is_active = TRUE
+     AND c.is_published = TRUE
+     AND NOT EXISTS (
+         SELECT 1 FROM content_progress cp
+         WHERE cp.student_id = s.id
+         AND cp.content_id = c.id
+         AND cp.is_completed = TRUE
+     )
+    ) AS content_pending,
     
     -- Fee statistics
     (SELECT COUNT(*) 
