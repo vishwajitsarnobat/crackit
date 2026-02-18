@@ -1360,6 +1360,8 @@ EXECUTE FUNCTION validate_student_marks();
 -- SECTION 16: ROW LEVEL SECURITY (RLS) SETUP
 
 -- Enable RLS on all major tables
+
+-- NOTE for myself: The authentication(who are you) is in application layer, and authorization(are you allowed to access this) is here.
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE centers ENABLE ROW LEVEL SECURITY;
@@ -1379,12 +1381,11 @@ ALTER TABLE revision_reminders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_performance_summary ENABLE ROW LEVEL SECURITY;
 ALTER TABLE points_transactions ENABLE ROW LEVEL SECURITY;
 
--- ----------------------------------------------------------------------------
+-- without any policy, bydefault access is denied to all the table by RLS
 -- POLICY: CEO has full access to everything
--- ----------------------------------------------------------------------------
 CREATE POLICY "ceo_full_access_users" ON users
     FOR ALL
-    USING (
+    USING ( -- USING determins which rows are visible and modifiable
         EXISTS (
             SELECT 1 FROM users u
             JOIN roles r ON u.role_id = r.id
@@ -1481,9 +1482,9 @@ CREATE POLICY "ceo_full_access_fees" ON student_invoices
         )
     );
 
--- ----------------------------------------------------------------------------
+-- even ceo cannot modify fee_transactions
+
 -- POLICY: Centre Heads can manage their center
--- ----------------------------------------------------------------------------
 CREATE POLICY "centre_head_view_center_data" ON centers
     FOR SELECT
     USING (
@@ -1512,9 +1513,7 @@ CREATE POLICY "centre_head_manage_batches" ON batches
         )
     );
 
--- ----------------------------------------------------------------------------
 -- POLICY: Teachers can manage their batches
--- ----------------------------------------------------------------------------
 CREATE POLICY "teacher_view_assigned_batches" ON batches
     FOR SELECT
     USING (
@@ -1571,9 +1570,7 @@ CREATE POLICY "teacher_manage_batch_marks" ON student_marks
         )
     );
 
--- ----------------------------------------------------------------------------
 -- POLICY: Students can view their own data
--- ----------------------------------------------------------------------------
 CREATE POLICY "student_view_own_profile" ON students
     FOR SELECT
     USING (user_id = auth.uid());
@@ -1743,9 +1740,7 @@ CREATE POLICY "student_view_own_points" ON points_transactions
         )
     );
 
--- ----------------------------------------------------------------------------
 -- POLICY: Accountants can manage fees
--- ----------------------------------------------------------------------------
 CREATE POLICY "accountant_view_center_fees" ON student_invoices
     FOR SELECT
     USING (
@@ -1792,14 +1787,10 @@ CREATE POLICY "accountant_manage_fee_transactions" ON fee_transactions
         )
     );
 
--- ============================================================================
 -- SECTION 17: VIEWS FOR COMMON QUERIES
--- ============================================================================
 
--- ----------------------------------------------------------------------------
 -- View: Student marks with percentage and rank
 -- Purpose: Joins marks with exam details and calculates percentage/rank
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_student_marks_detailed AS
 SELECT 
     sm.id,
@@ -1857,10 +1848,8 @@ SELECT
 FROM student_marks sm
 JOIN exams e ON sm.exam_id = e.id;
 
--- ----------------------------------------------------------------------------
 -- View: Student Dashboard Summary
 -- Purpose: Quick overview of student's academic status
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_student_dashboard AS
 SELECT 
     s.id AS student_id,
@@ -1914,10 +1903,8 @@ FROM students s
 JOIN users u ON s.user_id = u.id
 WHERE s.is_active = TRUE;
 
--- ----------------------------------------------------------------------------
 -- View: Batch Performance Summary
 -- Purpose: Overview of batch academic performance
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_batch_performance AS
 SELECT 
     b.id AS batch_id,
@@ -1967,10 +1954,8 @@ JOIN centers c ON b.center_id = c.id
 JOIN courses co ON b.course_id = co.id
 WHERE b.is_active = TRUE;
 
--- ----------------------------------------------------------------------------
 -- View: Fee Collection Summary (by center)
 -- Purpose: Financial overview for centers
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_fee_collection_summary AS
 SELECT 
     c.id AS center_id,
@@ -2018,10 +2003,8 @@ SELECT
 FROM centers c
 WHERE c.is_active = TRUE;
 
--- ----------------------------------------------------------------------------
 -- View: Teacher Workload Summary
 -- Purpose: Shows teaching assignments and workload
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_teacher_workload AS
 SELECT 
     u.id AS user_id,
@@ -2064,10 +2047,8 @@ JOIN roles r ON u.role_id = r.id
 WHERE r.role_name = 'teacher'
 AND u.is_active = TRUE;
 
--- ----------------------------------------------------------------------------
 -- View: Upcoming Exams (next 30 days)
 -- Purpose: Shows scheduled exams across all batches
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_upcoming_exams AS
 SELECT 
     e.id AS exam_id,
@@ -2097,10 +2078,8 @@ WHERE e.status = 'scheduled'
 AND e.exam_date BETWEEN CURRENT_DATE AND (CURRENT_DATE + INTERVAL '30 days')
 ORDER BY e.exam_date;
 
--- ----------------------------------------------------------------------------
 -- View: Low Attendance Alerts
 -- Purpose: Students with attendance below 75%
--- ----------------------------------------------------------------------------
 CREATE OR REPLACE VIEW v_low_attendance_students AS
 SELECT 
     s.id AS student_id,
@@ -2124,10 +2103,6 @@ WHERE ats.attendance_percentage < 75
 AND ats.month_year >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '2 months')
 AND s.is_active = TRUE
 ORDER BY ats.attendance_percentage;
-
--- ============================================================================
--- END OF SCHEMA
--- ============================================================================
 
 -- Performance Notes:
 -- 1. All foreign keys are indexed automatically
