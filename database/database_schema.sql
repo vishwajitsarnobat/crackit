@@ -8,6 +8,19 @@
 --   - Optimized with proper indexes
 --   - UUID primary keys for scalability
 
+
+-- Pending fees summary batch wise
+-- Total fees collected monthly/annually
+-- radio button type attendance
+-- fee collection analytics, monthly and annually
+-- revision basis reward
+-- performance report
+-- dropping rate monthly
+-- FOR REWARDS
+-- timely assignments, timely revision, timely fees, performane based, 85%+ attendance
+
+-- table for teachers salaries
+
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp"; -- for unique ids that are unguessable
 CREATE EXTENSION IF NOT EXISTS pg_cron; -- for scheduling
@@ -250,6 +263,7 @@ CREATE INDEX idx_batch_teachers_user ON batch_teachers(user_id);
 
 -- Table: students
 -- Purpose: Student-specific information
+-- agreement
 CREATE TABLE students (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE UNIQUE,
@@ -269,6 +283,8 @@ CREATE TABLE students (
     metadata JSONB DEFAULT '{}', -- Medical info, special needs, etc.
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
+    -- photo
+
 );
 
 CREATE INDEX idx_students_user ON students(user_id);
@@ -741,6 +757,8 @@ CREATE TABLE notifications (
     metadata JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- attendance notification
 
 CREATE INDEX idx_notifications_user ON notifications(user_id);
 CREATE INDEX idx_notifications_type ON notifications(notification_type_id);
@@ -1497,7 +1515,7 @@ CREATE POLICY "centre_head_manage_approval_requests" ON user_approval_requests
 CREATE POLICY "user_view_own_approval_request" ON user_approval_requests
     FOR SELECT USING (user_id = auth.uid());
 
-    
+
 -- CEO POLICIES
 CREATE POLICY "ceo_full_access_users" ON users
     FOR ALL USING (get_my_role() = 'ceo');
