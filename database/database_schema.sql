@@ -51,7 +51,7 @@ CREATE TABLE users (
     alternate_phone VARCHAR(20),
     address TEXT,
     profile_photo_url TEXT,
-    is_active BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT FALSE,
     metadata JSONB DEFAULT '{}', -- Flexible field for additional data
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -954,6 +954,39 @@ CREATE INDEX idx_audit_logs_user ON audit_logs(user_id);
 CREATE INDEX idx_audit_logs_created ON audit_logs(created_at DESC);
 CREATE INDEX idx_audit_logs_record ON audit_logs(table_name, record_id);
 
+-- Table: user_approval_requests
+-- Purpose: Approval queue for new user registrations
+-- CEO approves: centre_head, accountant (center_id = NULL)
+-- Centre head approves: teacher, student (center_id = their center)
+CREATE TABLE user_approval_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    center_id UUID REFERENCES centers(id) ON DELETE CASCADE, -- NULL for CEO-level approvals
+    
+    requested_role VARCHAR(50) NOT NULL, -- role they signed up as
+    status VARCHAR(20) DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'rejected')),
+    
+    -- Filled by approver
+    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    rejection_reason TEXT,
+    
+    -- Optional context from applicant
+    applicant_note TEXT,
+    
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Partial unique: only one PENDING request per user at a time
+-- Rejected users can re-apply without hitting a constraint error
+CREATE UNIQUE INDEX idx_approval_requests_one_pending_per_user
+    ON user_approval_requests(user_id)
+    WHERE status = 'pending';
+
+CREATE INDEX idx_approval_requests_status ON user_approval_requests(status);
+CREATE INDEX idx_approval_requests_center ON user_approval_requests(center_id);
 
 -- SECTION 15: DATABASE FUNCTIONS & TRIGGERS
 
@@ -1045,6 +1078,10 @@ CREATE TRIGGER update_revision_reminders_updated_at
 
 CREATE TRIGGER update_student_performance_summary_updated_at 
     BEFORE UPDATE ON student_performance_summary
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_user_approval_requests_updated_at
+    BEFORE UPDATE ON user_approval_requests
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Function: Calculate student points balance
@@ -1405,6 +1442,7 @@ RETURNS TEXT AS $$
     FROM users u 
     JOIN roles r ON u.role_id = r.id 
     WHERE u.id = auth.uid();
+    AND u.is_active = TRUE;
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
 CREATE OR REPLACE FUNCTION get_my_center_ids()
@@ -1441,8 +1479,25 @@ ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fee_structures ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE points_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_approval_requests ENABLE ROW LEVEL SECURITY;
 
+-- CEO: full access to all requests (centre_head, accountant approvals)
+CREATE POLICY "ceo_manage_approval_requests" ON user_approval_requests
+    FOR ALL USING (get_my_role() = 'ceo');
 
+-- Centre head: full access to requests scoped to their centers (teacher, student approvals)
+CREATE POLICY "centre_head_manage_approval_requests" ON user_approval_requests
+    FOR ALL
+    USING (
+        get_my_role() = 'centre_head'
+        AND center_id = ANY(get_my_center_ids())
+    );
+
+-- Any user: can view their own request to track status
+CREATE POLICY "user_view_own_approval_request" ON user_approval_requests
+    FOR SELECT USING (user_id = auth.uid());
+
+    
 -- CEO POLICIES
 CREATE POLICY "ceo_full_access_users" ON users
     FOR ALL USING (get_my_role() = 'ceo');
@@ -1737,10 +1792,11 @@ CREATE POLICY "student_view_own_fees" ON student_invoices
         )
     );
 
-CREATE POLICY "student_view_own_notifications" ON notifications
+-- changed policy names from student to user for general appeal(needed for approval of account creation)
+CREATE POLICY "users_view_own_notifications" ON notifications
     FOR SELECT USING (user_id = auth.uid());
 
-CREATE POLICY "student_update_own_notifications" ON notifications
+CREATE POLICY "users_update_own_notifications" ON notifications
     FOR UPDATE
     USING (user_id = auth.uid())
     WITH CHECK (user_id = auth.uid());
