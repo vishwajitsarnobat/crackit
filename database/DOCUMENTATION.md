@@ -1,66 +1,90 @@
 # Crack It Coaching Institute — Database Documentation
-**Version:** 1.0  
-**Database:** PostgreSQL 14+ (Supabase)  
-**Last Updated:** February 2026
+**Version:** 3.0
+**Database:** PostgreSQL 14+ (Supabase)
+**Tables:** 24 | **Views:** 8 | **Triggers:** 15
 
 ---
 
 ## Design Principles
 
-- Normalized to **3NF**
-- **UUID primary keys** throughout for scalability and unguessability
-- **RLS (Row Level Security)** on all sensitive tables — security enforced at DB level
-- **JSONB fields** used for flexible/extensible data (permissions, metadata, schedules)
-- **Triggers** handle computed state automatically (attendance summary, invoice status, reminders)
-- **`pg_cron`** handles scheduled jobs (overdue invoice marking)
+- **3NF** — no redundant data stored; summaries computed at runtime via views
+- **UUID primary keys** — unguessable, scalable
+- **RLS enforced at DB level** — two helper functions (`get_my_role`, `get_my_center_ids`) power all policies
+- **Triggers handle computed state** — receipt numbers, student codes, invoice status, revision reminders
+- **No notifications table** — Firebase handles push delivery; app queries source tables for badge counts
+- **No attendance_summary table** — queried at runtime; acceptable at this scale
+- **Single device login** — `user_active_sessions` is 1 row per user (PK = user_id)
 
 ---
 
 ## Architecture Overview
 
 ```
-auth.users (Supabase)
-    └── users (our profile layer)
-            ├── roles (what type of user)
-            └── user_center_assignments (which centers)
+auth.users (Supabase managed)
+    └── users
+            ├── roles
+            ├── user_active_sessions   (FCM token for push)
+            ├── user_approval_requests (approval inbox)
+            └── user_center_assignments
                         └── centers
-                                ├── districts → states
                                 └── batches
-                                        ├── batch_teachers → users
+                                        ├── fee_structures
                                         ├── student_batch_enrollments → students
-                                        ├── content
-                                        ├── exams → student_marks
-                                        ├── attendance → attendance_summary
-                                        └── fee_structures → student_invoices → fee_transactions
+                                        ├── attendance
+                                        ├── content → content_progress
+                                        └── exams → student_marks
+
+students
+    ├── student_invoices → fee_transactions
+    ├── points_transactions
+    ├── revision_reminders → content
+    └── meeting_requests
+
+centers
+    ├── center_expenses
+    ├── staff_salaries
+    └── staff_attendance
 ```
 
 ---
 
-## Sections & Tables
-
-### Section 1 — Core Identity & Access Control
-
-| Table | Purpose |
-|-------|---------|
-| `roles` | System roles with hierarchical levels and JSONB permissions |
-| `users` | All users — links to `auth.users`. Single table for all roles |
-
-**Roles (level order):** `ceo(1)` → `state_admin(2)` → `district_admin(3)` → `centre_head(4)` → `teacher/accountant(5)` → `student(6)`
-
-> `state_admin` and `district_admin` are defined but have no RLS policies yet — reserved for future feature.
+## Section-by-Section Reference
 
 ---
 
-### Section 2 — Organizational Hierarchy
+### Section 1 — Identity & Roles
 
 | Table | Purpose |
 |-------|---------|
-| `states` | Top-level geography |
-| `districts` | Belongs to a state. Unique per `(state_id, district_code)` |
-| `centers` | Coaching centers. Belongs to a district |
-| `user_center_assignments` | Many-to-many: users ↔ centers. Supports multi-center staff |
+| `roles` | 5 roles: ceo, centre_head, teacher, accountant, student |
+| `users` | All users. `is_active = FALSE` until approved. `profile_photo_url` here |
+| `user_active_sessions` | 1 row per user. Stores `fcm_token` for Firebase push (absent alerts etc.) |
+| `user_approval_requests` | Approval inbox. CEO approves centre_head/accountant. Centre head approves teacher/student |
 
-**Delete behavior:** Deleting a state is `RESTRICT`ed if districts exist. Deleting a district is `RESTRICT`ed if centers exist.
+**Role hierarchy (level):** `ceo(1)` → `centre_head(4)` → `teacher/accountant(5)` → `student(6)`
+
+**Approval flow:**
+```
+User registers → users.is_active = FALSE
+             → user_approval_requests row created (status = pending)
+             → Approver sets status = approved
+             → Backend flips users.is_active = TRUE
+```
+
+**Partial unique index** on `user_approval_requests(user_id) WHERE status = 'pending'` — prevents duplicate pending requests but allows re-application after rejection.
+
+**`get_my_role()`** — SECURITY DEFINER, gates on `is_active = TRUE`. Returns NULL for unapproved users, blocking them from every RLS policy silently.
+
+---
+
+### Section 2 — Centers
+
+| Table | Purpose |
+|-------|---------|
+| `centers` | Coaching centers. No states/districts — not required by any feature |
+| `user_center_assignments` | Many-to-many: staff ↔ centers. Supports multi-center assignments |
+
+**`get_my_center_ids()`** — SECURITY DEFINER, returns `UUID[]` of centers assigned to current user. Used in all center-scoped RLS policies to avoid recursive joins.
 
 ---
 
@@ -68,201 +92,217 @@ auth.users (Supabase)
 
 | Table | Purpose |
 |-------|---------|
-| `courses` | Course offerings (IIT-JEE, NEET, Olympiad). Has `class_levels` array |
-| `subjects` | PHY, CHEM, MATH, BIO, etc. |
-| `course_subjects` | Many-to-many: courses ↔ subjects with weightage |
-| `batches` | Physical batch within a center for a course. Has schedule JSONB |
-| `batch_teachers` | Many-to-many: batches ↔ teachers, scoped per subject |
+| `courses` | IIT-JEE, NEET, Olympiad etc. |
+| `batches` | Core operational unit. Belongs to center + course. Students enroll in batches, fees are per batch |
 
-**Note:** Batches are the core operational unit. Students enroll in batches, not courses directly.
+**Delete behavior:** Deleting a course is `RESTRICT`ed if batches exist. Deleting a center cascades to batches.
 
 ---
 
-### Section 4 — Student Management
+### Section 4 — Students & Admission
 
 | Table | Purpose |
 |-------|---------|
-| `students` | Student profile — extends `users`. Has points tracking |
-| `student_batch_enrollments` | Many-to-many: students ↔ batches with status tracking |
+| `students` | Student profile extending `users`. Has `admission_form_data JSONB` for PDF generation |
+| `student_batch_enrollments` | Student ↔ batch enrollment with `withdrawn_at` for dropout tracking |
 
-**Enrollment statuses:** `active`, `completed`, `withdrawn`, `suspended`  
-**Trigger:** `sync_enrollment_active_status` — automatically sets `is_active = FALSE` when status becomes non-active.
+**Key fields on `students`:**
+- `declaration_accepted` + `declaration_accepted_at` — mandatory checkbox before form submission
+- `admission_form_data` — full form payload; app generates downloadable PDF from this JSONB
+- `current_points` — live balance, updated by app when points are awarded/redeemed
+- `student_code` — auto-generated by trigger: `STU20260001`, resets per year
+
+**Trigger:** `sync_enrollment_status` — when status → `withdrawn`, automatically sets `is_active = FALSE` and stamps `withdrawn_at = CURRENT_DATE`.
 
 ---
 
-### Section 5 — Content Management
+### Section 5 — Financial Management
 
 | Table | Purpose |
 |-------|---------|
-| `content_types` | `video`, `pdf`, `ppt`, `notes` |
-| `content` | YouTube/Drive content linked to a batch+subject. Has tags array |
-| `content_progress` | Per-student completion tracking with timestamps |
-
-**Note:** Content is scoped to batch+subject, not course — intentional design.
-
----
-
-### Section 6 — Assessment System
-
-| Table | Purpose |
-|-------|---------|
-| `exam_types` | `unit_test`, `monthly_test`, `final_exam`, `mock_test`, etc. |
-| `exams` | Offline exams linked to batch+subject. Has `results_published` flag |
-| `student_marks` | Manually entered marks per student per exam |
-
-**Constraints:** `marks_obtained >= 0`, absent students must have `marks_obtained = 0`.  
-**Trigger:** `validate_student_marks` — rejects marks exceeding `total_marks`.
-
----
-
-### Section 7 — Attendance Management
-
-| Table | Purpose |
-|-------|---------|
-| `attendance` | Daily attendance per student per batch |
-| `attendance_summary` | Cached monthly rollup (auto-updated by trigger) |
-
-**Valid statuses:** `present`, `absent`, `late`, `leave`  
-**Generated column:** `attendance_percentage` in summary is computed from `present_days / total_days`.  
-**Trigger:** `auto_update_attendance_summary` — fires on every attendance INSERT/UPDATE, keeps monthly summary in sync.  
-**Trigger:** `validate_attendance_date` — rejects future dates.
-
----
-
-### Section 8 — Fee Management
-
-| Table | Purpose |
-|-------|---------|
-| `fee_structures` | Fee config per batch. Types: `admission`, `tuition`, `exam`, `material` |
-| `student_invoices` | Individual fee records per student. Tracks due/paid/discount/late_fee |
+| `fee_structures` | Monthly fee amount per batch |
+| `student_invoices` | One invoice per student per batch per month |
 | `fee_transactions` | Immutable payment log. Never updated or deleted |
+| `center_expenses` | Monthly expenses per center per category |
+| `staff_salaries` | Staff salary per person per center per month |
 
-**Invoice statuses:** `pending`, `partial`, `paid`, `overdue`  
-**Trigger:** `update_invoice_status` — fires on `fee_transactions` INSERT, recalculates `amount_paid` and `payment_status`.  
-**Cron job:** Runs daily at midnight — flips `pending/partial` invoices past `due_date` to `overdue`.  
-**Important:** `fee_transactions` is intentionally append-only. RLS prevents updates/deletes even for accountants.
+**Invoice lifecycle:**
+```
+Accountant creates invoice on enrollment (amount_due set by app, pro-rated for first month)
+    → Student pays → fee_transactions INSERT
+    → Trigger recalculates amount_paid and payment_status
+    → Cron job (midnight daily) flips pending/partial past month_year → overdue
+```
+
+**`update_invoice_status()` trigger** uses variables to avoid stale-value bug — re-sums all transactions for the invoice, then determines status.
+
+**`fee_transactions` immutability** — CEO gets SELECT only. Accountant gets INSERT + SELECT only. No role can UPDATE or DELETE.
+
+**Expense categories (exact per requirements):** `rent`, `electricity_bill`, `stationery`, `internet_bill`, `miscellaneous`
+
+**Receipt number** auto-generated: `REC-2026-00001`, resets per year.
 
 ---
 
-### Section 9 — Points & Rewards
+### Section 6 — Attendance
 
 | Table | Purpose |
 |-------|---------|
-| `points_rules` | Formula config for earning/redeeming points. Has `allowed_months` array |
-| `points_transactions` | Immutable log of all point changes. Positive = earned, negative = redeemed |
+| `attendance` | Student attendance. Radio button: `present` / `absent` only |
+| `staff_attendance` | Teacher/centre_head attendance with `in_time`, `out_time` |
 
-**Function:** `calculate_student_points(student_id)` — recalculates from transaction log and updates `students.current_points`.  
-**Note:** Points redeemed on invoices are stored in `student_invoices.points_redeemed` and applied as `amount_discount`.
+**Who marks what:**
+- Teacher marks student attendance
+- Centre Head marks teacher attendance
+- CEO marks centre_head attendance
+
+**`staff_attendance` UNIQUE** on `(user_id, center_id, attendance_date)` — center_id included because a teacher assigned to two centers can have entries for both on the same date.
+
+**Trigger:** `validate_attendance_date` — fires on both tables, rejects future dates.
+
+**No `attendance_summary` table** — attendance percentage is queried at runtime from `attendance` table directly via `v_student_attendance_report`.
 
 ---
 
-### Section 10 — Communication & Notifications
+### Section 7 — Content
 
 | Table | Purpose |
 |-------|---------|
-| `notification_types` | Defines types: `fee_reminder`, `attendance_alert`, `exam_reminder`, etc. |
-| `notifications` | Individual notification records per user. Has `scheduled_for` for deferred delivery |
-| `meeting_requests` | Student-initiated meeting tickets. Assigned to a teacher or centre head |
-| `announcements` | Notice board with `scope`: `global`, `center`, `course`, `batch` |
+| `content` | YouTube / Google Drive links per batch |
+| `content_progress` | Tracks `is_completed` and `completed_at` per student per content item |
 
-**Announcement scope constraint:** Enforced via `valid_scope_target` CHECK — only the matching ID column (center_id/course_id/batch_id) can be set for each scope.  
-**Target roles:** `target_roles` array controls who sees each announcement.
+**`completed_at`** in `content_progress` drives revision reminder creation. When `is_completed` flips TRUE, the `create_revision_reminder` trigger fires automatically.
 
 ---
 
-### Section 11 — Device & Session Management
+### Section 8 — Assessments
 
 | Table | Purpose |
 |-------|---------|
-| `user_active_sessions` | One row per user. Stores `device_id`, `fcm_token`, `refresh_token`, `ip_address` |
+| `exams` | Offline exams per batch. `results_published` flag controls student visibility |
+| `student_marks` | Manually entered marks. `is_absent = TRUE` forces `marks_obtained = 0` |
 
-**Note:** Single active session per user (PK = `user_id`).
+**Trigger:** `validate_marks` — rejects marks exceeding `total_marks`.
 
 ---
 
-### Section 12 — Revision Reminders
+### Section 9 — Rewards
 
 | Table | Purpose |
 |-------|---------|
-| `revision_reminders` | Spaced repetition reminders at 7, 21, 60 days after content completion |
+| `points_transactions` | Immutable log. Positive = earned, negative = redeemed |
+| `revision_reminders` | Spaced repetition schedule: 7 → 21 → 60 days after content completion |
 
-**Trigger:** `create_revision_reminder` — auto-created when `content_progress.is_completed` flips to TRUE.  
-**Trigger:** `advance_revision_stage` (BEFORE UPDATE) — timestamps each stage, advances `next_reminder_date`, deactivates after 60-day reminder is sent.
+**Reward reasons (CHECK constraint):**
+- `attendance_85` — 85%+ monthly attendance
+- `timely_fees` — paid before due date
+- `timely_revision` — completed revision reminder on time
+- `performance` — exam score based
+- `redeemed` — deducted against invoice `amount_discount`
+
+**`students.current_points`** is the live balance. App updates it when awarding or redeeming points.
+
+**Revision reminder lifecycle:**
+```
+content_progress.is_completed → TRUE
+    → create_revision_reminder trigger fires
+    → revision_reminders row created, next_reminder_date = completed_date + 7 days
+    → Backend/cron queries WHERE next_reminder_date = TODAY AND is_active = TRUE
+    → Sends push via FCM
+    → Sets reminder_7_sent = TRUE
+    → advance_revision_stage trigger fires (BEFORE UPDATE)
+    → Stamps reminder_7_sent_at, sets next_reminder_date = completed_date + 21 days
+    → Repeats for 21-day and 60-day stages
+    → After 60-day: next_reminder_date = NULL, is_active = FALSE
+```
+
+**Partial index** on `revision_reminders(next_reminder_date) WHERE is_active = TRUE` — cron job only scans active reminders.
 
 ---
 
-### Section 13 — Performance Analytics
+### Section 10 — Communication
 
 | Table | Purpose |
 |-------|---------|
-| `student_performance_summary` | Cached monthly rollup of attendance + marks + content + points per student per batch |
+| `meeting_requests` | Student raises ticket. Assigned to centre_head or teacher |
 
-**Note:** Not auto-updated by trigger — designed to be populated by a scheduled backend job or cron. Used for fast dashboard loading.
-
----
-
-### Section 14 — Audit Logging
-
-| Table | Purpose |
-|-------|---------|
-| `audit_logs` | Records INSERT/UPDATE/DELETE actions with old/new values, user context, IP |
-
-**Access:** CEO only via RLS. Backend service role can always write (bypasses RLS). Designed to be append-only.
+**No notifications table.** Push notifications delivered via Firebase using `fcm_token` from `user_active_sessions`. In-app counts (pending fees, pending approvals) queried directly from source tables.
 
 ---
 
-## Helper Functions
+## Views Reference
 
-| Function | Purpose |
-|----------|---------|
-| `get_my_role()` | Returns current user's role name. `SECURITY DEFINER` — bypasses RLS to prevent recursion |
-| `get_my_center_ids()` | Returns array of center UUIDs assigned to current user. `SECURITY DEFINER` — used in all centre head policies |
-| `calculate_student_points(uuid)` | Recalculates points from transaction log, updates `students.current_points` |
-| `update_attendance_summary(...)` | Aggregates daily attendance into monthly summary row (upsert) |
+| View | Purpose |
+|------|---------|
+| `v_center_monthly_profit` | Revenue − Expenses − Salaries per center per month. UNION calendar ensures months with expenses but no revenue still appear |
+| `v_institute_monthly_profit` | Combined institute profit across all centers, month-wise |
+| `v_institute_annual_profit` | Annual rollup of institute profit |
+| `v_analytics_dashboard` | Current month snapshot: revenue, expenses, salaries, net profit, active students |
+| `v_pending_fees` | Student-wise pending invoices with balance due. Filter by center/batch in app |
+| `v_student_attendance_report` | Monthly attendance % per student per batch |
+| `v_staff_attendance_report` | Monthly attendance % per staff member per center |
+| `v_student_performance_report` | Exam marks with percentage, grade, rank per batch. Only published results visible |
+| `v_monthly_dropout_rate` | Withdrawals per batch per month with dropout % |
+| `v_fee_collection_analytics` | Monthly + annual fee collection with cash vs online breakdown |
 
 ---
 
 ## RLS Summary
 
-| Role | Access Scope |
-|------|-------------|
-| `ceo` | Full access to everything except cannot modify `fee_transactions` |
-| `centre_head` | Full access within their assigned centers only |
-| `teacher` | Can manage content, attendance, exams, marks for their assigned batches only |
-| `accountant` | Can view/update invoices and INSERT transactions for their center only |
-| `student` | Can only view their own data and published content/results |
-| All authenticated | Can read `roles` and `points_rules` (needed for UI) |
-
-**Key pattern:** All role checks use `get_my_role()`. All center-scoped checks use `get_my_center_ids()`. Both are `SECURITY DEFINER` to avoid RLS recursion.
+| Role | Scope |
+|------|-------|
+| `ceo` | Full access to all tables. `fee_transactions`: SELECT only |
+| `centre_head` | All data within assigned centers. Manages approvals for teachers/students |
+| `accountant` | Invoices, transactions (INSERT+SELECT only), expenses, salaries for assigned centers |
+| `teacher` | Attendance, content, exams, marks for batches in assigned centers |
+| `student` | Own profile, own enrollments, own invoices, published content, published exam results, own points, own reminders |
+| All users | Own session (`user_active_sessions`), own center assignments (SELECT), own approval request status |
 
 ---
 
-## Key Design Decisions to Remember
+## Triggers Summary
 
-1. **Students pay for batches, not courses** — `fee_structures` and `student_invoices` are linked to `batch_id`. This allows premium vs standard batches for the same course.
-
-2. **Content is batch+subject scoped, not course scoped** — teachers upload content per batch they teach, giving flexibility for different content across batches of the same course.
-
-3. **`fee_transactions` is immutable** — no UPDATE or DELETE allowed at any level. Corrections are handled at the business logic layer (e.g., credit notes as new transactions).
-
-4. **`attendance_summary` is trigger-maintained** — always in sync with `attendance` table. `student_performance_summary` is NOT trigger-maintained — needs scheduled job.
-
-5. **`is_active` + `status` on enrollments** — `status` is the source of truth. `is_active` is derived from it automatically via trigger. Always read `is_active` for queries, never `status` directly for filtering.
-
-6. **Year-based code generation** — `student_code` (STU20260001) and `receipt_number` (REC-2026-00001) reset per year using `COUNT(*) + 1` on year-prefixed pattern. Minor race condition risk under extreme concurrency (not a real concern at this scale).
-
-7. **`state_admin` / `district_admin` roles exist but have no RLS policies** — intentionally deferred. Adding them in future requires only new policies, no schema changes.
+| Trigger | Table | Fires | Does |
+|---------|-------|-------|------|
+| `trg_*_updated_at` | 13 tables | BEFORE UPDATE | Stamps `updated_at = NOW()` |
+| `trg_generate_student_code` | `students` | BEFORE INSERT | Generates `STU20260001` |
+| `trg_generate_receipt_number` | `fee_transactions` | BEFORE INSERT | Generates `REC-2026-00001` |
+| `trg_fee_payment` | `fee_transactions` | AFTER INSERT | Recalculates `amount_paid` + `payment_status` on invoice |
+| `trg_validate_student_attendance_date` | `attendance` | BEFORE INSERT/UPDATE | Rejects future dates |
+| `trg_validate_staff_attendance_date` | `staff_attendance` | BEFORE INSERT/UPDATE | Rejects future dates |
+| `trg_validate_marks` | `student_marks` | BEFORE INSERT/UPDATE | Rejects marks > total_marks |
+| `trg_sync_enrollment_status` | `student_batch_enrollments` | BEFORE UPDATE | Sets `is_active`, stamps `withdrawn_at` |
+| `trg_create_revision_reminder` | `content_progress` | AFTER INSERT/UPDATE | Creates/resets revision reminder on completion |
+| `trg_advance_revision_stage` | `revision_reminders` | BEFORE UPDATE | Advances stage, sets next_reminder_date, deactivates after 60-day |
 
 ---
 
-## Views
+## Cron Jobs
 
-| View | Purpose |
-|------|---------|
-| `v_student_marks_detailed` | Marks with percentage, grade, and rank within batch |
-| `v_student_dashboard` | Student summary: enrollments, attendance, marks, content, fees |
-| `v_batch_performance` | Batch-level stats: students, attendance, avg marks, content, exams |
-| `v_fee_collection_summary` | Center-level fee overview: monthly collected, outstanding |
-| `v_teacher_workload` | Teacher's batches, students, subjects, content uploaded, exams created |
-| `v_upcoming_exams` | Scheduled exams in next 30 days |
-| `v_low_attendance_students` | Students below 75% attendance in last 2 months |
+| Job | Schedule | Does |
+|-----|----------|------|
+| `mark-overdue` | Daily midnight | Flips `pending`/`partial` invoices past `month_year` to `overdue` |
+
+---
+
+## Key Design Decisions
+
+1. **Fees are per batch, not per course** — allows premium vs standard batches for the same course at different prices.
+
+2. **`fee_transactions` is append-only** — financial integrity. Corrections handled as new transactions (credit entries). No role can UPDATE or DELETE.
+
+3. **`is_active = FALSE` default on users** — entire approval flow relies on this single flag. `get_my_role()` gates on it, so unapproved users are silently blocked from all RLS policies without any extra checks.
+
+4. **No summary/cache tables** — `attendance_summary` removed. All reports computed at runtime from source tables. Keeps the schema lean and eliminates trigger/cache sync complexity. Re-evaluate only if performance becomes a problem at scale.
+
+5. **No notifications table** — Firebase owns push delivery. In-app notification badges query source tables directly (count of pending invoices, pending approvals etc.). Eliminates a whole table plus scheduling complexity.
+
+6. **Parent and student share one account** — single device login via `user_active_sessions`. FCM token on that session receives both student-facing and parent-facing push notifications.
+
+7. **`withdrawn_at` on enrollments** — needed to calculate dropout rate. Without it, you only know a student withdrew, not when.
+
+8. **`get_my_center_ids()` returns `UUID[]`** — used with `= ANY(...)` instead of `EXISTS` subqueries into `user_center_assignments`. This avoids recursive RLS evaluation on that table.
+
+9. **`revision_reminders.next_reminder_date` partial index** — `WHERE is_active = TRUE` means the cron/backend job that polls for today's reminders scans only active rows, not the full history.
+
+10. **`points_transactions.reason` is a CHECK constraint** — locks the reward categories to exactly what was specified. Adding a new reward type requires a schema migration, which is intentional — keeps reward logic auditable.
