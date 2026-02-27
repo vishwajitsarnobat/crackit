@@ -85,7 +85,7 @@ CREATE INDEX idx_approval_center ON user_approval_requests(center_id);
 
 -- SECTION 2: CENTERS
 
--- No states/districts — not required by any feature in scope.
+-- No states/districts — can be filtered using the center_code
 CREATE TABLE centers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     center_code VARCHAR(20) UNIQUE NOT NULL,
@@ -113,9 +113,7 @@ CREATE INDEX idx_uca_user ON user_center_assignments(user_id);
 CREATE INDEX idx_uca_center ON user_center_assignments(center_id);
 
 
--- ============================================================
 -- SECTION 3: ACADEMIC STRUCTURE
--- ============================================================
 
 CREATE TABLE courses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -147,9 +145,7 @@ CREATE INDEX idx_batches_center ON batches(center_id);
 CREATE INDEX idx_batches_course ON batches(course_id);
 
 
--- ============================================================
 -- SECTION 4: STUDENTS & ADMISSION
--- ============================================================
 
 -- Student profile. parent_phone kept — useful contact even on shared account.
 -- admission_form_data stores the full form as JSONB for PDF generation.
@@ -191,31 +187,17 @@ CREATE TABLE student_batch_enrollments (
 CREATE INDEX idx_enrollments_student ON student_batch_enrollments(student_id);
 CREATE INDEX idx_enrollments_batch ON student_batch_enrollments(batch_id);
 
-
--- ============================================================
 -- SECTION 5: FINANCIAL MANAGEMENT
--- ============================================================
 
--- Monthly fee per batch. Accountant creates invoice manually on enrollment.
--- Pro-rated first month amount is calculated in app before INSERT.
-CREATE TABLE fee_structures (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
-    monthly_fee DECIMAL(10,2) NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_fee_structures_batch ON fee_structures(batch_id);
-
--- One invoice per student per batch per month.
--- amount_discount used for reward point redemptions.
 CREATE TABLE student_invoices (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
     batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
-    month_year DATE NOT NULL,             -- first day of month: '2025-01-01'
-    amount_due DECIMAL(10,2) NOT NULL,
+    month_year DATE NOT NULL,
+    -- full recurring monthly amount, accountant sets this at admission
+    -- cron copies this to next month's amount_due, accountant updates this to change future fees
+    monthly_fee DECIMAL(10,2) NOT NULL,       
+    amount_due DECIMAL(10,2) NOT NULL, -- actual amount owed this month, pro-rated for first month, = monthly_fee thereafter
     amount_paid DECIMAL(10,2) DEFAULT 0,
     amount_discount DECIMAL(10,2) DEFAULT 0,
     payment_status VARCHAR(20) DEFAULT 'pending'
@@ -245,7 +227,7 @@ CREATE TABLE fee_transactions (
 CREATE INDEX idx_transactions_invoice ON fee_transactions(student_invoice_id);
 CREATE INDEX idx_transactions_date ON fee_transactions(payment_date DESC);
 
--- Monthly expenses per center per category (exact categories from requirements)
+-- Monthly center expenses per category
 CREATE TABLE center_expenses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE NOT NULL,
@@ -283,9 +265,7 @@ CREATE INDEX idx_salaries_center ON staff_salaries(center_id);
 CREATE INDEX idx_salaries_month ON staff_salaries(month_year);
 
 
--- ============================================================
 -- SECTION 6: ATTENDANCE
--- ============================================================
 
 -- Student attendance marked by teacher. Radio button: present/absent only.
 CREATE TABLE attendance (
@@ -311,9 +291,9 @@ CREATE TABLE staff_attendance (
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
     attendance_date DATE NOT NULL,
-    status VARCHAR(20) NOT NULL CHECK (status IN ('present','absent')),
+    status VARCHAR(20) NOT NULL CHECK (status IN ('present','absent','partial')),
     in_time TIME,
-    out_time TIME,
+    out_time TIME,   -- late arrival or early departure captured here
     marked_by UUID REFERENCES users(id) ON DELETE SET NULL,
     marked_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(user_id, center_id, attendance_date)
@@ -324,9 +304,7 @@ CREATE INDEX idx_staff_attendance_center ON staff_attendance(center_id);
 CREATE INDEX idx_staff_attendance_date ON staff_attendance(attendance_date DESC);
 
 
--- ============================================================
 -- SECTION 7: CONTENT
--- ============================================================
 
 -- Learning content (YouTube / Google Drive links) per batch.
 -- Students can only see published content for their enrolled batches.
@@ -362,9 +340,7 @@ CREATE INDEX idx_progress_student ON content_progress(student_id);
 CREATE INDEX idx_progress_content ON content_progress(content_id);
 
 
--- ============================================================
 -- SECTION 8: ASSESSMENTS
--- ============================================================
 
 -- Offline exams, marks entered manually by teacher.
 CREATE TABLE exams (
@@ -401,9 +377,7 @@ CREATE INDEX idx_marks_student ON student_marks(student_id);
 CREATE INDEX idx_marks_exam ON student_marks(exam_id);
 
 
--- ============================================================
 -- SECTION 9: REWARDS
--- ============================================================
 
 -- Immutable log of all point events.
 -- Positive = earned, negative = redeemed against invoice (amount_discount).
@@ -456,9 +430,7 @@ CREATE INDEX idx_reminders_next_date ON revision_reminders(next_reminder_date)
     WHERE is_active = TRUE;
 
 
--- ============================================================
 -- SECTION 10: COMMUNICATION
--- ============================================================
 
 -- Meeting requests raised by students, assigned to centre_head or teacher.
 CREATE TABLE meeting_requests (
@@ -478,9 +450,7 @@ CREATE INDEX idx_meetings_student ON meeting_requests(student_id);
 CREATE INDEX idx_meetings_assigned ON meeting_requests(assigned_to);
 
 
--- ============================================================
 -- SECTION 11: STUDENT OF THE MONTH
--- ============================================================
 
 -- One winner per center per class level per month.
 -- Manually declared by centre_head or CEO.
@@ -502,9 +472,7 @@ CREATE INDEX idx_sotm_student ON student_of_the_month(student_id);
 CREATE INDEX idx_sotm_month ON student_of_the_month(month_year DESC);
 
 
--- ============================================================
 -- SECTION 12: FUNCTIONS & TRIGGERS
--- ============================================================
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
@@ -581,6 +549,7 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_generate_receipt_number
     BEFORE INSERT ON fee_transactions FOR EACH ROW EXECUTE FUNCTION generate_receipt_number();
 
+-- FEE MANAGEMENT
 -- Recalculate invoice amount_paid and payment_status after every payment INSERT.
 -- Uses variables to avoid stale-value bug in CASE expressions.
 CREATE OR REPLACE FUNCTION update_invoice_status()
@@ -610,9 +579,47 @@ END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_fee_payment
-    AFTER INSERT ON fee_transactions FOR EACH ROW EXECUTE FUNCTION update_invoice_status();
+    AFTER INSERT ON fee_transactions
+    FOR EACH ROW EXECUTE FUNCTION update_invoice_status();
 
--- Flip pending/partial invoices to overdue daily at midnight.
+-- Monthly invoices created automatically
+SELECT cron.schedule('create-monthly-invoices', '0 1 1 * *', $$
+    INSERT INTO student_invoices (
+        student_id,
+        batch_id,
+        month_year,
+        monthly_fee,
+        amount_due
+    )
+    SELECT
+        si.student_id,
+        si.batch_id,
+        DATE_TRUNC('month', CURRENT_DATE)::DATE AS month_year,
+        si.monthly_fee,
+        si.monthly_fee AS amount_due  -- full fee, no pro-rating for recurring months
+    FROM student_invoices si
+    JOIN student_batch_enrollments sbe
+        ON sbe.student_id = si.student_id
+        AND sbe.batch_id = si.batch_id
+    WHERE sbe.is_active = TRUE
+    -- most recent invoice per student+batch
+    AND si.month_year = (
+        SELECT MAX(si2.month_year)
+        FROM student_invoices si2
+        WHERE si2.student_id = si.student_id
+        AND si2.batch_id = si.batch_id
+    )
+    -- don't create if this month already exists
+    AND NOT EXISTS (
+        SELECT 1 FROM student_invoices si3
+        WHERE si3.student_id = si.student_id
+        AND si3.batch_id = si.batch_id
+        AND si3.month_year = DATE_TRUNC('month', CURRENT_DATE)::DATE
+    )
+    ON CONFLICT (student_id, batch_id, month_year) DO NOTHING;
+$$);
+
+-- Automatically mark dues for the previous months
 SELECT cron.schedule('mark-overdue', '0 0 * * *', $$
     UPDATE student_invoices
     SET payment_status = 'overdue', updated_at = NOW()
@@ -738,9 +745,7 @@ CREATE TRIGGER trg_validate_marks
     FOR EACH ROW EXECUTE FUNCTION validate_marks();
 
 
--- ============================================================
 -- SECTION 13: VIEWS
--- ============================================================
 
 -- Net profit per center per month.
 -- UNION calendar ensures months with expenses but no revenue still appear.
@@ -1001,12 +1006,8 @@ JOIN users awarder ON awarder.id = sotm.awarded_by
 ORDER BY sotm.month_year DESC, c.center_name, sotm.class_level;
 
 
--- ============================================================
 -- SECTION 14: ROW LEVEL SECURITY
--- ============================================================
 
--- Returns current user's role. NULL for unapproved/inactive users.
--- is_active = TRUE gate blocks all pending approvals from every policy.
 CREATE OR REPLACE FUNCTION get_my_role()
 RETURNS TEXT AS $$
     SELECT r.role_name
@@ -1016,7 +1017,6 @@ RETURNS TEXT AS $$
     AND u.is_active = TRUE;
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
--- Returns center UUIDs assigned to current user. Used in all center-scoped policies.
 CREATE OR REPLACE FUNCTION get_my_center_ids()
 RETURNS UUID[] AS $$
     SELECT ARRAY_AGG(center_id)
@@ -1025,35 +1025,31 @@ RETURNS UUID[] AS $$
     AND is_active = TRUE;
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
--- Enable RLS on all tables
-ALTER TABLE users                    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_active_sessions     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_approval_requests   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_center_assignments  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE centers                  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE batches                  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE students                 ENABLE ROW LEVEL SECURITY;
+-- Enable RLS
+ALTER TABLE users                     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_active_sessions      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_approval_requests    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_center_assignments   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE centers                   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE batches                   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE students                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_batch_enrollments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE fee_structures           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE student_invoices         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE fee_transactions         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE center_expenses          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE staff_salaries           ENABLE ROW LEVEL SECURITY;
-ALTER TABLE attendance               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE staff_attendance         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE content                  ENABLE ROW LEVEL SECURITY;
-ALTER TABLE content_progress         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE exams                    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE student_marks            ENABLE ROW LEVEL SECURITY;
-ALTER TABLE points_transactions      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE revision_reminders       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_invoices          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE fee_transactions          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE center_expenses           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE staff_salaries            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE staff_attendance          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE content                   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE content_progress          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exams                     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_marks             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE points_transactions       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE revision_reminders        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE meeting_requests          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE student_of_the_month     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_of_the_month      ENABLE ROW LEVEL SECURITY;
 
--- ─────────────────────────────────────────
--- CEO: full access everywhere
--- fee_transactions: SELECT only (immutable audit trail)
--- ─────────────────────────────────────────
+-- CEO: full access. fee_transactions: SELECT only (immutable)
 CREATE POLICY "ceo_all" ON users                     FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON user_active_sessions      FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON user_approval_requests    FOR ALL    USING (get_my_role() = 'ceo');
@@ -1062,7 +1058,6 @@ CREATE POLICY "ceo_all" ON centers                   FOR ALL    USING (get_my_ro
 CREATE POLICY "ceo_all" ON batches                   FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON students                  FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON student_batch_enrollments FOR ALL    USING (get_my_role() = 'ceo');
-CREATE POLICY "ceo_all" ON fee_structures            FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON student_invoices          FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_sel" ON fee_transactions          FOR SELECT USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON center_expenses           FOR ALL    USING (get_my_role() = 'ceo');
@@ -1076,11 +1071,9 @@ CREATE POLICY "ceo_all" ON student_marks             FOR ALL    USING (get_my_ro
 CREATE POLICY "ceo_all" ON points_transactions       FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON revision_reminders        FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON meeting_requests          FOR ALL    USING (get_my_role() = 'ceo');
-CREATE POLICY "ceo_all" ON student_of_the_month     FOR ALL    USING (get_my_role() = 'ceo');
+CREATE POLICY "ceo_all" ON student_of_the_month      FOR ALL    USING (get_my_role() = 'ceo');
 
--- ─────────────────────────────────────────
--- CENTRE HEAD: scoped to their assigned centers
--- ─────────────────────────────────────────
+-- CENTRE HEAD: scoped to assigned centers
 CREATE POLICY "ch_centers" ON centers
     FOR SELECT USING (id = ANY(get_my_center_ids()));
 
@@ -1119,16 +1112,6 @@ CREATE POLICY "ch_enrollments" ON student_batch_enrollments
         AND EXISTS (
             SELECT 1 FROM batches b
             WHERE b.id = student_batch_enrollments.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
-        )
-    );
-
-CREATE POLICY "ch_fee_structures" ON fee_structures
-    FOR ALL USING (
-        get_my_role() = 'centre_head'
-        AND EXISTS (
-            SELECT 1 FROM batches b
-            WHERE b.id = fee_structures.batch_id
             AND b.center_id = ANY(get_my_center_ids())
         )
     );
@@ -1214,10 +1197,8 @@ CREATE POLICY "ch_sotm" ON student_of_the_month
         AND center_id = ANY(get_my_center_ids())
     );
 
--- ─────────────────────────────────────────
 -- ACCOUNTANT: fees, expenses, salaries for their centers
--- fee_transactions: INSERT + SELECT only (no modify/delete)
--- ─────────────────────────────────────────
+-- fee_transactions: INSERT + SELECT only (immutable)
 CREATE POLICY "acc_invoices" ON student_invoices
     FOR ALL USING (
         get_my_role() = 'accountant'
@@ -1250,16 +1231,6 @@ CREATE POLICY "acc_view_transactions" ON fee_transactions
         )
     );
 
-CREATE POLICY "acc_fee_structures" ON fee_structures
-    FOR SELECT USING (
-        get_my_role() = 'accountant'
-        AND EXISTS (
-            SELECT 1 FROM batches b
-            WHERE b.id = fee_structures.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
-        )
-    );
-
 CREATE POLICY "acc_expenses" ON center_expenses
     FOR ALL USING (
         get_my_role() = 'accountant'
@@ -1272,9 +1243,7 @@ CREATE POLICY "acc_salaries" ON staff_salaries
         AND center_id = ANY(get_my_center_ids())
     );
 
--- ─────────────────────────────────────────
--- TEACHER: attendance and content for their centers
--- ─────────────────────────────────────────
+-- TEACHER: attendance, content, exams, marks for their centers
 CREATE POLICY "teacher_attendance" ON attendance
     FOR ALL USING (
         get_my_role() = 'teacher'
@@ -1316,9 +1285,7 @@ CREATE POLICY "teacher_marks" ON student_marks
         )
     );
 
--- ─────────────────────────────────────────
 -- STUDENT: own data only
--- ─────────────────────────────────────────
 CREATE POLICY "student_profile" ON students
     FOR SELECT USING (user_id = auth.uid());
 
@@ -1392,14 +1359,9 @@ CREATE POLICY "student_sotm" ON student_of_the_month
 CREATE POLICY "student_approval_status" ON user_approval_requests
     FOR SELECT USING (user_id = auth.uid());
 
--- ─────────────────────────────────────────
 -- ALL AUTHENTICATED USERS
--- ─────────────────────────────────────────
-
--- Every user manages their own session (FCM token updates, last_active_at)
 CREATE POLICY "own_session" ON user_active_sessions
     FOR ALL USING (user_id = auth.uid());
 
--- Every user views their own center assignments
 CREATE POLICY "own_uca" ON user_center_assignments
     FOR SELECT USING (user_id = auth.uid());
