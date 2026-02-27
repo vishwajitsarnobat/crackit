@@ -57,31 +57,6 @@ CREATE TABLE user_active_sessions (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Approval inbox.
--- CEO approves: centre_head, accountant (center_id = NULL)
--- Centre head approves: teacher, student (center_id = their center)
-CREATE TABLE user_approval_requests (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,  -- NULL for CEO-level approvals
-    requested_role VARCHAR(50) NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending'
-        CHECK (status IN ('pending','approved','rejected')),
-    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    reviewed_at TIMESTAMPTZ,
-    rejection_reason TEXT,
-    applicant_note TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- Only one pending request per user at a time. Rejected users can re-apply.
-CREATE UNIQUE INDEX idx_one_pending_per_user
-    ON user_approval_requests(user_id) WHERE status = 'pending';
-
-CREATE INDEX idx_approval_status ON user_approval_requests(status);
-CREATE INDEX idx_approval_center ON user_approval_requests(center_id);
-
 
 -- SECTION 2: CENTERS
 
@@ -112,6 +87,30 @@ CREATE TABLE user_center_assignments (
 CREATE INDEX idx_uca_user ON user_center_assignments(user_id);
 CREATE INDEX idx_uca_center ON user_center_assignments(center_id);
 
+-- Approval inbox, adding under centers because centers need to be defined before this.
+-- CEO approves: centre_head, accountant (center_id = NULL)
+-- Centre head approves: teacher, student (center_id = their center)
+CREATE TABLE user_approval_requests (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,  -- NULL for CEO-level approvals
+    requested_role VARCHAR(50) NOT NULL,
+    status VARCHAR(20) DEFAULT 'pending'
+        CHECK (status IN ('pending','approved','rejected')),
+    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at TIMESTAMPTZ,
+    rejection_reason TEXT,
+    applicant_note TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Only one pending request per user at a time. Rejected users can re-apply.
+CREATE UNIQUE INDEX idx_one_pending_per_user
+    ON user_approval_requests(user_id) WHERE status = 'pending';
+
+CREATE INDEX idx_approval_status ON user_approval_requests(status);
+CREATE INDEX idx_approval_center ON user_approval_requests(center_id);
 
 -- SECTION 3: ACADEMIC STRUCTURE
 

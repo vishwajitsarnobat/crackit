@@ -1,7 +1,7 @@
 # Crack It Coaching Institute — Database Documentation
-**Version:** 3.1 (Feb 2026)
+**Version:** 3.2 (Feb 2026)
 **Database:** PostgreSQL 14+ (Supabase)
-**Tables:** 25 | **Views:** 11 | **Triggers:** 15
+**Tables:** 24 | **Views:** 11 | **Triggers:** 15
 
 ---
 
@@ -28,7 +28,6 @@ auth.users (Supabase managed)
             └── user_center_assignments
                         └── centers
                                 └── batches
-                                        ├── fee_structures
                                         ├── student_batch_enrollments → students
                                         ├── attendance
                                         ├── content → content_progress
@@ -121,23 +120,47 @@ User registers → users.is_active = FALSE
 
 | Table | Purpose |
 |-------|---------|
-| `fee_structures` | Monthly fee amount per batch |
-| `student_invoices` | One invoice per student per batch per month |
+| `student_invoices` | One invoice per student per batch per month. Contains both `monthly_fee` and `amount_due` |
 | `fee_transactions` | Immutable payment log. Never updated or deleted |
 | `center_expenses` | Monthly expenses per center per category |
 | `staff_salaries` | Staff salary per person per center per month |
 
+**No `fee_structures` table** — fees are not fixed per batch. The accountant manually enters the fee at admission time directly into the first invoice. All future invoices are derived from it.
+
+**Key distinction on `student_invoices`:**
+- `monthly_fee` — the full standard recurring amount. Set by accountant at admission. This is what the cron reads to create next month's invoice. Accountant updates this on the current month's invoice to change fees going forward.
+- `amount_due` — what is actually owed this specific month. Pro-rated (smaller) for month 1. Equal to `monthly_fee` for all subsequent months.
+- `amount_discount` — reward point redemptions applied against this invoice.
+
 **Invoice lifecycle:**
 ```
-Accountant creates invoice on enrollment (amount_due set by app, pro-rated for first month)
-    → Student pays → fee_transactions INSERT
-    → Trigger recalculates amount_paid and payment_status
-    → Cron job (midnight daily) flips pending/partial past month_year → overdue
+Admission
+  → Accountant creates first invoice manually
+  → Sets monthly_fee = 1000 (full recurring amount)
+  → Sets amount_due = 500  (pro-rated for remaining days in month)
+
+1st of every following month — cron fires at 01:00
+  → Reads monthly_fee from most recent invoice per student+batch
+  → Creates new invoice: amount_due = monthly_fee (full, no pro-rating)
+  → Skips if invoice for this month already exists (ON CONFLICT DO NOTHING)
+
+Accountant wants to change fee from month 4 onwards
+  → Updates monthly_fee on month 3's invoice to 1200
+  → Cron on 1st of month 4 reads monthly_fee = 1200
+  → New invoice: amount_due = 1200
+
+Student pays → fee_transactions INSERT
+  → trg_fee_payment fires
+  → Re-sums all transactions for the invoice
+  → Updates amount_paid and payment_status
+
+Daily midnight cron
+  → Flips pending/partial invoices past month_year → overdue
 ```
 
-**`update_invoice_status()` trigger** uses variables to avoid stale-value bug — re-sums all transactions for the invoice, then determines status.
+**`update_invoice_status()` trigger** uses variables to avoid stale-value bug — re-sums all `fee_transactions` for the invoice from scratch rather than adding incrementally, then derives status cleanly.
 
-**`fee_transactions` immutability** — CEO gets SELECT only. Accountant gets INSERT + SELECT only. No role can UPDATE or DELETE.
+**`fee_transactions` immutability** — CEO: SELECT only. Accountant: INSERT + SELECT only. No role can UPDATE or DELETE. Corrections are handled as new transactions.
 
 **Expense categories (exact per requirements):** `rent`, `electricity_bill`, `stationery`, `internet_bill`, `miscellaneous`
 
@@ -156,6 +179,11 @@ Accountant creates invoice on enrollment (amount_due set by app, pro-rated for f
 - Teacher marks student attendance
 - Centre Head marks teacher attendance
 - CEO marks centre_head attendance
+
+**`staff_attendance.status`** has three values:
+- `present` — arrived on time, left on time
+- `absent` — did not come
+- `partial` — came late or left early; exact times captured in `in_time` / `out_time`
 
 **`staff_attendance` UNIQUE** on `(user_id, center_id, attendance_date)` — center_id included because a teacher assigned to two centers can have entries for both on the same date.
 
@@ -300,30 +328,35 @@ content_progress.is_completed → TRUE
 
 | Job | Schedule | Does |
 |-----|----------|------|
+| `create-monthly-invoices` | 1st of every month at 01:00 | For every active enrollment, creates next month's invoice using `monthly_fee` from the most recent invoice. Skips if invoice already exists |
 | `mark-overdue` | Daily midnight | Flips `pending`/`partial` invoices past `month_year` to `overdue` |
 
 ---
 
 ## Key Design Decisions
 
-1. **Fees are per batch, not per course** — allows premium vs standard batches for the same course at different prices.
+1. **No `fee_structures` table** — fees are not fixed per batch or course. The accountant manually enters the fee at admission. `monthly_fee` on `student_invoices` serves as the recurring reference; the cron reads it to create next month's invoice. Accountant changes future fees by updating `monthly_fee` on the current month's invoice.
 
-2. **`fee_transactions` is append-only** — financial integrity. Corrections handled as new transactions (credit entries). No role can UPDATE or DELETE.
+2. **`monthly_fee` vs `amount_due` on invoices** — `monthly_fee` is the standard recurring amount. `amount_due` is what's actually owed for that specific month — pro-rated (smaller) for month 1, equal to `monthly_fee` thereafter. Keeping them separate allows the cron to always use the correct full amount while month 1 stays accurately pro-rated.
 
-3. **`is_active = FALSE` default on users** — entire approval flow relies on this single flag. `get_my_role()` gates on it, so unapproved users are silently blocked from all RLS policies without any extra checks.
+3. **`fee_transactions` is append-only** — financial integrity. Corrections handled as new transactions (credit entries). No role can UPDATE or DELETE.
 
-4. **No summary/cache tables** — `attendance_summary` removed. All reports computed at runtime from source tables. Keeps the schema lean and eliminates trigger/cache sync complexity. Re-evaluate only if performance becomes a problem at scale.
+4. **`is_active = FALSE` default on users** — entire approval flow relies on this single flag. `get_my_role()` gates on it, so unapproved users are silently blocked from all RLS policies without any extra checks.
 
-5. **No notifications table** — Firebase owns push delivery. In-app notification badges query source tables directly (count of pending invoices, pending approvals etc.). Eliminates a whole table plus scheduling complexity.
+5. **No summary/cache tables** — `attendance_summary` removed. All reports computed at runtime from source tables. Keeps the schema lean and eliminates trigger/cache sync complexity. Re-evaluate only if performance becomes a problem at scale.
 
-6. **Parent and student share one account** — single device login via `user_active_sessions`. FCM token on that session receives both student-facing and parent-facing push notifications.
+6. **No notifications table** — Firebase owns push delivery. In-app notification badges query source tables directly (count of pending invoices, pending approvals etc.). Eliminates a whole table plus scheduling complexity.
 
-7. **`withdrawn_at` on enrollments** — needed to calculate dropout rate. Without it, you only know a student withdrew, not when.
+7. **Parent and student share one account** — single device login via `user_active_sessions`. FCM token on that session receives both student-facing and parent-facing push notifications.
 
-8. **`get_my_center_ids()` returns `UUID[]`** — used with `= ANY(...)` instead of `EXISTS` subqueries into `user_center_assignments`. This avoids recursive RLS evaluation on that table.
+8. **`staff_attendance.status = 'partial'`** — late arrival and early departure are both represented by a single `partial` status. The exact detail is captured in `in_time` and `out_time`. Two separate statuses would add no information beyond what the times already tell you.
 
-9. **`revision_reminders.next_reminder_date` partial index** — `WHERE is_active = TRUE` means the cron/backend job that polls for today's reminders scans only active rows, not the full history.
+9. **`withdrawn_at` on enrollments** — needed to calculate dropout rate. Without it, you only know a student withdrew, not when.
 
-10. **`points_transactions.reason` is a CHECK constraint** — locks the reward categories to exactly what was specified. Adding a new reward type requires a schema migration, which is intentional — keeps reward logic auditable.
+10. **`get_my_center_ids()` returns `UUID[]`** — used with `= ANY(...)` instead of `EXISTS` subqueries into `user_center_assignments`. This avoids recursive RLS evaluation on that table.
 
-11. **`student_of_the_month` uses a UNIQUE constraint, not a flag** — `UNIQUE(center_id, class_level, month_year)` enforces the one-winner rule at the DB level. No application logic needed to guard against duplicates. Reassigning requires an `UPDATE` on the existing row, which also preserves the audit trail of who originally awarded it.
+11. **`revision_reminders.next_reminder_date` partial index** — `WHERE is_active = TRUE` means the cron/backend job that polls for today's reminders scans only active rows, not the full history.
+
+12. **`points_transactions.reason` is a CHECK constraint** — locks the reward categories to exactly what was specified. Adding a new reward type requires a schema migration, which is intentional — keeps reward logic auditable.
+
+13. **`student_of_the_month` uses a UNIQUE constraint, not a flag** — `UNIQUE(center_id, class_level, month_year)` enforces the one-winner rule at the DB level. No application logic needed to guard against duplicates. Reassigning requires an `UPDATE` on the existing row, which also preserves the audit trail of who originally awarded it.
