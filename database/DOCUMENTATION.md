@@ -1,7 +1,7 @@
 # Crack It Coaching Institute — Database Documentation
-**Version:** 3.0
+**Version:** 3.1 (Feb 2026)
 **Database:** PostgreSQL 14+ (Supabase)
-**Tables:** 24 | **Views:** 8 | **Triggers:** 15
+**Tables:** 25 | **Views:** 11 | **Triggers:** 15
 
 ---
 
@@ -38,7 +38,8 @@ students
     ├── student_invoices → fee_transactions
     ├── points_transactions
     ├── revision_reminders → content
-    └── meeting_requests
+    ├── meeting_requests
+    └── student_of_the_month ← centers
 
 centers
     ├── center_expenses
@@ -230,6 +231,23 @@ content_progress.is_completed → TRUE
 
 ---
 
+### Section 11 — Student of the Month
+
+| Table | Purpose |
+|-------|---------|
+| `student_of_the_month` | Manually declared award. One winner per center per class level per month |
+
+**Key constraints:**
+- `UNIQUE(center_id, class_level, month_year)` — makes it structurally impossible to declare two winners for the same class at the same center in the same month. Reassigning a winner requires an `UPDATE`, not a new `INSERT`.
+- `awarded_by` references the user who made the declaration (centre_head or CEO).
+
+**RLS:**
+- CEO: full access
+- Centre head: full access scoped to their assigned centers
+- Student: SELECT own awards only
+
+---
+
 ## Views Reference
 
 | View | Purpose |
@@ -244,6 +262,7 @@ content_progress.is_completed → TRUE
 | `v_student_performance_report` | Exam marks with percentage, grade, rank per batch. Only published results visible |
 | `v_monthly_dropout_rate` | Withdrawals per batch per month with dropout % |
 | `v_fee_collection_analytics` | Monthly + annual fee collection with cash vs online breakdown |
+| `v_student_of_the_month` | All declared winners across all centers, ordered by month and class level |
 
 ---
 
@@ -252,10 +271,10 @@ content_progress.is_completed → TRUE
 | Role | Scope |
 |------|-------|
 | `ceo` | Full access to all tables. `fee_transactions`: SELECT only |
-| `centre_head` | All data within assigned centers. Manages approvals for teachers/students |
+| `centre_head` | All data within assigned centers. Manages approvals for teachers/students. Declares student of the month for their centers |
 | `accountant` | Invoices, transactions (INSERT+SELECT only), expenses, salaries for assigned centers |
 | `teacher` | Attendance, content, exams, marks for batches in assigned centers |
-| `student` | Own profile, own enrollments, own invoices, published content, published exam results, own points, own reminders |
+| `student` | Own profile, own enrollments, own invoices, published content, published exam results, own points, own reminders, own awards |
 | All users | Own session (`user_active_sessions`), own center assignments (SELECT), own approval request status |
 
 ---
@@ -306,3 +325,5 @@ content_progress.is_completed → TRUE
 9. **`revision_reminders.next_reminder_date` partial index** — `WHERE is_active = TRUE` means the cron/backend job that polls for today's reminders scans only active rows, not the full history.
 
 10. **`points_transactions.reason` is a CHECK constraint** — locks the reward categories to exactly what was specified. Adding a new reward type requires a schema migration, which is intentional — keeps reward logic auditable.
+
+11. **`student_of_the_month` uses a UNIQUE constraint, not a flag** — `UNIQUE(center_id, class_level, month_year)` enforces the one-winner rule at the DB level. No application logic needed to guard against duplicates. Reassigning requires an `UPDATE` on the existing row, which also preserves the audit trail of who originally awarded it.
