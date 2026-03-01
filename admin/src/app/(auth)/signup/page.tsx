@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 type Role = 'ceo' | 'centre_head' | 'teacher' | 'accountant'
 type Center = { id: string; center_name: string }
@@ -45,7 +46,6 @@ export default function SignupPage() {
   const [role, setRole] = useState<Role>('centre_head')
   const [centers, setCenters] = useState<Center[]>([])
   const [centerId, setCenterId] = useState('')
-  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
 
@@ -54,6 +54,7 @@ export default function SignupPage() {
       setCenterId('')
       return
     }
+
     supabase
       .from('centers')
       .select('id, center_name')
@@ -68,22 +69,38 @@ export default function SignupPage() {
       .select('id')
       .eq('role_name', roleName)
       .single()
+
     return data!.id
   }
 
   async function handleSignup() {
-    setError('')
-    if (!fullName.trim()) return setError('Full name is required.')
-    if (!email) return setError('Email is required.')
-    if (password.length < 8) return setError('Password must be at least 8 characters.')
-    if (CENTER_ROLES.includes(role) && !centerId) return setError('Please select a centre.')
+    if (!fullName.trim()) {
+      toast.error('Full name is required.')
+      return
+    }
+
+    if (!email) {
+      toast.error('Email is required.')
+      return
+    }
+
+    if (password.length < 8) {
+      toast.error('Password must be at least 8 characters.')
+      return
+    }
+
+    if (CENTER_ROLES.includes(role) && !centerId) {
+      toast.error('Please select a centre.')
+      return
+    }
 
     setLoading(true)
 
-    const { data: authData, error: authError } = await supabase.auth.signUp({ email, password })
+    const { data: authData, error: authError } =
+      await supabase.auth.signUp({ email, password })
 
     if (authError || !authData.user) {
-      setError(authError?.message ?? 'Signup failed.')
+      toast.error(authError?.message ?? 'Signup failed.')
       setLoading(false)
       return
     }
@@ -98,23 +115,25 @@ export default function SignupPage() {
     })
 
     if (userError) {
-      setError(userError.message)
+      toast.error(userError.message)
       setLoading(false)
       return
     }
 
-    const { error: approvalError } = await supabase.from('user_approval_requests').insert({
-      user_id: userId,
-      requested_role: role,
-      center_id: CENTER_ROLES.includes(role) ? centerId : null,
-    })
+    const { error: approvalError } =
+      await supabase.from('user_approval_requests').insert({
+        user_id: userId,
+        requested_role: role,
+        center_id: CENTER_ROLES.includes(role) ? centerId : null,
+      })
 
     if (approvalError) {
-      setError(approvalError.message)
+      toast.error(approvalError.message)
       setLoading(false)
       return
     }
 
+    toast.success('Request submitted for approval.')
     setDone(true)
     setLoading(false)
   }
@@ -126,7 +145,9 @@ export default function SignupPage() {
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent/10">
             <CheckCircle2 className="h-7 w-7 text-accent" />
           </div>
-          <h2 className="font-serif text-2xl tracking-tight">Request submitted</h2>
+          <h2 className="font-serif text-2xl tracking-tight">
+            Request submitted
+          </h2>
           <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
             Your account is pending approval. You will be able to sign in once an administrator approves your request.
           </p>
@@ -140,7 +161,6 @@ export default function SignupPage() {
 
   return (
     <div className="w-full max-w-[420px]">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="font-serif text-3xl tracking-tight text-foreground">
           Request access
@@ -150,7 +170,6 @@ export default function SignupPage() {
         </p>
       </div>
 
-      {/* Card */}
       <div className="rounded-2xl border bg-card p-8 shadow-sm">
         <div className="space-y-5">
 
@@ -220,7 +239,9 @@ export default function SignupPage() {
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">{ROLE_DESCRIPTIONS[role]}</p>
+            <p className="text-xs text-muted-foreground">
+              {ROLE_DESCRIPTIONS[role]}
+            </p>
           </div>
 
           {CENTER_ROLES.includes(role) && (
@@ -232,7 +253,9 @@ export default function SignupPage() {
                 </SelectTrigger>
                 <SelectContent>
                   {centers.length === 0 ? (
-                    <SelectItem value="none" disabled>No centres found</SelectItem>
+                    <SelectItem value="none" disabled>
+                      No centres found
+                    </SelectItem>
                   ) : (
                     centers.map(c => (
                       <SelectItem key={c.id} value={c.id}>
@@ -242,12 +265,6 @@ export default function SignupPage() {
                   )}
                 </SelectContent>
               </Select>
-            </div>
-          )}
-
-          {error && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3">
-              <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
 

@@ -9,36 +9,42 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
 import { Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function LoginPage() {
   const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleLogin() {
-    if (!email || !password) return setError('Please fill in all fields.')
-    setError('')
+    if (!email || !password) {
+      toast.error('Please fill in all fields.')
+      return
+    }
+
     setLoading(true)
 
     const supabase = createClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    })
 
     if (error) {
-      setError(error.message)
+      toast.error('Incorrect email or password.')
       setLoading(false)
       return
     }
 
+    toast.success('Welcome back.')
     router.push('/dashboard')
     router.refresh()
   }
 
   return (
     <div className="w-full max-w-[420px]">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="font-serif text-3xl tracking-tight text-foreground">
           Welcome back
@@ -48,7 +54,6 @@ export default function LoginPage() {
         </p>
       </div>
 
-      {/* Card */}
       <div className="rounded-2xl border bg-card p-8 shadow-sm">
         <div className="space-y-5">
 
@@ -95,12 +100,6 @@ export default function LoginPage() {
               </button>
             </div>
           </div>
-
-          {error && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3">
-              <p className="text-sm text-destructive">{error}</p>
-            </div>
-          )}
 
           <Button
             className="w-full h-11 font-medium"

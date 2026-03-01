@@ -7,30 +7,38 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 export default function SetPasswordPage() {
   const router = useRouter()
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [showPassword, setShowPassword] = useState(false)
-  const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleSetPassword() {
-    setError('')
-    if (password.length < 8) return setError('Password must be at least 8 characters.')
-    if (password !== confirm) return setError('Passwords do not match.')
+    if (password.length < 8) {
+      toast.error('Password must be at least 8 characters.')
+      return
+    }
+
+    if (password !== confirm) {
+      toast.error('Passwords do not match.')
+      return
+    }
 
     setLoading(true)
+
     const supabase = createClient()
     const { error } = await supabase.auth.updateUser({ password })
 
     if (error) {
-      setError(error.message)
+      toast.error(error.message)
       setLoading(false)
       return
     }
 
+    toast.success('Account activated.')
     router.push('/dashboard')
     router.refresh()
   }
@@ -88,7 +96,6 @@ export default function SetPasswordPage() {
             />
           </div>
 
-          {/* Subtle password strength indicator */}
           {password.length > 0 && (
             <div className="space-y-1.5">
               <div className="flex gap-1">
@@ -114,12 +121,6 @@ export default function SetPasswordPage() {
                   ? 'Acceptable'
                   : 'Strong'}
               </p>
-            </div>
-          )}
-
-          {error && (
-            <div className="rounded-lg bg-destructive/10 border border-destructive/20 px-4 py-3">
-              <p className="text-sm text-destructive">{error}</p>
             </div>
           )}
 
