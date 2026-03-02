@@ -33,7 +33,30 @@ export default function LoginPage() {
     })
 
     if (error) {
-      toast.error('Incorrect email or password.')
+      toast.error(error.message || 'Incorrect email or password.')
+      setLoading(false)
+      return
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (!user) {
+      toast.error('Could not verify your account. Please try again.')
+      setLoading(false)
+      return
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('users')
+      .select('is_active')
+      .eq('id', user.id)
+      .single()
+
+    if (profileError || !profile?.is_active) {
+      await supabase.auth.signOut()
+      toast.error('Your account is pending approval.')
       setLoading(false)
       return
     }

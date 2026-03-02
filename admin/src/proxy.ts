@@ -30,14 +30,30 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
     pathname.startsWith('/set-password') ||
-    pathname.startsWith('/auth')
+    pathname.startsWith('/auth') ||
+    pathname.startsWith('/api/auth/signup')
 
   if (!user && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  if (user && isPublic) {
+  let isApprovedUser = false
+  if (user) {
+    const { data: profile } = await supabase
+      .from('users')
+      .select('is_active')
+      .eq('id', user.id)
+      .single()
+
+    isApprovedUser = profile?.is_active === true
+  }
+
+  if (user && isApprovedUser && isPublic) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
+  }
+
+  if (user && !isApprovedUser && !isPublic) {
+    return NextResponse.redirect(new URL('/login', request.url))
   }
 
   return supabaseResponse

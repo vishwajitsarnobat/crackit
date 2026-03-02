@@ -1,4 +1,4 @@
-# Crack It Coaching Institute — Database Documentation
+# Crack It Coaching Institute - Database Documentation
 **Version:** 3.2 (Feb 2026)
 **Database:** PostgreSQL 14+ (Supabase)
 **Tables:** 24 | **Views:** 11 | **Triggers:** 15
@@ -7,13 +7,13 @@
 
 ## Design Principles
 
-- **3NF** — no redundant data stored; summaries computed at runtime via views
-- **UUID primary keys** — unguessable, scalable
-- **RLS enforced at DB level** — two helper functions (`get_my_role`, `get_my_center_ids`) power all policies
-- **Triggers handle computed state** — receipt numbers, student codes, invoice status, revision reminders
-- **No notifications table** — Firebase handles push delivery; app queries source tables for badge counts
-- **No attendance_summary table** — queried at runtime; acceptable at this scale
-- **Single device login** — `user_active_sessions` is 1 row per user (PK = user_id)
+- **3NF** - no redundant data stored; summaries computed at runtime via views
+- **UUID primary keys** - unguessable, scalable
+- **RLS enforced at DB level** - two helper functions (`get_my_role`, `get_my_centre_ids`) power all policies
+- **Triggers handle computed state** - receipt numbers, student codes, invoice status, revision reminders
+- **No notifications table** - Firebase handles push delivery; app queries source tables for badge counts
+- **No attendance_summary table** - queried at runtime; acceptable at this scale
+- **Single device login** - `user_active_sessions` is 1 row per user (PK = user_id)
 
 ---
 
@@ -25,8 +25,8 @@ auth.users (Supabase managed)
             ├── roles
             ├── user_active_sessions   (FCM token for push)
             ├── user_approval_requests (approval inbox)
-            └── user_center_assignments
-                        └── centers
+            └── user_centre_assignments
+                        └── centres
                                 └── batches
                                         ├── student_batch_enrollments → students
                                         ├── attendance
@@ -38,10 +38,10 @@ students
     ├── points_transactions
     ├── revision_reminders → content
     ├── meeting_requests
-    └── student_of_the_month ← centers
+    └── student_of_the_month ← centres
 
-centers
-    ├── center_expenses
+centres
+    ├── centre_expenses
     ├── staff_salaries
     └── staff_attendance
 ```
@@ -52,7 +52,7 @@ centers
 
 ---
 
-### Section 1 — Identity & Roles
+### Section 1 - Identity & Roles
 
 | Table | Purpose |
 |-------|---------|
@@ -71,35 +71,35 @@ User registers → users.is_active = FALSE
              → Backend flips users.is_active = TRUE
 ```
 
-**Partial unique index** on `user_approval_requests(user_id) WHERE status = 'pending'` — prevents duplicate pending requests but allows re-application after rejection.
+**Partial unique index** on `user_approval_requests(user_id) WHERE status = 'pending'` - prevents duplicate pending requests but allows re-application after rejection.
 
-**`get_my_role()`** — SECURITY DEFINER, gates on `is_active = TRUE`. Returns NULL for unapproved users, blocking them from every RLS policy silently.
+**`get_my_role()`** - SECURITY DEFINER, gates on `is_active = TRUE`. Returns NULL for unapproved users, blocking them from every RLS policy silently.
 
 ---
 
-### Section 2 — Centers
+### Section 2 - Centres
 
 | Table | Purpose |
 |-------|---------|
-| `centers` | Coaching centers. No states/districts — not required by any feature |
-| `user_center_assignments` | Many-to-many: staff ↔ centers. Supports multi-center assignments |
+| `centres` | Coaching centres. No states/districts - not required by any feature |
+| `user_centre_assignments` | Many-to-many: staff ↔ centres. Supports multi-centre assignments |
 
-**`get_my_center_ids()`** — SECURITY DEFINER, returns `UUID[]` of centers assigned to current user. Used in all center-scoped RLS policies to avoid recursive joins.
+**`get_my_centre_ids()`** - SECURITY DEFINER, returns `UUID[]` of centres assigned to current user. Used in all centre-scoped RLS policies to avoid recursive joins.
 
 ---
 
-### Section 3 — Academic Structure
+### Section 3 - Academic Structure
 
 | Table | Purpose |
 |-------|---------|
 | `courses` | IIT-JEE, NEET, Olympiad etc. |
-| `batches` | Core operational unit. Belongs to center + course. Students enroll in batches, fees are per batch |
+| `batches` | Core operational unit. Belongs to centre + course. Students enroll in batches, fees are per batch |
 
-**Delete behavior:** Deleting a course is `RESTRICT`ed if batches exist. Deleting a center cascades to batches.
+**Delete behavior:** Deleting a course is `RESTRICT`ed if batches exist. Deleting a centre cascades to batches.
 
 ---
 
-### Section 4 — Students & Admission
+### Section 4 - Students & Admission
 
 | Table | Purpose |
 |-------|---------|
@@ -107,30 +107,30 @@ User registers → users.is_active = FALSE
 | `student_batch_enrollments` | Student ↔ batch enrollment with `withdrawn_at` for dropout tracking |
 
 **Key fields on `students`:**
-- `declaration_accepted` + `declaration_accepted_at` — mandatory checkbox before form submission
-- `admission_form_data` — full form payload; app generates downloadable PDF from this JSONB
-- `current_points` — live balance, updated by app when points are awarded/redeemed
-- `student_code` — auto-generated by trigger: `STU20260001`, resets per year
+- `declaration_accepted` + `declaration_accepted_at` - mandatory checkbox before form submission
+- `admission_form_data` - full form payload; app generates downloadable PDF from this JSONB
+- `current_points` - live balance, updated by app when points are awarded/redeemed
+- `student_code` - auto-generated by trigger: `STU20260001`, resets per year
 
-**Trigger:** `sync_enrollment_status` — when status → `withdrawn`, automatically sets `is_active = FALSE` and stamps `withdrawn_at = CURRENT_DATE`.
+**Trigger:** `sync_enrollment_status` - when status → `withdrawn`, automatically sets `is_active = FALSE` and stamps `withdrawn_at = CURRENT_DATE`.
 
 ---
 
-### Section 5 — Financial Management
+### Section 5 - Financial Management
 
 | Table | Purpose |
 |-------|---------|
 | `student_invoices` | One invoice per student per batch per month. Contains both `monthly_fee` and `amount_due` |
 | `fee_transactions` | Immutable payment log. Never updated or deleted |
-| `center_expenses` | Monthly expenses per center per category |
-| `staff_salaries` | Staff salary per person per center per month |
+| `centre_expenses` | Monthly expenses per centre per category |
+| `staff_salaries` | Staff salary per person per centre per month |
 
-**No `fee_structures` table** — fees are not fixed per batch. The accountant manually enters the fee at admission time directly into the first invoice. All future invoices are derived from it.
+**No `fee_structures` table** - fees are not fixed per batch. The accountant manually enters the fee at admission time directly into the first invoice. All future invoices are derived from it.
 
 **Key distinction on `student_invoices`:**
-- `monthly_fee` — the full standard recurring amount. Set by accountant at admission. This is what the cron reads to create next month's invoice. Accountant updates this on the current month's invoice to change fees going forward.
-- `amount_due` — what is actually owed this specific month. Pro-rated (smaller) for month 1. Equal to `monthly_fee` for all subsequent months.
-- `amount_discount` — reward point redemptions applied against this invoice.
+- `monthly_fee` - the full standard recurring amount. Set by accountant at admission. This is what the cron reads to create next month's invoice. Accountant updates this on the current month's invoice to change fees going forward.
+- `amount_due` - what is actually owed this specific month. Pro-rated (smaller) for month 1. Equal to `monthly_fee` for all subsequent months.
+- `amount_discount` - reward point redemptions applied against this invoice.
 
 **Invoice lifecycle:**
 ```
@@ -139,7 +139,7 @@ Admission
   → Sets monthly_fee = 1000 (full recurring amount)
   → Sets amount_due = 500  (pro-rated for remaining days in month)
 
-1st of every following month — cron fires at 01:00
+1st of every following month - cron fires at 01:00
   → Reads monthly_fee from most recent invoice per student+batch
   → Creates new invoice: amount_due = monthly_fee (full, no pro-rating)
   → Skips if invoice for this month already exists (ON CONFLICT DO NOTHING)
@@ -158,9 +158,9 @@ Daily midnight cron
   → Flips pending/partial invoices past month_year → overdue
 ```
 
-**`update_invoice_status()` trigger** uses variables to avoid stale-value bug — re-sums all `fee_transactions` for the invoice from scratch rather than adding incrementally, then derives status cleanly.
+**`update_invoice_status()` trigger** uses variables to avoid stale-value bug - re-sums all `fee_transactions` for the invoice from scratch rather than adding incrementally, then derives status cleanly.
 
-**`fee_transactions` immutability** — CEO: SELECT only. Accountant: INSERT + SELECT only. No role can UPDATE or DELETE. Corrections are handled as new transactions.
+**`fee_transactions` immutability** - CEO: SELECT only. Accountant: INSERT + SELECT only. No role can UPDATE or DELETE. Corrections are handled as new transactions.
 
 **Expense categories (exact per requirements):** `rent`, `electricity_bill`, `stationery`, `internet_bill`, `miscellaneous`
 
@@ -168,7 +168,7 @@ Daily midnight cron
 
 ---
 
-### Section 6 — Attendance
+### Section 6 - Attendance
 
 | Table | Purpose |
 |-------|---------|
@@ -181,19 +181,19 @@ Daily midnight cron
 - CEO marks centre_head attendance
 
 **`staff_attendance.status`** has three values:
-- `present` — arrived on time, left on time
-- `absent` — did not come
-- `partial` — came late or left early; exact times captured in `in_time` / `out_time`
+- `present` - arrived on time, left on time
+- `absent` - did not come
+- `partial` - came late or left early; exact times captured in `in_time` / `out_time`
 
-**`staff_attendance` UNIQUE** on `(user_id, center_id, attendance_date)` — center_id included because a teacher assigned to two centers can have entries for both on the same date.
+**`staff_attendance` UNIQUE** on `(user_id, centre_id, attendance_date)` - centre_id included because a teacher assigned to two centres can have entries for both on the same date.
 
-**Trigger:** `validate_attendance_date` — fires on both tables, rejects future dates.
+**Trigger:** `validate_attendance_date` - fires on both tables, rejects future dates.
 
-**No `attendance_summary` table** — attendance percentage is queried at runtime from `attendance` table directly via `v_student_attendance_report`.
+**No `attendance_summary` table** - attendance percentage is queried at runtime from `attendance` table directly via `v_student_attendance_report`.
 
 ---
 
-### Section 7 — Content
+### Section 7 - Content
 
 | Table | Purpose |
 |-------|---------|
@@ -204,18 +204,18 @@ Daily midnight cron
 
 ---
 
-### Section 8 — Assessments
+### Section 8 - Assessments
 
 | Table | Purpose |
 |-------|---------|
 | `exams` | Offline exams per batch. `results_published` flag controls student visibility |
 | `student_marks` | Manually entered marks. `is_absent = TRUE` forces `marks_obtained = 0` |
 
-**Trigger:** `validate_marks` — rejects marks exceeding `total_marks`.
+**Trigger:** `validate_marks` - rejects marks exceeding `total_marks`.
 
 ---
 
-### Section 9 — Rewards
+### Section 9 - Rewards
 
 | Table | Purpose |
 |-------|---------|
@@ -223,11 +223,11 @@ Daily midnight cron
 | `revision_reminders` | Spaced repetition schedule: 7 → 21 → 60 days after content completion |
 
 **Reward reasons (CHECK constraint):**
-- `attendance_85` — 85%+ monthly attendance
-- `timely_fees` — paid before due date
-- `timely_revision` — completed revision reminder on time
-- `performance` — exam score based
-- `redeemed` — deducted against invoice `amount_discount`
+- `attendance_85` - 85%+ monthly attendance
+- `timely_fees` - paid before due date
+- `timely_revision` - completed revision reminder on time
+- `performance` - exam score based
+- `redeemed` - deducted against invoice `amount_discount`
 
 **`students.current_points`** is the live balance. App updates it when awarding or redeeming points.
 
@@ -245,11 +245,11 @@ content_progress.is_completed → TRUE
     → After 60-day: next_reminder_date = NULL, is_active = FALSE
 ```
 
-**Partial index** on `revision_reminders(next_reminder_date) WHERE is_active = TRUE` — cron job only scans active reminders.
+**Partial index** on `revision_reminders(next_reminder_date) WHERE is_active = TRUE` - cron job only scans active reminders.
 
 ---
 
-### Section 10 — Communication
+### Section 10 - Communication
 
 | Table | Purpose |
 |-------|---------|
@@ -259,19 +259,19 @@ content_progress.is_completed → TRUE
 
 ---
 
-### Section 11 — Student of the Month
+### Section 11 - Student of the Month
 
 | Table | Purpose |
 |-------|---------|
-| `student_of_the_month` | Manually declared award. One winner per center per class level per month |
+| `student_of_the_month` | Manually declared award. One winner per centre per class level per month |
 
 **Key constraints:**
-- `UNIQUE(center_id, class_level, month_year)` — makes it structurally impossible to declare two winners for the same class at the same center in the same month. Reassigning a winner requires an `UPDATE`, not a new `INSERT`.
+- `UNIQUE(centre_id, class_level, month_year)` - makes it structurally impossible to declare two winners for the same class at the same centre in the same month. Reassigning a winner requires an `UPDATE`, not a new `INSERT`.
 - `awarded_by` references the user who made the declaration (centre_head or CEO).
 
 **RLS:**
 - CEO: full access
-- Centre head: full access scoped to their assigned centers
+- Centre head: full access scoped to their assigned centres
 - Student: SELECT own awards only
 
 ---
@@ -280,17 +280,17 @@ content_progress.is_completed → TRUE
 
 | View | Purpose |
 |------|---------|
-| `v_center_monthly_profit` | Revenue − Expenses − Salaries per center per month. UNION calendar ensures months with expenses but no revenue still appear |
-| `v_institute_monthly_profit` | Combined institute profit across all centers, month-wise |
+| `v_centre_monthly_profit` | Revenue − Expenses − Salaries per centre per month. UNION calendar ensures months with expenses but no revenue still appear |
+| `v_institute_monthly_profit` | Combined institute profit across all centres, month-wise |
 | `v_institute_annual_profit` | Annual rollup of institute profit |
 | `v_analytics_dashboard` | Current month snapshot: revenue, expenses, salaries, net profit, active students |
-| `v_pending_fees` | Student-wise pending invoices with balance due. Filter by center/batch in app |
+| `v_pending_fees` | Student-wise pending invoices with balance due. Filter by centre/batch in app |
 | `v_student_attendance_report` | Monthly attendance % per student per batch |
-| `v_staff_attendance_report` | Monthly attendance % per staff member per center |
+| `v_staff_attendance_report` | Monthly attendance % per staff member per centre |
 | `v_student_performance_report` | Exam marks with percentage, grade, rank per batch. Only published results visible |
 | `v_monthly_dropout_rate` | Withdrawals per batch per month with dropout % |
 | `v_fee_collection_analytics` | Monthly + annual fee collection with cash vs online breakdown |
-| `v_student_of_the_month` | All declared winners across all centers, ordered by month and class level |
+| `v_student_of_the_month` | All declared winners across all centres, ordered by month and class level |
 
 ---
 
@@ -299,11 +299,11 @@ content_progress.is_completed → TRUE
 | Role | Scope |
 |------|-------|
 | `ceo` | Full access to all tables. `fee_transactions`: SELECT only |
-| `centre_head` | All data within assigned centers. Manages approvals for teachers/students. Declares student of the month for their centers |
-| `accountant` | Invoices, transactions (INSERT+SELECT only), expenses, salaries for assigned centers |
-| `teacher` | Attendance, content, exams, marks for batches in assigned centers |
+| `centre_head` | All data within assigned centres. Manages approvals for teachers/students. Declares student of the month for their centres |
+| `accountant` | Invoices, transactions (INSERT+SELECT only), expenses, salaries for assigned centres |
+| `teacher` | Attendance, content, exams, marks for batches in assigned centres |
 | `student` | Own profile, own enrollments, own invoices, published content, published exam results, own points, own reminders, own awards |
-| All users | Own session (`user_active_sessions`), own center assignments (SELECT), own approval request status |
+| All users | Own session (`user_active_sessions`), own centre assignments (SELECT), own approval request status |
 
 ---
 
@@ -335,28 +335,28 @@ content_progress.is_completed → TRUE
 
 ## Key Design Decisions
 
-1. **No `fee_structures` table** — fees are not fixed per batch or course. The accountant manually enters the fee at admission. `monthly_fee` on `student_invoices` serves as the recurring reference; the cron reads it to create next month's invoice. Accountant changes future fees by updating `monthly_fee` on the current month's invoice.
+1. **No `fee_structures` table** - fees are not fixed per batch or course. The accountant manually enters the fee at admission. `monthly_fee` on `student_invoices` serves as the recurring reference; the cron reads it to create next month's invoice. Accountant changes future fees by updating `monthly_fee` on the current month's invoice.
 
-2. **`monthly_fee` vs `amount_due` on invoices** — `monthly_fee` is the standard recurring amount. `amount_due` is what's actually owed for that specific month — pro-rated (smaller) for month 1, equal to `monthly_fee` thereafter. Keeping them separate allows the cron to always use the correct full amount while month 1 stays accurately pro-rated.
+2. **`monthly_fee` vs `amount_due` on invoices** - `monthly_fee` is the standard recurring amount. `amount_due` is what's actually owed for that specific month - pro-rated (smaller) for month 1, equal to `monthly_fee` thereafter. Keeping them separate allows the cron to always use the correct full amount while month 1 stays accurately pro-rated.
 
-3. **`fee_transactions` is append-only** — financial integrity. Corrections handled as new transactions (credit entries). No role can UPDATE or DELETE.
+3. **`fee_transactions` is append-only** - financial integrity. Corrections handled as new transactions (credit entries). No role can UPDATE or DELETE.
 
-4. **`is_active = FALSE` default on users** — entire approval flow relies on this single flag. `get_my_role()` gates on it, so unapproved users are silently blocked from all RLS policies without any extra checks.
+4. **`is_active = FALSE` default on users** - entire approval flow relies on this single flag. `get_my_role()` gates on it, so unapproved users are silently blocked from all RLS policies without any extra checks.
 
-5. **No summary/cache tables** — `attendance_summary` removed. All reports computed at runtime from source tables. Keeps the schema lean and eliminates trigger/cache sync complexity. Re-evaluate only if performance becomes a problem at scale.
+5. **No summary/cache tables** - `attendance_summary` removed. All reports computed at runtime from source tables. Keeps the schema lean and eliminates trigger/cache sync complexity. Re-evaluate only if performance becomes a problem at scale.
 
-6. **No notifications table** — Firebase owns push delivery. In-app notification badges query source tables directly (count of pending invoices, pending approvals etc.). Eliminates a whole table plus scheduling complexity.
+6. **No notifications table** - Firebase owns push delivery. In-app notification badges query source tables directly (count of pending invoices, pending approvals etc.). Eliminates a whole table plus scheduling complexity.
 
-7. **Parent and student share one account** — single device login via `user_active_sessions`. FCM token on that session receives both student-facing and parent-facing push notifications.
+7. **Parent and student share one account** - single device login via `user_active_sessions`. FCM token on that session receives both student-facing and parent-facing push notifications.
 
-8. **`staff_attendance.status = 'partial'`** — late arrival and early departure are both represented by a single `partial` status. The exact detail is captured in `in_time` and `out_time`. Two separate statuses would add no information beyond what the times already tell you.
+8. **`staff_attendance.status = 'partial'`** - late arrival and early departure are both represented by a single `partial` status. The exact detail is captured in `in_time` and `out_time`. Two separate statuses would add no information beyond what the times already tell you.
 
-9. **`withdrawn_at` on enrollments** — needed to calculate dropout rate. Without it, you only know a student withdrew, not when.
+9. **`withdrawn_at` on enrollments** - needed to calculate dropout rate. Without it, you only know a student withdrew, not when.
 
-10. **`get_my_center_ids()` returns `UUID[]`** — used with `= ANY(...)` instead of `EXISTS` subqueries into `user_center_assignments`. This avoids recursive RLS evaluation on that table.
+10. **`get_my_centre_ids()` returns `UUID[]`** - used with `= ANY(...)` instead of `EXISTS` subqueries into `user_centre_assignments`. This avoids recursive RLS evaluation on that table.
 
-11. **`revision_reminders.next_reminder_date` partial index** — `WHERE is_active = TRUE` means the cron/backend job that polls for today's reminders scans only active rows, not the full history.
+11. **`revision_reminders.next_reminder_date` partial index** - `WHERE is_active = TRUE` means the cron/backend job that polls for today's reminders scans only active rows, not the full history.
 
-12. **`points_transactions.reason` is a CHECK constraint** — locks the reward categories to exactly what was specified. Adding a new reward type requires a schema migration, which is intentional — keeps reward logic auditable.
+12. **`points_transactions.reason` is a CHECK constraint** - locks the reward categories to exactly what was specified. Adding a new reward type requires a schema migration, which is intentional - keeps reward logic auditable.
 
-13. **`student_of_the_month` uses a UNIQUE constraint, not a flag** — `UNIQUE(center_id, class_level, month_year)` enforces the one-winner rule at the DB level. No application logic needed to guard against duplicates. Reassigning requires an `UPDATE` on the existing row, which also preserves the audit trail of who originally awarded it.
+13. **`student_of_the_month` uses a UNIQUE constraint, not a flag** - `UNIQUE(centre_id, class_level, month_year)` enforces the one-winner rule at the DB level. No application logic needed to guard against duplicates. Reassigning requires an `UPDATE` on the existing row, which also preserves the audit trail of who originally awarded it.

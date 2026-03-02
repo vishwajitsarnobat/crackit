@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { ThemeToggle } from '@/components/theme-toggle'
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
@@ -16,16 +17,14 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <div className="absolute -bottom-40 -left-40 h-96 w-96 rounded-full bg-accent/5 blur-3xl" />
       </div>
 
-      {/* Theme toggle fixed top right */}
       <div className="fixed top-4 right-4 z-50">
         <ThemeToggle />
       </div>
 
-      {/* Brand mark top left */}
       <div className="fixed top-5 left-6 z-50">
-        <span className="font-serif text-xl tracking-tight">
+        <Link href="/login" className="font-serif text-xl tracking-tight">
           Crack<span className="text-accent">It</span>
-        </span>
+        </Link>
       </div>
 
       <main className="flex min-h-screen items-center justify-center px-4 py-20">

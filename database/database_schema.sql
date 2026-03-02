@@ -1,337 +1,334 @@
--- CRACK IT COACHING INSTITUTE — DATABASE SCHEMA
--- Version: 3.1
--- Database: PostgreSQL 14+ (Supabase)
--- Design: 3NF, UUIDs, RLS, Triggers, Views
+-- CRACK IT COACHING INSTITUTE — DATABASE SCHEMA v3.2
+-- PostgreSQL 14+ (Supabase) | 3NF | UUIDs | RLS | Triggers | Views
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 
--- SECTION 1: IDENTITY & ROLES
+-- SECTION 1: SERIAL COUNTERS
+-- Replaces COUNT(*)+1 pattern — race-condition-safe via row lock.
+-- One row per named counter; year column triggers reset each year.
 
--- Roles define what a user can do. Permissions enforced via RLS, not this table.
+CREATE TABLE id_counters (
+    name       VARCHAR(50) PRIMARY KEY,
+    year       INTEGER NOT NULL DEFAULT EXTRACT(YEAR FROM CURRENT_DATE)::INTEGER,
+    last_value INTEGER NOT NULL DEFAULT 0
+);
+
+
+-- SECTION 2: ROLES & USERS
+
+-- Role hierarchy: lower level = more authority.
+-- level values are contiguous 1–5.
 CREATE TABLE roles (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    role_name VARCHAR(50) UNIQUE NOT NULL
-        CHECK (role_name IN ('ceo','centre_head','teacher','accountant','student')),
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    role_name    VARCHAR(50) UNIQUE NOT NULL
+                     CHECK (role_name IN ('ceo','centre_head','teacher','accountant','student')),
     display_name VARCHAR(100) NOT NULL,
-    level INTEGER NOT NULL,  -- 1=CEO, 4=Centre Head, 5=Teacher/Accountant, 6=Student
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    level        INTEGER NOT NULL,  -- 1=CEO, 2=Centre Head, 3=Teacher, 4-Accountant, 5=Student
+    is_active    BOOLEAN DEFAULT TRUE,
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
-INSERT INTO roles (role_name, display_name, level) VALUES
-('ceo',         'CEO / Super Admin', 1),
-('centre_head', 'Centre Head',       4),
-('teacher',     'Teacher',           5),
-('accountant',  'Accountant',        5),
-('student',     'Student',           6);
-
--- All users share one table. is_active = FALSE until approved.
--- profile_photo_url stored here for all roles including students.
+-- is_active defaults FALSE; set TRUE on approval.
 CREATE TABLE users (
-    id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-    role_id UUID REFERENCES roles(id) NOT NULL,
-    full_name VARCHAR(200) NOT NULL,
-    email VARCHAR(255) UNIQUE,
-    phone VARCHAR(20),
+    id                UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+    role_id           UUID NOT NULL REFERENCES roles(id),
+    full_name         VARCHAR(200) NOT NULL,
+    email             VARCHAR(255) UNIQUE,
+    phone             VARCHAR(20),
     profile_photo_url TEXT,
-    is_active BOOLEAN DEFAULT FALSE,  -- toggled TRUE on approval
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    is_active         BOOLEAN DEFAULT FALSE,
+    created_at        TIMESTAMPTZ DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_users_role ON users(role_id);
+CREATE INDEX idx_users_role   ON users(role_id);
 CREATE INDEX idx_users_active ON users(is_active);
 
--- Stores FCM token for Firebase push notifications (absent alerts, etc.)
--- One row per user, one active device (single device login policy)
+-- Single active device per user; stores FCM token for push notifications.
 CREATE TABLE user_active_sessions (
-    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-    device_id VARCHAR(255) NOT NULL,
-    device_name VARCHAR(200),
-    fcm_token TEXT,               -- used for Firebase push (absent alert → parent/student)
+    user_id       UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    device_id     VARCHAR(255) NOT NULL,
+    device_name   VARCHAR(200),
+    fcm_token     TEXT,
     last_active_at TIMESTAMPTZ DEFAULT NOW(),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
 
--- SECTION 2: CENTERS
+-- SECTION 3: CENTRES
 
--- No states/districts — can be filtered using the center_code
-CREATE TABLE centers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    center_code VARCHAR(20) UNIQUE NOT NULL,
-    center_name VARCHAR(200) NOT NULL,
-    address TEXT NOT NULL,
-    city VARCHAR(100),
-    phone VARCHAR(20),
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE centres (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    centre_code VARCHAR(20) UNIQUE NOT NULL,
+    centre_name VARCHAR(200) NOT NULL,
+    address     TEXT NOT NULL,
+    city        VARCHAR(100),
+    phone       VARCHAR(20),
+    is_active   BOOLEAN DEFAULT TRUE,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Many-to-many: staff can serve multiple centers
-CREATE TABLE user_center_assignments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+-- Staff can serve multiple centres.
+CREATE TABLE user_centre_assignments (
+    id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id    UUID REFERENCES users(id) ON DELETE CASCADE,
+    centre_id  UUID REFERENCES centres(id) ON DELETE CASCADE,
     is_primary BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
+    is_active  BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, center_id)
+    UNIQUE(user_id, centre_id)
 );
 
-CREATE INDEX idx_uca_user ON user_center_assignments(user_id);
-CREATE INDEX idx_uca_center ON user_center_assignments(center_id);
+CREATE INDEX idx_uca_user   ON user_centre_assignments(user_id);
+CREATE INDEX idx_uca_centre ON user_centre_assignments(centre_id);
 
--- Approval inbox, adding under centers because centers need to be defined before this.
--- CEO approves: centre_head, accountant (center_id = NULL)
--- Centre head approves: teacher, student (center_id = their center)
+-- Approval inbox.
+-- CEO approves: centre_head, accountant (centre_id = NULL).
+-- Centre head approves: teacher, student (centre_id = their centre).
+-- SET NULL on centre delete preserves audit history.
 CREATE TABLE user_approval_requests (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,  -- NULL for CEO-level approvals
-    requested_role VARCHAR(50) NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending'
-        CHECK (status IN ('pending','approved','rejected')),
-    reviewed_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    reviewed_at TIMESTAMPTZ,
+    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id          UUID REFERENCES users(id) ON DELETE CASCADE,
+    centre_id        UUID REFERENCES centres(id) ON DELETE SET NULL,
+    requested_role   VARCHAR(50) NOT NULL,
+    status           VARCHAR(20) DEFAULT 'pending'
+                         CHECK (status IN ('pending','approved','rejected')),
+    reviewed_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+    reviewed_at      TIMESTAMPTZ,
     rejection_reason TEXT,
-    applicant_note TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    applicant_note   TEXT,
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Only one pending request per user at a time. Rejected users can re-apply.
-CREATE UNIQUE INDEX idx_one_pending_per_user
-    ON user_approval_requests(user_id) WHERE status = 'pending';
+-- Only one pending request per user at a time.
+CREATE UNIQUE INDEX idx_one_pending_per_user ON user_approval_requests(user_id)
+    WHERE status = 'pending';
 
 CREATE INDEX idx_approval_status ON user_approval_requests(status);
-CREATE INDEX idx_approval_center ON user_approval_requests(center_id);
+CREATE INDEX idx_approval_centre ON user_approval_requests(centre_id);
 
--- SECTION 3: ACADEMIC STRUCTURE
+
+-- SECTION 4: ACADEMIC STRUCTURE
 
 CREATE TABLE courses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     course_name VARCHAR(200) NOT NULL,
-    target_exam VARCHAR(100),  -- 'IIT-JEE', 'NEET', 'Olympiad'
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    target_exam VARCHAR(100),
+    is_active   BOOLEAN DEFAULT TRUE,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
 );
-
-INSERT INTO courses (course_name, target_exam) VALUES
-('IIT-JEE Preparation', 'IIT-JEE'),
-('NEET Preparation',    'NEET'),
-('Olympiad Preparation','Olympiad');
 
 CREATE TABLE batches (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
-    course_id UUID REFERENCES courses(id) ON DELETE RESTRICT,
-    batch_code VARCHAR(50) NOT NULL,
-    batch_name VARCHAR(200) NOT NULL,
-    academic_year VARCHAR(10) NOT NULL,  -- '2025-26'
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(center_id, batch_code)
+    id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    centre_id     UUID REFERENCES centres(id) ON DELETE CASCADE,
+    course_id     UUID REFERENCES courses(id) ON DELETE RESTRICT,
+    batch_code    VARCHAR(50) NOT NULL,
+    batch_name    VARCHAR(200) NOT NULL,
+    academic_year VARCHAR(10) NOT NULL,
+    is_active     BOOLEAN DEFAULT TRUE,
+    created_at    TIMESTAMPTZ DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(centre_id, batch_code)
 );
 
-CREATE INDEX idx_batches_center ON batches(center_id);
+CREATE INDEX idx_batches_centre ON batches(centre_id);
 CREATE INDEX idx_batches_course ON batches(course_id);
 
 
--- SECTION 4: STUDENTS & ADMISSION
+-- SECTION 5: STUDENTS & ADMISSION
 
--- Student profile. parent_phone kept — useful contact even on shared account.
--- admission_form_data stores the full form as JSONB for PDF generation.
--- declaration_accepted is the mandatory checkbox before form submission.
+-- student_code auto-generated via trigger (STU20260001).
+-- admission_form_data holds full form payload for PDF generation.
 CREATE TABLE students (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE UNIQUE,
-    student_code VARCHAR(50) UNIQUE NOT NULL,  -- auto-generated: STU20260001
-    date_of_birth DATE,
-    class_level INTEGER NOT NULL,
-    parent_name VARCHAR(200),
-    parent_phone VARCHAR(20),
-    declaration_accepted BOOLEAN DEFAULT FALSE,
+    id                      UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id                 UUID UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    student_code            VARCHAR(50) UNIQUE,
+    date_of_birth           DATE,
+    class_level             INTEGER NOT NULL,
+    parent_name             VARCHAR(200),
+    parent_phone            VARCHAR(20),
+    declaration_accepted    BOOLEAN DEFAULT FALSE,
     declaration_accepted_at TIMESTAMPTZ,
-    admission_form_data JSONB,   -- full payload; app generates PDF from this
-    current_points INTEGER DEFAULT 0,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    admission_form_data     JSONB,
+    current_points          INTEGER DEFAULT 0,
+    is_active               BOOLEAN DEFAULT TRUE,
+    created_at              TIMESTAMPTZ DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_students_user ON students(user_id);
+CREATE INDEX idx_students_user   ON students(user_id);
 CREATE INDEX idx_students_active ON students(is_active);
 
--- withdrawn_at captured for dropout rate calculation
+-- is_active is derived from status — no sync trigger needed.
+-- withdrawn_at auto-set by trigger when status changes to 'withdrawn'.
 CREATE TABLE student_batch_enrollments (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id      UUID REFERENCES students(id) ON DELETE CASCADE,
+    batch_id        UUID REFERENCES batches(id) ON DELETE CASCADE,
     enrollment_date DATE DEFAULT CURRENT_DATE,
-    status VARCHAR(20) DEFAULT 'active'
-        CHECK (status IN ('active','withdrawn')),
-    withdrawn_at DATE,           -- set when status → withdrawn; drives dropout rate view
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
+    status          VARCHAR(20) DEFAULT 'active'
+                        CHECK (status IN ('active','withdrawn')),
+    withdrawn_at    DATE,
+    is_active       BOOLEAN GENERATED ALWAYS AS (status = 'active') STORED,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(student_id, batch_id)
 );
 
 CREATE INDEX idx_enrollments_student ON student_batch_enrollments(student_id);
-CREATE INDEX idx_enrollments_batch ON student_batch_enrollments(batch_id);
+CREATE INDEX idx_enrollments_batch   ON student_batch_enrollments(batch_id);
 
--- SECTION 5: FINANCIAL MANAGEMENT
 
+-- SECTION 6: FINANCIAL MANAGEMENT
+
+-- monthly_fee = recurring amount used by cron to generate next month's invoice.
+-- amount_due  = actual owed (pro-rated on first month, = monthly_fee thereafter).
+-- payment_status recalculated by trigger on fee insert and on discount change.
 CREATE TABLE student_invoices (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
-    month_year DATE NOT NULL,
-    -- full recurring monthly amount, accountant sets this at admission
-    -- cron copies this to next month's amount_due, accountant updates this to change future fees
-    monthly_fee DECIMAL(10,2) NOT NULL,       
-    amount_due DECIMAL(10,2) NOT NULL, -- actual amount owed this month, pro-rated for first month, = monthly_fee thereafter
-    amount_paid DECIMAL(10,2) DEFAULT 0,
+    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id     UUID REFERENCES students(id) ON DELETE CASCADE,
+    batch_id       UUID REFERENCES batches(id) ON DELETE CASCADE,
+    month_year     DATE NOT NULL,
+    monthly_fee    DECIMAL(10,2) NOT NULL,
+    amount_due     DECIMAL(10,2) NOT NULL,
+    amount_paid    DECIMAL(10,2) DEFAULT 0,
     amount_discount DECIMAL(10,2) DEFAULT 0,
     payment_status VARCHAR(20) DEFAULT 'pending'
-        CHECK (payment_status IN ('pending','partial','paid','overdue')),
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                       CHECK (payment_status IN ('pending','partial','paid','overdue')),
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(student_id, batch_id, month_year)
 );
 
 CREATE INDEX idx_invoices_student ON student_invoices(student_id);
-CREATE INDEX idx_invoices_batch ON student_invoices(batch_id);
-CREATE INDEX idx_invoices_status ON student_invoices(payment_status);
-CREATE INDEX idx_invoices_month ON student_invoices(month_year);
+CREATE INDEX idx_invoices_batch   ON student_invoices(batch_id);
+CREATE INDEX idx_invoices_status  ON student_invoices(payment_status);
+CREATE INDEX idx_invoices_month   ON student_invoices(month_year);
 
--- Immutable payment log. Never updated or deleted — financial audit trail.
+-- Immutable audit log — never updated or deleted.
+-- receipt_number auto-generated via trigger (REC-2026-00001).
 CREATE TABLE fee_transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_invoice_id UUID REFERENCES student_invoices(id) ON DELETE CASCADE,
-    payment_date DATE DEFAULT CURRENT_DATE,
-    amount DECIMAL(10,2) NOT NULL,
-    payment_mode VARCHAR(20) NOT NULL CHECK (payment_mode IN ('cash','online')),
-    collected_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    receipt_number VARCHAR(50) UNIQUE,  -- auto-generated: REC-2026-00001
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    payment_date       DATE DEFAULT CURRENT_DATE,
+    amount             DECIMAL(10,2) NOT NULL,
+    payment_mode       VARCHAR(20) NOT NULL CHECK (payment_mode IN ('cash','online')),
+    collected_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+    receipt_number     VARCHAR(50) UNIQUE,
+    created_at         TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_transactions_invoice ON fee_transactions(student_invoice_id);
-CREATE INDEX idx_transactions_date ON fee_transactions(payment_date DESC);
+CREATE INDEX idx_transactions_date    ON fee_transactions(payment_date DESC);
 
--- Monthly center expenses per category
-CREATE TABLE center_expenses (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    center_id UUID REFERENCES centers(id) ON DELETE CASCADE NOT NULL,
-    month_year DATE NOT NULL,
-    category VARCHAR(50) NOT NULL
-        CHECK (category IN ('rent','electricity_bill','stationery','internet_bill','miscellaneous')),
-    amount DECIMAL(10,2) NOT NULL,
+-- One row per centre per month per category.
+CREATE TABLE centre_expenses (
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    centre_id   UUID NOT NULL REFERENCES centres(id) ON DELETE CASCADE,
+    month_year  DATE NOT NULL,
+    category    VARCHAR(50) NOT NULL
+                    CHECK (category IN ('rent','electricity_bill','stationery','internet_bill','miscellaneous')),
+    amount      DECIMAL(10,2) NOT NULL,
     description TEXT,
-    entered_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(center_id, month_year, category)
+    entered_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(centre_id, month_year, category)
 );
 
-CREATE INDEX idx_expenses_center ON center_expenses(center_id);
-CREATE INDEX idx_expenses_month ON center_expenses(month_year);
+CREATE INDEX idx_expenses_centre ON centre_expenses(centre_id);
+CREATE INDEX idx_expenses_month  ON centre_expenses(month_year);
 
--- Staff salary tracking per center per month
 CREATE TABLE staff_salaries (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE NOT NULL,
-    center_id UUID REFERENCES centers(id) ON DELETE CASCADE NOT NULL,
-    month_year DATE NOT NULL,
-    amount_due DECIMAL(10,2) NOT NULL,
-    amount_paid DECIMAL(10,2) DEFAULT 0,
-    status VARCHAR(20) DEFAULT 'unpaid'
-        CHECK (status IN ('paid','unpaid','partial')),
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    centre_id    UUID NOT NULL REFERENCES centres(id) ON DELETE CASCADE,
+    month_year   DATE NOT NULL,
+    amount_due   DECIMAL(10,2) NOT NULL,
+    amount_paid  DECIMAL(10,2) DEFAULT 0,
+    status       VARCHAR(20) DEFAULT 'unpaid'
+                     CHECK (status IN ('paid','unpaid','partial')),
     payment_date DATE,
-    entered_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, center_id, month_year)
+    entered_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, centre_id, month_year)
 );
 
-CREATE INDEX idx_salaries_user ON staff_salaries(user_id);
-CREATE INDEX idx_salaries_center ON staff_salaries(center_id);
-CREATE INDEX idx_salaries_month ON staff_salaries(month_year);
+CREATE INDEX idx_salaries_user   ON staff_salaries(user_id);
+CREATE INDEX idx_salaries_centre ON staff_salaries(centre_id);
+CREATE INDEX idx_salaries_month  ON staff_salaries(month_year);
 
 
--- SECTION 6: ATTENDANCE
+-- SECTION 7: ATTENDANCE
 
--- Student attendance marked by teacher. Radio button: present/absent only.
+-- Radio button: present / absent only. Future dates blocked by trigger.
 CREATE TABLE attendance (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id      UUID REFERENCES students(id) ON DELETE CASCADE,
+    batch_id        UUID REFERENCES batches(id) ON DELETE CASCADE,
     attendance_date DATE NOT NULL,
-    status VARCHAR(20) NOT NULL CHECK (status IN ('present','absent')),
-    marked_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    marked_at TIMESTAMPTZ DEFAULT NOW(),
+    status          VARCHAR(20) NOT NULL CHECK (status IN ('present','absent')),
+    marked_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+    marked_at       TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(student_id, batch_id, attendance_date)
 );
 
 CREATE INDEX idx_attendance_student ON attendance(student_id);
-CREATE INDEX idx_attendance_batch ON attendance(batch_id);
-CREATE INDEX idx_attendance_date ON attendance(attendance_date DESC);
+CREATE INDEX idx_attendance_batch   ON attendance(batch_id);
+CREATE INDEX idx_attendance_date    ON attendance(attendance_date DESC);
 
--- Staff attendance: teacher marked by centre_head; centre_head marked by CEO.
--- in_time and out_time required. out_time used for early leaving.
--- center_id in UNIQUE prevents constraint collision for multi-center staff.
+-- centre_id in UNIQUE prevents collision for multi-centre staff.
+-- in_time / out_time used to detect late arrival or early departure.
 CREATE TABLE staff_attendance (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    center_id UUID REFERENCES centers(id) ON DELETE CASCADE,
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id         UUID REFERENCES users(id) ON DELETE CASCADE,
+    centre_id       UUID REFERENCES centres(id) ON DELETE CASCADE,
     attendance_date DATE NOT NULL,
-    status VARCHAR(20) NOT NULL CHECK (status IN ('present','absent','partial')),
-    in_time TIME,
-    out_time TIME,   -- late arrival or early departure captured here
-    marked_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    marked_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(user_id, center_id, attendance_date)
+    status          VARCHAR(20) NOT NULL CHECK (status IN ('present','absent','partial')),
+    in_time         TIME,
+    out_time        TIME,
+    marked_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+    marked_at       TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, centre_id, attendance_date)
 );
 
-CREATE INDEX idx_staff_attendance_user ON staff_attendance(user_id);
-CREATE INDEX idx_staff_attendance_center ON staff_attendance(center_id);
-CREATE INDEX idx_staff_attendance_date ON staff_attendance(attendance_date DESC);
+CREATE INDEX idx_staff_attendance_user   ON staff_attendance(user_id);
+CREATE INDEX idx_staff_attendance_centre ON staff_attendance(centre_id);
+CREATE INDEX idx_staff_attendance_date   ON staff_attendance(attendance_date DESC);
 
 
--- SECTION 7: CONTENT
+-- SECTION 8: CONTENT
 
--- Learning content (YouTube / Google Drive links) per batch.
--- Students can only see published content for their enrolled batches.
+-- YouTube / Drive links per batch. Students see only published content.
 CREATE TABLE content (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
-    title VARCHAR(300) NOT NULL,
-    content_url TEXT NOT NULL,
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    batch_id     UUID REFERENCES batches(id) ON DELETE CASCADE,
+    title        VARCHAR(300) NOT NULL,
+    content_url  TEXT NOT NULL,
     content_type VARCHAR(20) CHECK (content_type IN ('video','pdf','notes')),
-    uploaded_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    uploaded_by  UUID REFERENCES users(id) ON DELETE SET NULL,
     is_published BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_content_batch ON content(batch_id);
+CREATE INDEX idx_content_batch     ON content(batch_id);
 CREATE INDEX idx_content_published ON content(is_published);
 
--- Tracks when a student completes a content item.
--- completed_at drives revision reminder scheduling.
+-- completed_at auto-set by trigger when is_completed flips to TRUE.
+-- Drives revision reminder scheduling.
 CREATE TABLE content_progress (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    content_id UUID REFERENCES content(id) ON DELETE CASCADE,
-    is_completed BOOLEAN DEFAULT FALSE,
+    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id       UUID REFERENCES students(id) ON DELETE CASCADE,
+    content_id       UUID REFERENCES content(id) ON DELETE CASCADE,
+    is_completed     BOOLEAN DEFAULT FALSE,
     first_accessed_at TIMESTAMPTZ,
-    completed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    completed_at     TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(student_id, content_id)
 );
 
@@ -339,146 +336,136 @@ CREATE INDEX idx_progress_student ON content_progress(student_id);
 CREATE INDEX idx_progress_content ON content_progress(content_id);
 
 
--- SECTION 8: ASSESSMENTS
+-- SECTION 9: ASSESSMENTS
 
--- Offline exams, marks entered manually by teacher.
+-- Offline exams; marks entered manually by teacher.
 CREATE TABLE exams (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    batch_id UUID REFERENCES batches(id) ON DELETE CASCADE,
-    exam_name VARCHAR(300) NOT NULL,
-    exam_date DATE NOT NULL,
-    total_marks DECIMAL(10,2) NOT NULL,
-    passing_marks DECIMAL(10,2),
+    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    batch_id         UUID REFERENCES batches(id) ON DELETE CASCADE,
+    exam_name        VARCHAR(300) NOT NULL,
+    exam_date        DATE NOT NULL,
+    total_marks      DECIMAL(10,2) NOT NULL,
+    passing_marks    DECIMAL(10,2),
     results_published BOOLEAN DEFAULT FALSE,
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_by       UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_exams_batch ON exams(batch_id);
-CREATE INDEX idx_exams_date ON exams(exam_date DESC);
+CREATE INDEX idx_exams_date  ON exams(exam_date DESC);
 
--- Marks per student per exam. is_absent = TRUE forces marks_obtained = 0.
+-- is_absent = TRUE forces marks_obtained = 0 (CHECK constraint).
+-- Marks validated against exam total by trigger.
 CREATE TABLE student_marks (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    exam_id UUID REFERENCES exams(id) ON DELETE CASCADE,
+    id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id     UUID REFERENCES students(id) ON DELETE CASCADE,
+    exam_id        UUID REFERENCES exams(id) ON DELETE CASCADE,
     marks_obtained DECIMAL(10,2) NOT NULL CHECK (marks_obtained >= 0),
-    is_absent BOOLEAN DEFAULT FALSE,
+    is_absent      BOOLEAN DEFAULT FALSE,
     CHECK (NOT is_absent OR marks_obtained = 0),
-    entered_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    entered_by     UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at     TIMESTAMPTZ DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(student_id, exam_id)
 );
 
 CREATE INDEX idx_marks_student ON student_marks(student_id);
-CREATE INDEX idx_marks_exam ON student_marks(exam_id);
+CREATE INDEX idx_marks_exam    ON student_marks(exam_id);
 
 
--- SECTION 9: REWARDS
+-- SECTION 10: REWARDS
 
--- Immutable log of all point events.
--- Positive = earned, negative = redeemed against invoice (amount_discount).
--- reason drives which reward rule was triggered.
+-- Immutable points log. Positive = earned; negative = redeemed (discount on invoice).
 CREATE TABLE points_transactions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    points INTEGER NOT NULL,
-    reason VARCHAR(50) NOT NULL
-        CHECK (reason IN (
-            'attendance_85',    -- 85%+ monthly attendance
-            'timely_fees',      -- paid before due date
-            'timely_revision',  -- completed revision reminder on time
-            'performance',      -- exam score based
-            'redeemed'          -- used against invoice
-        )),
-    reference_id UUID,          -- exam_id, invoice_id, or content_id depending on reason
-    month_year DATE,
-    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    points     INTEGER NOT NULL,
+    reason     VARCHAR(50) NOT NULL
+                   CHECK (reason IN (
+                       'attendance_85','timely_fees','timely_revision','performance','redeemed'
+                   )),
+    reference_id UUID,   -- exam_id, invoice_id, or content_id depending on reason
+    month_year   DATE,
+    created_by   UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX idx_points_student ON points_transactions(student_id);
-CREATE INDEX idx_points_month ON points_transactions(month_year DESC);
+CREATE INDEX idx_points_month   ON points_transactions(month_year DESC);
 
--- Spaced repetition reminders: 7, 21, 60 days after content completion.
--- next_reminder_date drives the daily cron query.
--- Auto-created when content_progress.is_completed flips to TRUE.
+-- Spaced repetition: reminders at 7, 21, 60 days after content completion.
+-- Auto-created by trigger when content_progress.is_completed flips TRUE.
+-- Partial index: only active reminders scanned by cron.
 CREATE TABLE revision_reminders (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    content_id UUID REFERENCES content(id) ON DELETE CASCADE,
-    completed_date DATE NOT NULL,
-    reminder_7_sent BOOLEAN DEFAULT FALSE,
-    reminder_7_sent_at TIMESTAMPTZ,
-    reminder_21_sent BOOLEAN DEFAULT FALSE,
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id          UUID REFERENCES students(id) ON DELETE CASCADE,
+    content_id          UUID REFERENCES content(id) ON DELETE CASCADE,
+    completed_date      DATE NOT NULL,
+    reminder_7_sent     BOOLEAN DEFAULT FALSE,
+    reminder_7_sent_at  TIMESTAMPTZ,
+    reminder_21_sent    BOOLEAN DEFAULT FALSE,
     reminder_21_sent_at TIMESTAMPTZ,
-    reminder_60_sent BOOLEAN DEFAULT FALSE,
+    reminder_60_sent    BOOLEAN DEFAULT FALSE,
     reminder_60_sent_at TIMESTAMPTZ,
-    next_reminder_date DATE,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    next_reminder_date  DATE,
+    is_active           BOOLEAN DEFAULT TRUE,
+    created_at          TIMESTAMPTZ DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(student_id, content_id)
 );
 
-CREATE INDEX idx_reminders_student ON revision_reminders(student_id);
--- Partial index: only active reminders scanned by cron job
+CREATE INDEX idx_reminders_student   ON revision_reminders(student_id);
 CREATE INDEX idx_reminders_next_date ON revision_reminders(next_reminder_date)
     WHERE is_active = TRUE;
 
 
--- SECTION 10: COMMUNICATION
+-- SECTION 11: COMMUNICATION
 
--- Meeting requests raised by students, assigned to centre_head or teacher.
 CREATE TABLE meeting_requests (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE,
-    assigned_to UUID REFERENCES users(id) ON DELETE SET NULL,
-    subject VARCHAR(200) NOT NULL,
-    description TEXT,
-    status VARCHAR(20) DEFAULT 'pending'
-        CHECK (status IN ('pending','scheduled','completed')),
+    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    student_id   UUID REFERENCES students(id) ON DELETE CASCADE,
+    assigned_to  UUID REFERENCES users(id) ON DELETE SET NULL,
+    subject      VARCHAR(200) NOT NULL,
+    description  TEXT,
+    status       VARCHAR(20) DEFAULT 'pending'
+                     CHECK (status IN ('pending','scheduled','completed')),
     scheduled_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    created_at   TIMESTAMPTZ DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_meetings_student ON meeting_requests(student_id);
+CREATE INDEX idx_meetings_student  ON meeting_requests(student_id);
 CREATE INDEX idx_meetings_assigned ON meeting_requests(assigned_to);
 
 
--- SECTION 11: STUDENT OF THE MONTH
+-- SECTION 12: STUDENT OF THE MONTH
 
--- One winner per center per class level per month.
--- Manually declared by centre_head or CEO.
--- UNIQUE constraint prevents two winners for same class at same center in same month.
+-- One winner per centre per class level per month.
+-- month_year always stored as first day of month.
 CREATE TABLE student_of_the_month (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    center_id UUID REFERENCES centers(id) ON DELETE CASCADE NOT NULL,
-    student_id UUID REFERENCES students(id) ON DELETE CASCADE NOT NULL,
+    id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    centre_id   UUID NOT NULL REFERENCES centres(id) ON DELETE CASCADE,
+    student_id  UUID NOT NULL REFERENCES students(id) ON DELETE CASCADE,
     class_level INTEGER NOT NULL,
-    month_year DATE NOT NULL,           -- first day of month: '2026-02-01'
-    awarded_by UUID REFERENCES users(id) ON DELETE SET NULL,
-    remarks TEXT,                       -- optional note from centre_head/CEO
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(center_id, class_level, month_year)
+    month_year  DATE NOT NULL,
+    awarded_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+    remarks     TEXT,
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(centre_id, class_level, month_year)
 );
 
-CREATE INDEX idx_sotm_center ON student_of_the_month(center_id);
+CREATE INDEX idx_sotm_centre  ON student_of_the_month(centre_id);
 CREATE INDEX idx_sotm_student ON student_of_the_month(student_id);
-CREATE INDEX idx_sotm_month ON student_of_the_month(month_year DESC);
+CREATE INDEX idx_sotm_month   ON student_of_the_month(month_year DESC);
 
 
--- SECTION 12: FUNCTIONS & TRIGGERS
+-- SECTION 13: FUNCTIONS & TRIGGERS
 
+-- Generic updated_at stamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
+BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_roles_updated_at
@@ -489,8 +476,8 @@ CREATE TRIGGER trg_user_active_sessions_updated_at
     BEFORE UPDATE ON user_active_sessions FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER trg_user_approval_requests_updated_at
     BEFORE UPDATE ON user_approval_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-CREATE TRIGGER trg_centers_updated_at
-    BEFORE UPDATE ON centers FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trg_centres_updated_at
+    BEFORE UPDATE ON centres FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER trg_batches_updated_at
     BEFORE UPDATE ON batches FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER trg_students_updated_at
@@ -508,18 +495,21 @@ CREATE TRIGGER trg_revision_reminders_updated_at
 CREATE TRIGGER trg_meeting_requests_updated_at
     BEFORE UPDATE ON meeting_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Auto-generate student code: STU20260001 (resets per year)
+-- Auto-generate student code STU20260001 — counter-table approach avoids race conditions.
 CREATE OR REPLACE FUNCTION generate_student_code()
 RETURNS TRIGGER AS $$
 DECLARE
     v_year TEXT;
-    v_count INTEGER;
+    v_next INTEGER;
 BEGIN
     IF NEW.student_code IS NULL THEN
         v_year := TO_CHAR(CURRENT_DATE, 'YYYY');
-        SELECT COUNT(*) + 1 INTO v_count
-        FROM students WHERE student_code LIKE 'STU' || v_year || '%';
-        NEW.student_code := 'STU' || v_year || LPAD(v_count::TEXT, 5, '0');
+        UPDATE id_counters
+        SET last_value = CASE WHEN year = v_year::INTEGER THEN last_value + 1 ELSE 1 END,
+            year       = v_year::INTEGER
+        WHERE name = 'student_code'
+        RETURNING last_value INTO v_next;
+        NEW.student_code := 'STU' || v_year || LPAD(v_next::TEXT, 5, '0');
     END IF;
     RETURN NEW;
 END;
@@ -528,18 +518,21 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_generate_student_code
     BEFORE INSERT ON students FOR EACH ROW EXECUTE FUNCTION generate_student_code();
 
--- Auto-generate receipt number: REC-2026-00001 (resets per year)
+-- Auto-generate receipt number REC-2026-00001 — same counter-table approach.
 CREATE OR REPLACE FUNCTION generate_receipt_number()
 RETURNS TRIGGER AS $$
 DECLARE
     v_year TEXT;
-    v_count INTEGER;
+    v_next INTEGER;
 BEGIN
     IF NEW.receipt_number IS NULL THEN
         v_year := TO_CHAR(CURRENT_DATE, 'YYYY');
-        SELECT COUNT(*) + 1 INTO v_count
-        FROM fee_transactions WHERE receipt_number LIKE 'REC-' || v_year || '%';
-        NEW.receipt_number := 'REC-' || v_year || '-' || LPAD(v_count::TEXT, 5, '0');
+        UPDATE id_counters
+        SET last_value = CASE WHEN year = v_year::INTEGER THEN last_value + 1 ELSE 1 END,
+            year       = v_year::INTEGER
+        WHERE name = 'receipt_number'
+        RETURNING last_value INTO v_next;
+        NEW.receipt_number := 'REC-' || v_year || '-' || LPAD(v_next::TEXT, 5, '0');
     END IF;
     RETURN NEW;
 END;
@@ -548,137 +541,110 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_generate_receipt_number
     BEFORE INSERT ON fee_transactions FOR EACH ROW EXECUTE FUNCTION generate_receipt_number();
 
--- FEE MANAGEMENT
--- Recalculate invoice amount_paid and payment_status after every payment INSERT.
--- Uses variables to avoid stale-value bug in CASE expressions.
-CREATE OR REPLACE FUNCTION update_invoice_status()
+-- Recalculate invoice payment_status after each payment INSERT.
+CREATE OR REPLACE FUNCTION update_invoice_on_payment()
 RETURNS TRIGGER AS $$
 DECLARE
     v_total_paid DECIMAL(10,2);
-    v_amount_due DECIMAL(10,2);
+    v_net_due    DECIMAL(10,2);
 BEGIN
     SELECT COALESCE(SUM(amount), 0) INTO v_total_paid
     FROM fee_transactions WHERE student_invoice_id = NEW.student_invoice_id;
 
-    SELECT amount_due - amount_discount INTO v_amount_due
+    SELECT amount_due - COALESCE(amount_discount, 0) INTO v_net_due
     FROM student_invoices WHERE id = NEW.student_invoice_id;
 
     UPDATE student_invoices SET
-        amount_paid = v_total_paid,
+        amount_paid    = v_total_paid,
         payment_status = CASE
-            WHEN v_total_paid >= v_amount_due THEN 'paid'
-            WHEN v_total_paid > 0             THEN 'partial'
-            ELSE 'pending'
+            WHEN v_total_paid >= v_net_due THEN 'paid'
+            WHEN v_total_paid > 0          THEN 'partial'
+            ELSE                                'pending'
         END,
         updated_at = NOW()
     WHERE id = NEW.student_invoice_id;
-
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_fee_payment
     AFTER INSERT ON fee_transactions
-    FOR EACH ROW EXECUTE FUNCTION update_invoice_status();
+    FOR EACH ROW EXECUTE FUNCTION update_invoice_on_payment();
 
--- Monthly invoices created automatically
-SELECT cron.schedule('create-monthly-invoices', '0 1 1 * *', $$
-    INSERT INTO student_invoices (
-        student_id,
-        batch_id,
-        month_year,
-        monthly_fee,
-        amount_due
-    )
-    SELECT
-        si.student_id,
-        si.batch_id,
-        DATE_TRUNC('month', CURRENT_DATE)::DATE AS month_year,
-        si.monthly_fee,
-        si.monthly_fee AS amount_due  -- full fee, no pro-rating for recurring months
-    FROM student_invoices si
-    JOIN student_batch_enrollments sbe
-        ON sbe.student_id = si.student_id
-        AND sbe.batch_id = si.batch_id
-    WHERE sbe.is_active = TRUE
-    -- most recent invoice per student+batch
-    AND si.month_year = (
-        SELECT MAX(si2.month_year)
-        FROM student_invoices si2
-        WHERE si2.student_id = si.student_id
-        AND si2.batch_id = si.batch_id
-    )
-    -- don't create if this month already exists
-    AND NOT EXISTS (
-        SELECT 1 FROM student_invoices si3
-        WHERE si3.student_id = si.student_id
-        AND si3.batch_id = si.batch_id
-        AND si3.month_year = DATE_TRUNC('month', CURRENT_DATE)::DATE
-    )
-    ON CONFLICT (student_id, batch_id, month_year) DO NOTHING;
-$$);
-
--- Automatically mark dues for the previous months
-SELECT cron.schedule('mark-overdue', '0 0 * * *', $$
-    UPDATE student_invoices
-    SET payment_status = 'overdue', updated_at = NOW()
-    WHERE payment_status IN ('pending','partial')
-    AND month_year < DATE_TRUNC('month', CURRENT_DATE);
-$$);
-
--- Auto-create revision reminder when student completes content.
--- Re-completing resets all reminder stages.
-CREATE OR REPLACE FUNCTION create_revision_reminder()
+-- Recalculate payment_status when a discount is applied or changed.
+CREATE OR REPLACE FUNCTION update_invoice_on_discount()
 RETURNS TRIGGER AS $$
+DECLARE v_net_due DECIMAL(10,2);
 BEGIN
-    IF NEW.is_completed = TRUE AND (OLD IS NULL OR OLD.is_completed = FALSE) THEN
-        INSERT INTO revision_reminders (
-            student_id, content_id, completed_date, next_reminder_date
-        ) VALUES (
-            NEW.student_id,
-            NEW.content_id,
-            NEW.completed_at::DATE,
-            (NEW.completed_at::DATE + INTERVAL '7 days')::DATE
-        )
-        ON CONFLICT (student_id, content_id) DO UPDATE SET
-            completed_date     = EXCLUDED.completed_date,
-            next_reminder_date = (EXCLUDED.completed_date + INTERVAL '7 days')::DATE,
-            reminder_7_sent    = FALSE,
-            reminder_7_sent_at = NULL,
-            reminder_21_sent   = FALSE,
-            reminder_21_sent_at= NULL,
-            reminder_60_sent   = FALSE,
-            reminder_60_sent_at= NULL,
-            is_active          = TRUE,
-            updated_at         = NOW();
+    IF NEW.amount_discount IS DISTINCT FROM OLD.amount_discount THEN
+        v_net_due := NEW.amount_due - COALESCE(NEW.amount_discount, 0);
+        NEW.payment_status := CASE
+            WHEN NEW.amount_paid >= v_net_due AND v_net_due > 0 THEN 'paid'
+            WHEN NEW.amount_paid > 0                             THEN 'partial'
+            ELSE                                                      'pending'
+        END;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_create_revision_reminder
-    AFTER INSERT OR UPDATE ON content_progress
-    FOR EACH ROW EXECUTE FUNCTION create_revision_reminder();
+CREATE TRIGGER trg_discount_change
+    BEFORE UPDATE OF amount_discount ON student_invoices
+    FOR EACH ROW EXECUTE FUNCTION update_invoice_on_discount();
 
--- Advance reminder stage when a reminder is marked sent.
--- Sets sent_at timestamp, calculates next_reminder_date, deactivates after 60-day stage.
+-- Auto-set completed_at, then create/reset revision reminder.
+CREATE OR REPLACE FUNCTION handle_content_completion()
+RETURNS TRIGGER AS $$
+DECLARE v_completed_date DATE;
+BEGIN
+    IF NEW.is_completed = TRUE AND (OLD IS NULL OR OLD.is_completed = FALSE) THEN
+        -- Guarantee completed_at is set even if app forgot
+        NEW.completed_at := COALESCE(NEW.completed_at, NOW());
+        v_completed_date := NEW.completed_at::DATE;
+
+        INSERT INTO revision_reminders (
+            student_id, content_id, completed_date, next_reminder_date
+        ) VALUES (
+            NEW.student_id, NEW.content_id,
+            v_completed_date,
+            v_completed_date + INTERVAL '7 days'
+        )
+        ON CONFLICT (student_id, content_id) DO UPDATE SET
+            completed_date      = EXCLUDED.completed_date,
+            next_reminder_date  = EXCLUDED.completed_date + INTERVAL '7 days',
+            reminder_7_sent     = FALSE,  reminder_7_sent_at  = NULL,
+            reminder_21_sent    = FALSE,  reminder_21_sent_at = NULL,
+            reminder_60_sent    = FALSE,  reminder_60_sent_at = NULL,
+            is_active           = TRUE,
+            updated_at          = NOW();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_content_completion
+    BEFORE INSERT OR UPDATE ON content_progress
+    FOR EACH ROW EXECUTE FUNCTION handle_content_completion();
+
+-- Advance reminder stage and compute next_reminder_date.
+-- Cron marks a reminder sent by setting reminder_N_sent = TRUE.
+-- Deactivates record after the 60-day stage.
 CREATE OR REPLACE FUNCTION advance_revision_stage()
 RETURNS TRIGGER AS $$
 BEGIN
     IF NEW.reminder_7_sent = TRUE AND OLD.reminder_7_sent = FALSE THEN
-        NEW.reminder_7_sent_at  := NOW();
-        NEW.next_reminder_date  := (NEW.completed_date + INTERVAL '21 days')::DATE;
+        NEW.reminder_7_sent_at := NOW();
+        NEW.next_reminder_date := NEW.completed_date + INTERVAL '21 days';
 
     ELSIF NEW.reminder_21_sent = TRUE AND OLD.reminder_21_sent = FALSE THEN
         NEW.reminder_21_sent_at := NOW();
-        NEW.next_reminder_date  := (NEW.completed_date + INTERVAL '60 days')::DATE;
+        NEW.next_reminder_date  := NEW.completed_date + INTERVAL '60 days';
 
     ELSIF NEW.reminder_60_sent = TRUE AND OLD.reminder_60_sent = FALSE THEN
         NEW.reminder_60_sent_at := NOW();
         NEW.next_reminder_date  := NULL;
         NEW.is_active           := FALSE;
     END IF;
-
     NEW.updated_at := NOW();
     RETURN NEW;
 END;
@@ -688,26 +654,25 @@ CREATE TRIGGER trg_advance_revision_stage
     BEFORE UPDATE ON revision_reminders
     FOR EACH ROW EXECUTE FUNCTION advance_revision_stage();
 
--- Sync is_active with status on enrollment changes
-CREATE OR REPLACE FUNCTION sync_enrollment_status()
+-- Sets withdrawn_at when enrollment status changes to 'withdrawn'.
+-- is_active is a generated column — no need to set it here.
+CREATE OR REPLACE FUNCTION set_withdrawn_at()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF NEW.status = 'withdrawn' THEN
-        NEW.is_active    := FALSE;
+    IF NEW.status = 'withdrawn' AND OLD.status = 'active' THEN
         NEW.withdrawn_at := CURRENT_DATE;
     ELSIF NEW.status = 'active' THEN
-        NEW.is_active    := TRUE;
         NEW.withdrawn_at := NULL;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_sync_enrollment_status
+CREATE TRIGGER trg_set_withdrawn_at
     BEFORE UPDATE ON student_batch_enrollments
-    FOR EACH ROW EXECUTE FUNCTION sync_enrollment_status();
+    FOR EACH ROW EXECUTE FUNCTION set_withdrawn_at();
 
--- Prevent future-date attendance
+-- Reject future-date attendance on both tables.
 CREATE OR REPLACE FUNCTION validate_attendance_date()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -726,14 +691,14 @@ CREATE TRIGGER trg_validate_staff_attendance_date
     BEFORE INSERT OR UPDATE ON staff_attendance
     FOR EACH ROW EXECUTE FUNCTION validate_attendance_date();
 
--- Prevent marks exceeding exam total
+-- Reject marks exceeding the exam total.
 CREATE OR REPLACE FUNCTION validate_marks()
 RETURNS TRIGGER AS $$
 DECLARE v_total DECIMAL(10,2);
 BEGIN
     SELECT total_marks INTO v_total FROM exams WHERE id = NEW.exam_id;
     IF NEW.marks_obtained > v_total THEN
-        RAISE EXCEPTION 'Marks (%) cannot exceed total marks (%)', NEW.marks_obtained, v_total;
+        RAISE EXCEPTION 'Marks (%) exceed total marks (%) for exam', NEW.marks_obtained, v_total;
     END IF;
     RETURN NEW;
 END;
@@ -744,14 +709,51 @@ CREATE TRIGGER trg_validate_marks
     FOR EACH ROW EXECUTE FUNCTION validate_marks();
 
 
--- SECTION 13: VIEWS
+-- SECTION 14: CRON JOBS
 
--- Net profit per center per month.
--- UNION calendar ensures months with expenses but no revenue still appear.
-CREATE OR REPLACE VIEW v_center_monthly_profit AS
+-- Run on the 1st of each month at 01:00 — copies last invoice to new month for active enrollments.
+SELECT cron.schedule('create-monthly-invoices', '0 1 1 * *', $$
+    INSERT INTO student_invoices (student_id, batch_id, month_year, monthly_fee, amount_due)
+    SELECT
+        si.student_id,
+        si.batch_id,
+        DATE_TRUNC('month', CURRENT_DATE)::DATE,
+        si.monthly_fee,
+        si.monthly_fee
+    FROM student_invoices si
+    JOIN student_batch_enrollments sbe
+        ON sbe.student_id = si.student_id AND sbe.batch_id = si.batch_id
+    WHERE sbe.is_active = TRUE
+    AND si.month_year = (
+        SELECT MAX(si2.month_year) FROM student_invoices si2
+        WHERE si2.student_id = si.student_id AND si2.batch_id = si.batch_id
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM student_invoices si3
+        WHERE si3.student_id = si.student_id AND si3.batch_id = si.batch_id
+        AND si3.month_year = DATE_TRUNC('month', CURRENT_DATE)::DATE
+    )
+    ON CONFLICT (student_id, batch_id, month_year) DO NOTHING;
+$$);
+
+-- Daily at midnight — mark unpaid invoices from prior months as overdue.
+SELECT cron.schedule('mark-overdue', '0 0 * * *', $$
+    UPDATE student_invoices
+    SET payment_status = 'overdue', updated_at = NOW()
+    WHERE payment_status IN ('pending','partial')
+    AND month_year < DATE_TRUNC('month', CURRENT_DATE);
+$$);
+
+
+-- SECTION 15: VIEWS
+
+-- Net profit per centre per month.
+-- Calendar UNION ensures months with expenses but no revenue still appear.
+-- Filtered to months >= centre creation date to avoid phantom historical rows.
+CREATE OR REPLACE VIEW v_centre_monthly_profit AS
 SELECT
-    c.id AS center_id,
-    c.center_name,
+    c.id AS centre_id,
+    c.centre_name,
     cal.month_year,
     COALESCE(rev.total_revenue,  0) AS total_revenue,
     COALESCE(exp.total_expenses, 0) AS total_expenses,
@@ -759,9 +761,9 @@ SELECT
     COALESCE(rev.total_revenue,  0)
         - COALESCE(exp.total_expenses, 0)
         - COALESCE(sal.total_salaries, 0) AS net_profit
-FROM centers c
+FROM centres c
 CROSS JOIN (
-    SELECT DISTINCT month_year FROM center_expenses
+    SELECT DISTINCT month_year FROM centre_expenses
     UNION
     SELECT DISTINCT month_year FROM staff_salaries
     UNION
@@ -771,25 +773,25 @@ CROSS JOIN (
     JOIN batches b ON b.id = si.batch_id
 ) cal(month_year)
 LEFT JOIN (
-    SELECT b.center_id,
+    SELECT b.centre_id,
            DATE_TRUNC('month', ft.payment_date)::DATE AS month_year,
            SUM(ft.amount) AS total_revenue
     FROM fee_transactions ft
     JOIN student_invoices si ON si.id = ft.student_invoice_id
     JOIN batches b ON b.id = si.batch_id
-    GROUP BY b.center_id, DATE_TRUNC('month', ft.payment_date)::DATE
-) rev ON rev.center_id = c.id AND rev.month_year = cal.month_year
+    GROUP BY b.centre_id, DATE_TRUNC('month', ft.payment_date)::DATE
+) rev ON rev.centre_id = c.id AND rev.month_year = cal.month_year
 LEFT JOIN (
-    SELECT center_id, month_year, SUM(amount) AS total_expenses
-    FROM center_expenses GROUP BY center_id, month_year
-) exp ON exp.center_id = c.id AND exp.month_year = cal.month_year
+    SELECT centre_id, month_year, SUM(amount) AS total_expenses
+    FROM centre_expenses GROUP BY centre_id, month_year
+) exp ON exp.centre_id = c.id AND exp.month_year = cal.month_year
 LEFT JOIN (
-    SELECT center_id, month_year, SUM(amount_paid) AS total_salaries
-    FROM staff_salaries GROUP BY center_id, month_year
-) sal ON sal.center_id = c.id AND sal.month_year = cal.month_year
-WHERE c.is_active = TRUE;
+    SELECT centre_id, month_year, SUM(amount_paid) AS total_salaries
+    FROM staff_salaries GROUP BY centre_id, month_year
+) sal ON sal.centre_id = c.id AND sal.month_year = cal.month_year
+WHERE c.is_active = TRUE
+AND cal.month_year >= DATE_TRUNC('month', c.created_at)::DATE;
 
--- Combined institute-level profit across all centers
 CREATE OR REPLACE VIEW v_institute_monthly_profit AS
 SELECT
     month_year,
@@ -797,11 +799,10 @@ SELECT
     SUM(total_expenses) AS total_expenses,
     SUM(total_salaries) AS total_salaries,
     SUM(net_profit)     AS net_profit
-FROM v_center_monthly_profit
+FROM v_centre_monthly_profit
 GROUP BY month_year
 ORDER BY month_year DESC;
 
--- Annual rollup (filter by year in app; this covers institute level)
 CREATE OR REPLACE VIEW v_institute_annual_profit AS
 SELECT
     DATE_TRUNC('year', month_year)::DATE AS year,
@@ -813,65 +814,56 @@ FROM v_institute_monthly_profit
 GROUP BY DATE_TRUNC('year', month_year)
 ORDER BY year DESC;
 
--- Current month snapshot for analytics dashboard
+-- Current month snapshot for analytics dashboard.
 CREATE OR REPLACE VIEW v_analytics_dashboard AS
 SELECT
     DATE_TRUNC('month', CURRENT_DATE)::DATE AS month_year,
-    (SELECT COALESCE(SUM(ft.amount), 0)
-     FROM fee_transactions ft
+    (SELECT COALESCE(SUM(ft.amount), 0) FROM fee_transactions ft
      WHERE DATE_TRUNC('month', ft.payment_date) = DATE_TRUNC('month', CURRENT_DATE)
     ) AS revenue,
-    (SELECT COALESCE(SUM(amount), 0)
-     FROM center_expenses
+    (SELECT COALESCE(SUM(amount), 0) FROM centre_expenses
      WHERE month_year = DATE_TRUNC('month', CURRENT_DATE)
     ) AS expenses,
-    (SELECT COALESCE(SUM(amount_paid), 0)
-     FROM staff_salaries
+    (SELECT COALESCE(SUM(amount_paid), 0) FROM staff_salaries
      WHERE month_year = DATE_TRUNC('month', CURRENT_DATE)
     ) AS salaries,
-    (SELECT COALESCE(SUM(ft.amount), 0)
-     FROM fee_transactions ft
+    (SELECT COALESCE(SUM(ft.amount), 0) FROM fee_transactions ft
      WHERE DATE_TRUNC('month', ft.payment_date) = DATE_TRUNC('month', CURRENT_DATE)
-    ) - (SELECT COALESCE(SUM(amount), 0)
-         FROM center_expenses
+    ) - (SELECT COALESCE(SUM(amount), 0) FROM centre_expenses
          WHERE month_year = DATE_TRUNC('month', CURRENT_DATE)
-    ) - (SELECT COALESCE(SUM(amount_paid), 0)
-         FROM staff_salaries
+    ) - (SELECT COALESCE(SUM(amount_paid), 0) FROM staff_salaries
          WHERE month_year = DATE_TRUNC('month', CURRENT_DATE)
     ) AS net_profit,
-    (SELECT COUNT(DISTINCT student_id)
-     FROM student_batch_enrollments
+    (SELECT COUNT(DISTINCT student_id) FROM student_batch_enrollments
      WHERE is_active = TRUE
     ) AS active_students;
 
--- Pending fees by batch (student-wise and batch-wise)
 CREATE OR REPLACE VIEW v_pending_fees AS
 SELECT
     si.id AS invoice_id,
     u.full_name AS student_name,
     s.student_code,
     b.batch_name,
-    c.center_name,
+    c.centre_name,
     si.month_year,
     si.amount_due,
     si.amount_paid,
     si.amount_due - si.amount_paid - si.amount_discount AS balance_due,
     si.payment_status
 FROM student_invoices si
-JOIN students s ON s.id = si.student_id
-JOIN users u ON u.id = s.user_id
-JOIN batches b ON b.id = si.batch_id
-JOIN centers c ON c.id = b.center_id
+JOIN students s  ON s.id = si.student_id
+JOIN users u     ON u.id = s.user_id
+JOIN batches b   ON b.id = si.batch_id
+JOIN centres c   ON c.id = b.centre_id
 WHERE si.payment_status IN ('pending','partial','overdue')
-ORDER BY si.month_year, c.center_name, b.batch_name;
+ORDER BY si.month_year, c.centre_name, b.batch_name;
 
--- Monthly student attendance report
 CREATE OR REPLACE VIEW v_student_attendance_report AS
 SELECT
     s.student_code,
     u.full_name AS student_name,
     b.batch_name,
-    c.center_name,
+    c.centre_name,
     DATE_TRUNC('month', a.attendance_date)::DATE AS month_year,
     COUNT(*) AS total_days,
     SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) AS present_days,
@@ -880,19 +872,18 @@ SELECT
     ) AS attendance_percentage
 FROM attendance a
 JOIN students s ON s.id = a.student_id
-JOIN users u ON u.id = s.user_id
-JOIN batches b ON b.id = a.batch_id
-JOIN centers c ON c.id = b.center_id
-GROUP BY s.id, s.student_code, u.full_name, b.id, b.batch_name, c.center_name,
+JOIN users u    ON u.id = s.user_id
+JOIN batches b  ON b.id = a.batch_id
+JOIN centres c  ON c.id = b.centre_id
+GROUP BY s.id, s.student_code, u.full_name, b.id, b.batch_name, c.centre_name,
          DATE_TRUNC('month', a.attendance_date)
 ORDER BY month_year DESC, attendance_percentage;
 
--- Monthly staff attendance report
 CREATE OR REPLACE VIEW v_staff_attendance_report AS
 SELECT
     u.full_name AS staff_name,
     r.role_name,
-    c.center_name,
+    c.centre_name,
     DATE_TRUNC('month', sa.attendance_date)::DATE AS month_year,
     COUNT(*) AS total_days,
     SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present_days,
@@ -900,37 +891,35 @@ SELECT
         SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END)::DECIMAL / COUNT(*) * 100, 2
     ) AS attendance_percentage
 FROM staff_attendance sa
-JOIN users u ON u.id = sa.user_id
-JOIN roles r ON r.id = u.role_id
-JOIN centers c ON c.id = sa.center_id
-GROUP BY u.id, u.full_name, r.role_name, c.id, c.center_name,
+JOIN users u  ON u.id = sa.user_id
+JOIN roles r  ON r.id = u.role_id
+JOIN centres c ON c.id = sa.centre_id
+GROUP BY u.id, u.full_name, r.role_name, c.id, c.centre_name,
          DATE_TRUNC('month', sa.attendance_date)
 ORDER BY month_year DESC;
 
--- Student performance report: exam-wise marks and percentage
 CREATE OR REPLACE VIEW v_student_performance_report AS
 SELECT
     s.student_code,
     u.full_name AS student_name,
     b.batch_name,
-    c.center_name,
+    c.centre_name,
     e.exam_name,
     e.exam_date,
     e.total_marks,
     sm.marks_obtained,
     sm.is_absent,
-    CASE
-        WHEN sm.is_absent THEN NULL
-        ELSE ROUND((sm.marks_obtained / e.total_marks) * 100, 2)
+    CASE WHEN sm.is_absent THEN NULL
+         ELSE ROUND((sm.marks_obtained / e.total_marks) * 100, 2)
     END AS percentage,
     CASE
-        WHEN sm.is_absent THEN 'AB'
-        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 90 THEN 'A+'
-        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 80 THEN 'A'
-        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 70 THEN 'B+'
-        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 60 THEN 'B'
-        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 50 THEN 'C'
-        ELSE 'F'
+        WHEN sm.is_absent                                        THEN 'AB'
+        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 90    THEN 'A+'
+        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 80    THEN 'A'
+        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 70    THEN 'B+'
+        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 60    THEN 'B'
+        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 50    THEN 'C'
+        ELSE                                                          'F'
     END AS grade,
     RANK() OVER (
         PARTITION BY e.id
@@ -938,104 +927,100 @@ SELECT
     ) AS rank_in_batch
 FROM student_marks sm
 JOIN students s ON s.id = sm.student_id
-JOIN users u ON u.id = s.user_id
-JOIN exams e ON e.id = sm.exam_id
-JOIN batches b ON b.id = e.batch_id
-JOIN centers c ON c.id = b.center_id
+JOIN users u    ON u.id = s.user_id
+JOIN exams e    ON e.id = sm.exam_id
+JOIN batches b  ON b.id = e.batch_id
+JOIN centres c  ON c.id = b.centre_id
 WHERE e.results_published = TRUE;
 
--- Monthly dropout rate per batch
+-- Dropout rate uses total_ever_enrolled as a stable denominator.
+-- currently_active is a present-day snapshot, useful for display alongside dropout count.
 CREATE OR REPLACE VIEW v_monthly_dropout_rate AS
 SELECT
     b.batch_name,
-    c.center_name,
+    c.centre_name,
     DATE_TRUNC('month', sbe.withdrawn_at)::DATE AS month_year,
     COUNT(*) AS dropouts,
     (SELECT COUNT(*) FROM student_batch_enrollments
      WHERE batch_id = b.id AND is_active = TRUE) AS currently_active,
+    (SELECT COUNT(*) FROM student_batch_enrollments
+     WHERE batch_id = b.id) AS total_ever_enrolled,
     ROUND(
         COUNT(*)::DECIMAL /
-        NULLIF((SELECT COUNT(*) FROM student_batch_enrollments WHERE batch_id = b.id), 0) * 100, 2
+        NULLIF((SELECT COUNT(*) FROM student_batch_enrollments WHERE batch_id = b.id), 0) * 100,
+        2
     ) AS dropout_rate_percent
 FROM student_batch_enrollments sbe
 JOIN batches b ON b.id = sbe.batch_id
-JOIN centers c ON c.id = b.center_id
-WHERE sbe.status = 'withdrawn'
-AND sbe.withdrawn_at IS NOT NULL
-GROUP BY b.id, b.batch_name, c.center_name,
-         DATE_TRUNC('month', sbe.withdrawn_at)
+JOIN centres c ON c.id = b.centre_id
+WHERE sbe.status = 'withdrawn' AND sbe.withdrawn_at IS NOT NULL
+GROUP BY b.id, b.batch_name, c.centre_name, DATE_TRUNC('month', sbe.withdrawn_at)
 ORDER BY month_year DESC, dropout_rate_percent DESC;
 
--- Fee collection analytics: monthly and annual per center
 CREATE OR REPLACE VIEW v_fee_collection_analytics AS
 SELECT
-    c.center_name,
+    c.centre_name,
     DATE_TRUNC('month', ft.payment_date)::DATE AS month_year,
-    DATE_TRUNC('year', ft.payment_date)::DATE AS year,
+    DATE_TRUNC('year',  ft.payment_date)::DATE AS year,
     SUM(ft.amount) AS collected,
     COUNT(DISTINCT si.student_id) AS paying_students,
     SUM(CASE WHEN ft.payment_mode = 'cash'   THEN ft.amount ELSE 0 END) AS cash_collected,
     SUM(CASE WHEN ft.payment_mode = 'online' THEN ft.amount ELSE 0 END) AS online_collected
 FROM fee_transactions ft
 JOIN student_invoices si ON si.id = ft.student_invoice_id
-JOIN batches b ON b.id = si.batch_id
-JOIN centers c ON c.id = b.center_id
-GROUP BY c.id, c.center_name,
+JOIN batches b           ON b.id = si.batch_id
+JOIN centres c           ON c.id = b.centre_id
+GROUP BY c.id, c.centre_name,
          DATE_TRUNC('month', ft.payment_date),
-         DATE_TRUNC('year', ft.payment_date)
+         DATE_TRUNC('year',  ft.payment_date)
 ORDER BY month_year DESC;
 
-
--- Winners display: current and past, all centers
 CREATE OR REPLACE VIEW v_student_of_the_month AS
 SELECT
     sotm.month_year,
     sotm.class_level,
-    c.center_name,
+    c.centre_name,
     u.full_name AS student_name,
     s.student_code,
     u.profile_photo_url,
     awarder.full_name AS awarded_by_name,
     sotm.remarks
 FROM student_of_the_month sotm
-JOIN students s ON s.id = sotm.student_id
-JOIN users u ON u.id = s.user_id
-JOIN centers c ON c.id = sotm.center_id
+JOIN students s  ON s.id  = sotm.student_id
+JOIN users u     ON u.id  = s.user_id
+JOIN centres c   ON c.id  = sotm.centre_id
 JOIN users awarder ON awarder.id = sotm.awarded_by
-ORDER BY sotm.month_year DESC, c.center_name, sotm.class_level;
+ORDER BY sotm.month_year DESC, c.centre_name, sotm.class_level;
 
 
--- SECTION 14: ROW LEVEL SECURITY
+-- SECTION 16: ROW LEVEL SECURITY
 
+-- Returns role_name for the current authenticated active user.
 CREATE OR REPLACE FUNCTION get_my_role()
 RETURNS TEXT AS $$
-    SELECT r.role_name
-    FROM users u
+    SELECT r.role_name FROM users u
     JOIN roles r ON u.role_id = r.id
-    WHERE u.id = auth.uid()
-    AND u.is_active = TRUE;
+    WHERE u.id = auth.uid() AND u.is_active = TRUE;
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
-CREATE OR REPLACE FUNCTION get_my_center_ids()
+-- Returns array of centre UUIDs the current user is assigned to.
+CREATE OR REPLACE FUNCTION get_my_centre_ids()
 RETURNS UUID[] AS $$
-    SELECT ARRAY_AGG(center_id)
-    FROM user_center_assignments
-    WHERE user_id = auth.uid()
-    AND is_active = TRUE;
+    SELECT ARRAY_AGG(centre_id) FROM user_centre_assignments
+    WHERE user_id = auth.uid() AND is_active = TRUE;
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
 
--- Enable RLS
 ALTER TABLE users                     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_active_sessions      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_approval_requests    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_center_assignments   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE centers                   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_centre_assignments   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE centres                   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE batches                   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students                  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_batch_enrollments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_invoices          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fee_transactions          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE center_expenses           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE centre_expenses           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE staff_salaries            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance                ENABLE ROW LEVEL SECURITY;
 ALTER TABLE staff_attendance          ENABLE ROW LEVEL SECURITY;
@@ -1048,18 +1033,18 @@ ALTER TABLE revision_reminders        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE meeting_requests          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_of_the_month      ENABLE ROW LEVEL SECURITY;
 
--- CEO: full access. fee_transactions: SELECT only (immutable)
+-- CEO: full access everywhere; fee_transactions SELECT only (immutable log).
 CREATE POLICY "ceo_all" ON users                     FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON user_active_sessions      FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON user_approval_requests    FOR ALL    USING (get_my_role() = 'ceo');
-CREATE POLICY "ceo_all" ON user_center_assignments   FOR ALL    USING (get_my_role() = 'ceo');
-CREATE POLICY "ceo_all" ON centers                   FOR ALL    USING (get_my_role() = 'ceo');
+CREATE POLICY "ceo_all" ON user_centre_assignments   FOR ALL    USING (get_my_role() = 'ceo');
+CREATE POLICY "ceo_all" ON centres                   FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON batches                   FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON students                  FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON student_batch_enrollments FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON student_invoices          FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_sel" ON fee_transactions          FOR SELECT USING (get_my_role() = 'ceo');
-CREATE POLICY "ceo_all" ON center_expenses           FOR ALL    USING (get_my_role() = 'ceo');
+CREATE POLICY "ceo_all" ON centre_expenses           FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON staff_salaries            FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON attendance                FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON staff_attendance          FOR ALL    USING (get_my_role() = 'ceo');
@@ -1072,26 +1057,44 @@ CREATE POLICY "ceo_all" ON revision_reminders        FOR ALL    USING (get_my_ro
 CREATE POLICY "ceo_all" ON meeting_requests          FOR ALL    USING (get_my_role() = 'ceo');
 CREATE POLICY "ceo_all" ON student_of_the_month      FOR ALL    USING (get_my_role() = 'ceo');
 
--- CENTRE HEAD: scoped to assigned centers
-CREATE POLICY "ch_centers" ON centers
-    FOR SELECT USING (id = ANY(get_my_center_ids()));
+-- ALL AUTHENTICATED USERS
+-- users: any authenticated user can read (needed for all view JOINs).
+-- Inactive users can read own row (needed pre-approval).
+CREATE POLICY "users_read" ON users
+    FOR SELECT USING (auth.uid() IS NOT NULL);
+
+-- Each user manages their own session.
+CREATE POLICY "own_session" ON user_active_sessions
+    FOR ALL USING (user_id = auth.uid());
+
+-- Each user can see their own centre assignments.
+CREATE POLICY "own_uca" ON user_centre_assignments
+    FOR SELECT USING (user_id = auth.uid());
+
+-- Inactive (unapproved) users must be able to submit and check their own approval request.
+CREATE POLICY "self_apply" ON user_approval_requests
+    FOR ALL USING (user_id = auth.uid());
+
+-- CENTRE HEAD: scoped to assigned centres.
+CREATE POLICY "ch_centres" ON centres
+    FOR SELECT USING (id = ANY(get_my_centre_ids()));
 
 CREATE POLICY "ch_approval_requests" ON user_approval_requests
     FOR ALL USING (
         get_my_role() = 'centre_head'
-        AND center_id = ANY(get_my_center_ids())
+        AND centre_id = ANY(get_my_centre_ids())
     );
 
-CREATE POLICY "ch_uca" ON user_center_assignments
+CREATE POLICY "ch_uca" ON user_centre_assignments
     FOR ALL USING (
         get_my_role() = 'centre_head'
-        AND center_id = ANY(get_my_center_ids())
+        AND centre_id = ANY(get_my_centre_ids())
     );
 
 CREATE POLICY "ch_batches" ON batches
     FOR ALL USING (
         get_my_role() = 'centre_head'
-        AND center_id = ANY(get_my_center_ids())
+        AND centre_id = ANY(get_my_centre_ids())
     );
 
 CREATE POLICY "ch_students" ON students
@@ -1100,8 +1103,7 @@ CREATE POLICY "ch_students" ON students
         AND EXISTS (
             SELECT 1 FROM student_batch_enrollments sbe
             JOIN batches b ON b.id = sbe.batch_id
-            WHERE sbe.student_id = students.id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE sbe.student_id = students.id AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
@@ -1111,7 +1113,7 @@ CREATE POLICY "ch_enrollments" ON student_batch_enrollments
         AND EXISTS (
             SELECT 1 FROM batches b
             WHERE b.id = student_batch_enrollments.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
+            AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
@@ -1120,21 +1122,18 @@ CREATE POLICY "ch_invoices" ON student_invoices
         get_my_role() = 'centre_head'
         AND EXISTS (
             SELECT 1 FROM batches b
-            WHERE b.id = student_invoices.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE b.id = student_invoices.batch_id AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
-CREATE POLICY "ch_expenses" ON center_expenses
+CREATE POLICY "ch_expenses" ON centre_expenses
     FOR ALL USING (
-        get_my_role() = 'centre_head'
-        AND center_id = ANY(get_my_center_ids())
+        get_my_role() = 'centre_head' AND centre_id = ANY(get_my_centre_ids())
     );
 
 CREATE POLICY "ch_salaries" ON staff_salaries
     FOR ALL USING (
-        get_my_role() = 'centre_head'
-        AND center_id = ANY(get_my_center_ids())
+        get_my_role() = 'centre_head' AND centre_id = ANY(get_my_centre_ids())
     );
 
 CREATE POLICY "ch_attendance" ON attendance
@@ -1142,15 +1141,13 @@ CREATE POLICY "ch_attendance" ON attendance
         get_my_role() = 'centre_head'
         AND EXISTS (
             SELECT 1 FROM batches b
-            WHERE b.id = attendance.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE b.id = attendance.batch_id AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
 CREATE POLICY "ch_staff_attendance" ON staff_attendance
     FOR ALL USING (
-        get_my_role() = 'centre_head'
-        AND center_id = ANY(get_my_center_ids())
+        get_my_role() = 'centre_head' AND centre_id = ANY(get_my_centre_ids())
     );
 
 CREATE POLICY "ch_content" ON content
@@ -1158,8 +1155,7 @@ CREATE POLICY "ch_content" ON content
         get_my_role() = 'centre_head'
         AND EXISTS (
             SELECT 1 FROM batches b
-            WHERE b.id = content.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE b.id = content.batch_id AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
@@ -1168,8 +1164,7 @@ CREATE POLICY "ch_exams" ON exams
         get_my_role() = 'centre_head'
         AND EXISTS (
             SELECT 1 FROM batches b
-            WHERE b.id = exams.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE b.id = exams.batch_id AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
@@ -1179,32 +1174,40 @@ CREATE POLICY "ch_marks" ON student_marks
         AND EXISTS (
             SELECT 1 FROM exams e
             JOIN batches b ON b.id = e.batch_id
-            WHERE e.id = student_marks.exam_id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE e.id = student_marks.exam_id AND b.centre_id = ANY(get_my_centre_ids())
+        )
+    );
+
+CREATE POLICY "ch_points" ON points_transactions
+    FOR ALL USING (
+        get_my_role() = 'centre_head'
+        AND EXISTS (
+            SELECT 1 FROM students s
+            JOIN student_batch_enrollments sbe ON sbe.student_id = s.id
+            JOIN batches b ON b.id = sbe.batch_id
+            WHERE s.id = points_transactions.student_id
+            AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
 CREATE POLICY "ch_meeting_requests" ON meeting_requests
     FOR ALL USING (
-        get_my_role() = 'centre_head'
-        AND assigned_to = auth.uid()
+        get_my_role() = 'centre_head' AND assigned_to = auth.uid()
     );
 
 CREATE POLICY "ch_sotm" ON student_of_the_month
     FOR ALL USING (
-        get_my_role() = 'centre_head'
-        AND center_id = ANY(get_my_center_ids())
+        get_my_role() = 'centre_head' AND centre_id = ANY(get_my_centre_ids())
     );
 
--- ACCOUNTANT: fees, expenses, salaries for their centers
--- fee_transactions: INSERT + SELECT only (immutable)
+-- ACCOUNTANT: fees, expenses, salaries for assigned centres.
+-- fee_transactions: INSERT + SELECT only (immutable).
 CREATE POLICY "acc_invoices" ON student_invoices
     FOR ALL USING (
         get_my_role() = 'accountant'
         AND EXISTS (
             SELECT 1 FROM batches b
-            WHERE b.id = student_invoices.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE b.id = student_invoices.batch_id AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
@@ -1215,7 +1218,7 @@ CREATE POLICY "acc_insert_transactions" ON fee_transactions
             SELECT 1 FROM student_invoices si
             JOIN batches b ON b.id = si.batch_id
             WHERE si.id = fee_transactions.student_invoice_id
-            AND b.center_id = ANY(get_my_center_ids())
+            AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
@@ -1226,30 +1229,28 @@ CREATE POLICY "acc_view_transactions" ON fee_transactions
             SELECT 1 FROM student_invoices si
             JOIN batches b ON b.id = si.batch_id
             WHERE si.id = fee_transactions.student_invoice_id
-            AND b.center_id = ANY(get_my_center_ids())
+            AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
-CREATE POLICY "acc_expenses" ON center_expenses
+CREATE POLICY "acc_expenses" ON centre_expenses
     FOR ALL USING (
-        get_my_role() = 'accountant'
-        AND center_id = ANY(get_my_center_ids())
+        get_my_role() = 'accountant' AND centre_id = ANY(get_my_centre_ids())
     );
 
 CREATE POLICY "acc_salaries" ON staff_salaries
     FOR ALL USING (
-        get_my_role() = 'accountant'
-        AND center_id = ANY(get_my_center_ids())
+        get_my_role() = 'accountant' AND centre_id = ANY(get_my_centre_ids())
     );
 
--- TEACHER: attendance, content, exams, marks for their centers
+-- TEACHER: attendance, content, exams, marks for assigned centres.
+-- teachers can award points (performance, attendance_85 reasons).
 CREATE POLICY "teacher_attendance" ON attendance
     FOR ALL USING (
         get_my_role() = 'teacher'
         AND EXISTS (
             SELECT 1 FROM batches b
-            WHERE b.id = attendance.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE b.id = attendance.batch_id AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
@@ -1258,8 +1259,7 @@ CREATE POLICY "teacher_content" ON content
         get_my_role() = 'teacher'
         AND EXISTS (
             SELECT 1 FROM batches b
-            WHERE b.id = content.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE b.id = content.batch_id AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
@@ -1268,8 +1268,7 @@ CREATE POLICY "teacher_exams" ON exams
         get_my_role() = 'teacher'
         AND EXISTS (
             SELECT 1 FROM batches b
-            WHERE b.id = exams.batch_id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE b.id = exams.batch_id AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
@@ -1279,12 +1278,24 @@ CREATE POLICY "teacher_marks" ON student_marks
         AND EXISTS (
             SELECT 1 FROM exams e
             JOIN batches b ON b.id = e.batch_id
-            WHERE e.id = student_marks.exam_id
-            AND b.center_id = ANY(get_my_center_ids())
+            WHERE e.id = student_marks.exam_id AND b.centre_id = ANY(get_my_centre_ids())
         )
     );
 
--- STUDENT: own data only
+CREATE POLICY "teacher_points" ON points_transactions
+    FOR INSERT WITH CHECK (
+        get_my_role() = 'teacher'
+        AND reason IN ('attendance_85','performance')
+        AND EXISTS (
+            SELECT 1 FROM students s
+            JOIN student_batch_enrollments sbe ON sbe.student_id = s.id
+            JOIN batches b ON b.id = sbe.batch_id
+            WHERE s.id = points_transactions.student_id
+            AND b.centre_id = ANY(get_my_centre_ids())
+        )
+    );
+
+-- STUDENT: own data only.
 CREATE POLICY "student_profile" ON students
     FOR SELECT USING (user_id = auth.uid());
 
@@ -1354,13 +1365,3 @@ CREATE POLICY "student_sotm" ON student_of_the_month
     FOR SELECT USING (
         student_id IN (SELECT id FROM students WHERE user_id = auth.uid())
     );
-
-CREATE POLICY "student_approval_status" ON user_approval_requests
-    FOR SELECT USING (user_id = auth.uid());
-
--- ALL AUTHENTICATED USERS
-CREATE POLICY "own_session" ON user_active_sessions
-    FOR ALL USING (user_id = auth.uid());
-
-CREATE POLICY "own_uca" ON user_center_assignments
-    FOR SELECT USING (user_id = auth.uid());

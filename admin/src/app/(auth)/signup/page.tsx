@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -18,9 +17,9 @@ import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 type Role = 'ceo' | 'centre_head' | 'teacher' | 'accountant'
-type Center = { id: string; center_name: string }
+type Centre = { id: string; centre_name: string }
 
-const CENTER_ROLES: Role[] = ['teacher', 'accountant']
+const CENTRE_ROLES: Role[] = ['centre_head', 'teacher']
 
 const ROLE_LABELS: Record<Role, string> = {
   ceo: 'CEO',
@@ -31,47 +30,44 @@ const ROLE_LABELS: Record<Role, string> = {
 
 const ROLE_DESCRIPTIONS: Record<Role, string> = {
   ceo: 'Full institute access - approved by existing CEO',
-  centre_head: 'Manage a centre - approved by CEO',
+  centre_head: 'Manage your centre - approved by CEO',
   teacher: 'Teach batches - approved by your centre head',
-  accountant: 'Manage fees - approved by your centre head',
+  accountant: 'Manage fees - approved by CEO',
 }
 
 export default function SignupPage() {
-  const supabase = createClient()
-
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [role, setRole] = useState<Role>('centre_head')
-  const [centers, setCenters] = useState<Center[]>([])
-  const [centerId, setCenterId] = useState('')
+  const [centres, setCentres] = useState<Centre[]>([])
+  const [centreId, setCentreId] = useState('')
   const [loading, setLoading] = useState(false)
   const [done, setDone] = useState(false)
 
+  function handleRoleChange(value: string) {
+    const nextRole = value as Role
+    setRole(nextRole)
+
+    if (!CENTRE_ROLES.includes(nextRole)) {
+      setCentreId('')
+    }
+  }
+
   useEffect(() => {
-    if (!CENTER_ROLES.includes(role)) {
-      setCenterId('')
+    if (!CENTRE_ROLES.includes(role)) {
       return
     }
 
-    supabase
-      .from('centers')
-      .select('id, center_name')
-      .eq('is_active', true)
-      .order('center_name')
-      .then(({ data }) => setCenters(data ?? []))
+    fetch('/api/auth/signup')
+      .then(async response => {
+        if (!response.ok) return []
+        return await response.json()
+      })
+      .then(data => setCentres(Array.isArray(data) ? data : []))
+      .catch(() => setCentres([]))
   }, [role])
-
-  async function getRoleId(roleName: Role): Promise<string> {
-    const { data } = await supabase
-      .from('roles')
-      .select('id')
-      .eq('role_name', roleName)
-      .single()
-
-    return data!.id
-  }
 
   async function handleSignup() {
     if (!fullName.trim()) {
@@ -89,51 +85,34 @@ export default function SignupPage() {
       return
     }
 
-    if (CENTER_ROLES.includes(role) && !centerId) {
+    if (CENTRE_ROLES.includes(role) && !centreId) {
       toast.error('Please select a centre.')
       return
     }
 
     setLoading(true)
 
-    const { data: authData, error: authError } =
-      await supabase.auth.signUp({ email, password })
-
-    if (authError || !authData.user) {
-      toast.error(authError?.message ?? 'Signup failed.')
-      setLoading(false)
-      return
-    }
-
-    const userId = authData.user.id
-
-    const { error: userError } = await supabase.from('users').insert({
-      id: userId,
-      full_name: fullName.trim(),
-      email,
-      role_id: await getRoleId(role),
+    const response = await fetch('/api/auth/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+        role,
+        centreId: CENTRE_ROLES.includes(role) ? centreId : null,
+      }),
     })
 
-    if (userError) {
-      toast.error(userError.message)
+    const result = await response.json().catch(() => null)
+
+    if (!response.ok) {
+      toast.error(result?.error ?? 'Signup failed.')
       setLoading(false)
       return
     }
 
-    const { error: approvalError } =
-      await supabase.from('user_approval_requests').insert({
-        user_id: userId,
-        requested_role: role,
-        center_id: CENTER_ROLES.includes(role) ? centerId : null,
-      })
-
-    if (approvalError) {
-      toast.error(approvalError.message)
-      setLoading(false)
-      return
-    }
-
-    toast.success('Request submitted for approval.')
+    toast.success('Request submitted for approval. Sign in after approval.')
     setDone(true)
     setLoading(false)
   }
@@ -225,7 +204,7 @@ export default function SignupPage() {
 
           <div className="space-y-2">
             <Label htmlFor="role">Role</Label>
-            <Select value={role} onValueChange={v => setRole(v as Role)}>
+            <Select value={role} onValueChange={handleRoleChange}>
               <SelectTrigger id="role" className="h-11">
                 <SelectValue />
               </SelectTrigger>
@@ -244,22 +223,22 @@ export default function SignupPage() {
             </p>
           </div>
 
-          {CENTER_ROLES.includes(role) && (
+          {CENTRE_ROLES.includes(role) && (
             <div className="space-y-2">
-              <Label htmlFor="center">Centre</Label>
-              <Select value={centerId} onValueChange={setCenterId}>
-                <SelectTrigger id="center" className="h-11">
+              <Label htmlFor="centre">Centre</Label>
+              <Select value={centreId} onValueChange={setCentreId}>
+                <SelectTrigger id="centre" className="h-11">
                   <SelectValue placeholder="Select your centre" />
                 </SelectTrigger>
                 <SelectContent>
-                  {centers.length === 0 ? (
+                  {centres.length === 0 ? (
                     <SelectItem value="none" disabled>
                       No centres found
                     </SelectItem>
                   ) : (
-                    centers.map(c => (
+                    centres.map(c => (
                       <SelectItem key={c.id} value={c.id}>
-                        {c.center_name}
+                        {c.centre_name}
                       </SelectItem>
                     ))
                   )}
