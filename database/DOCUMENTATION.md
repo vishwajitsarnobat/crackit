@@ -1,13 +1,13 @@
 # Crack It Coaching Institute - Database Documentation
 **Version:** 3.2 (Feb 2026)
 **Database:** PostgreSQL 14+ (Supabase)
-**Tables:** 24 | **Views:** 11 | **Triggers:** 15
+**Tables:** 24 | **Views:** 0 | **Triggers:** 15
 
 ---
 
 ## Design Principles
 
-- **3NF** - no redundant data stored; summaries computed at runtime via views
+- **3NF** - no redundant data stored; summaries computed at runtime from base tables
 - **UUID primary keys** - unguessable, scalable
 - **RLS enforced at DB level** - two helper functions (`get_my_role`, `get_my_centre_ids`) power all policies
 - **Triggers handle computed state** - receipt numbers, student codes, invoice status, revision reminders
@@ -189,7 +189,7 @@ Daily midnight cron
 
 **Trigger:** `validate_attendance_date` - fires on both tables, rejects future dates.
 
-**No `attendance_summary` table** - attendance percentage is queried at runtime from `attendance` table directly via `v_student_attendance_report`.
+**No `attendance_summary` table** - attendance percentage is queried at runtime directly from source tables.
 
 ---
 
@@ -276,21 +276,9 @@ content_progress.is_completed → TRUE
 
 ---
 
-## Views Reference
+## Reporting Strategy
 
-| View | Purpose |
-|------|---------|
-| `v_centre_monthly_profit` | Revenue − Expenses − Salaries per centre per month. UNION calendar ensures months with expenses but no revenue still appear |
-| `v_institute_monthly_profit` | Combined institute profit across all centres, month-wise |
-| `v_institute_annual_profit` | Annual rollup of institute profit |
-| `v_analytics_dashboard` | Current month snapshot: revenue, expenses, salaries, net profit, active students |
-| `v_pending_fees` | Student-wise pending invoices with balance due. Filter by centre/batch in app |
-| `v_student_attendance_report` | Monthly attendance % per student per batch |
-| `v_staff_attendance_report` | Monthly attendance % per staff member per centre |
-| `v_student_performance_report` | Exam marks with percentage, grade, rank per batch. Only published results visible |
-| `v_monthly_dropout_rate` | Withdrawals per batch per month with dropout % |
-| `v_fee_collection_analytics` | Monthly + annual fee collection with cash vs online breakdown |
-| `v_student_of_the_month` | All declared winners across all centres, ordered by month and class level |
+All reports/analytics are computed at runtime from source tables in application queries. No SQL views are maintained in schema.
 
 ---
 

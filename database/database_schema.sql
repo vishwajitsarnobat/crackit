@@ -344,7 +344,7 @@ CREATE TABLE exams (
     batch_id         UUID REFERENCES batches(id) ON DELETE CASCADE,
     exam_name        VARCHAR(300) NOT NULL,
     exam_date        DATE NOT NULL,
-    total_marks      DECIMAL(10,2) NOT NULL,
+    total_marks      DECIMAL(10,2) NOT NULL CHECK (total_marks > 0),
     passing_marks    DECIMAL(10,2),
     results_published BOOLEAN DEFAULT FALSE,
     created_by       UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -504,11 +504,21 @@ DECLARE
 BEGIN
     IF NEW.student_code IS NULL THEN
         v_year := TO_CHAR(CURRENT_DATE, 'YYYY');
+
+        INSERT INTO id_counters (name, year, last_value)
+        VALUES ('student_code', v_year::INTEGER, 0)
+        ON CONFLICT (name) DO NOTHING;
+
         UPDATE id_counters
         SET last_value = CASE WHEN year = v_year::INTEGER THEN last_value + 1 ELSE 1 END,
             year       = v_year::INTEGER
         WHERE name = 'student_code'
         RETURNING last_value INTO v_next;
+
+        IF v_next IS NULL THEN
+            RAISE EXCEPTION 'Could not allocate next student_code counter value.';
+        END IF;
+
         NEW.student_code := 'STU' || v_year || LPAD(v_next::TEXT, 5, '0');
     END IF;
     RETURN NEW;
@@ -527,11 +537,21 @@ DECLARE
 BEGIN
     IF NEW.receipt_number IS NULL THEN
         v_year := TO_CHAR(CURRENT_DATE, 'YYYY');
+
+        INSERT INTO id_counters (name, year, last_value)
+        VALUES ('receipt_number', v_year::INTEGER, 0)
+        ON CONFLICT (name) DO NOTHING;
+
         UPDATE id_counters
         SET last_value = CASE WHEN year = v_year::INTEGER THEN last_value + 1 ELSE 1 END,
             year       = v_year::INTEGER
         WHERE name = 'receipt_number'
         RETURNING last_value INTO v_next;
+
+        IF v_next IS NULL THEN
+            RAISE EXCEPTION 'Could not allocate next receipt_number counter value.';
+        END IF;
+
         NEW.receipt_number := 'REC-' || v_year || '-' || LPAD(v_next::TEXT, 5, '0');
     END IF;
     RETURN NEW;
@@ -579,7 +599,8 @@ BEGIN
     IF NEW.amount_discount IS DISTINCT FROM OLD.amount_discount THEN
         v_net_due := NEW.amount_due - COALESCE(NEW.amount_discount, 0);
         NEW.payment_status := CASE
-            WHEN NEW.amount_paid >= v_net_due AND v_net_due > 0 THEN 'paid'
+            WHEN v_net_due <= 0 THEN 'paid'
+            WHEN NEW.amount_paid >= v_net_due THEN 'paid'
             WHEN NEW.amount_paid > 0                             THEN 'partial'
             ELSE                                                      'pending'
         END;
@@ -744,255 +765,6 @@ SELECT cron.schedule('mark-overdue', '0 0 * * *', $$
     AND month_year < DATE_TRUNC('month', CURRENT_DATE);
 $$);
 
-
--- SECTION 15: VIEWS
-
--- Net profit per centre per month.
--- Calendar UNION ensures months with expenses but no revenue still appear.
--- Filtered to months >= centre creation date to avoid phantom historical rows.
-CREATE OR REPLACE VIEW v_centre_monthly_profit AS
-SELECT
-    c.id AS centre_id,
-    c.centre_name,
-    cal.month_year,
-    COALESCE(rev.total_revenue,  0) AS total_revenue,
-    COALESCE(exp.total_expenses, 0) AS total_expenses,
-    COALESCE(sal.total_salaries, 0) AS total_salaries,
-    COALESCE(rev.total_revenue,  0)
-        - COALESCE(exp.total_expenses, 0)
-        - COALESCE(sal.total_salaries, 0) AS net_profit
-FROM centres c
-CROSS JOIN (
-    SELECT DISTINCT month_year FROM centre_expenses
-    UNION
-    SELECT DISTINCT month_year FROM staff_salaries
-    UNION
-    SELECT DISTINCT DATE_TRUNC('month', ft.payment_date)::DATE
-    FROM fee_transactions ft
-    JOIN student_invoices si ON si.id = ft.student_invoice_id
-    JOIN batches b ON b.id = si.batch_id
-) cal(month_year)
-LEFT JOIN (
-    SELECT b.centre_id,
-           DATE_TRUNC('month', ft.payment_date)::DATE AS month_year,
-           SUM(ft.amount) AS total_revenue
-    FROM fee_transactions ft
-    JOIN student_invoices si ON si.id = ft.student_invoice_id
-    JOIN batches b ON b.id = si.batch_id
-    GROUP BY b.centre_id, DATE_TRUNC('month', ft.payment_date)::DATE
-) rev ON rev.centre_id = c.id AND rev.month_year = cal.month_year
-LEFT JOIN (
-    SELECT centre_id, month_year, SUM(amount) AS total_expenses
-    FROM centre_expenses GROUP BY centre_id, month_year
-) exp ON exp.centre_id = c.id AND exp.month_year = cal.month_year
-LEFT JOIN (
-    SELECT centre_id, month_year, SUM(amount_paid) AS total_salaries
-    FROM staff_salaries GROUP BY centre_id, month_year
-) sal ON sal.centre_id = c.id AND sal.month_year = cal.month_year
-WHERE c.is_active = TRUE
-AND cal.month_year >= DATE_TRUNC('month', c.created_at)::DATE;
-
-CREATE OR REPLACE VIEW v_institute_monthly_profit AS
-SELECT
-    month_year,
-    SUM(total_revenue)  AS total_revenue,
-    SUM(total_expenses) AS total_expenses,
-    SUM(total_salaries) AS total_salaries,
-    SUM(net_profit)     AS net_profit
-FROM v_centre_monthly_profit
-GROUP BY month_year
-ORDER BY month_year DESC;
-
-CREATE OR REPLACE VIEW v_institute_annual_profit AS
-SELECT
-    DATE_TRUNC('year', month_year)::DATE AS year,
-    SUM(total_revenue)  AS total_revenue,
-    SUM(total_expenses) AS total_expenses,
-    SUM(total_salaries) AS total_salaries,
-    SUM(net_profit)     AS net_profit
-FROM v_institute_monthly_profit
-GROUP BY DATE_TRUNC('year', month_year)
-ORDER BY year DESC;
-
--- Current month snapshot for analytics dashboard.
-CREATE OR REPLACE VIEW v_analytics_dashboard AS
-SELECT
-    DATE_TRUNC('month', CURRENT_DATE)::DATE AS month_year,
-    (SELECT COALESCE(SUM(ft.amount), 0) FROM fee_transactions ft
-     WHERE DATE_TRUNC('month', ft.payment_date) = DATE_TRUNC('month', CURRENT_DATE)
-    ) AS revenue,
-    (SELECT COALESCE(SUM(amount), 0) FROM centre_expenses
-     WHERE month_year = DATE_TRUNC('month', CURRENT_DATE)
-    ) AS expenses,
-    (SELECT COALESCE(SUM(amount_paid), 0) FROM staff_salaries
-     WHERE month_year = DATE_TRUNC('month', CURRENT_DATE)
-    ) AS salaries,
-    (SELECT COALESCE(SUM(ft.amount), 0) FROM fee_transactions ft
-     WHERE DATE_TRUNC('month', ft.payment_date) = DATE_TRUNC('month', CURRENT_DATE)
-    ) - (SELECT COALESCE(SUM(amount), 0) FROM centre_expenses
-         WHERE month_year = DATE_TRUNC('month', CURRENT_DATE)
-    ) - (SELECT COALESCE(SUM(amount_paid), 0) FROM staff_salaries
-         WHERE month_year = DATE_TRUNC('month', CURRENT_DATE)
-    ) AS net_profit,
-    (SELECT COUNT(DISTINCT student_id) FROM student_batch_enrollments
-     WHERE is_active = TRUE
-    ) AS active_students;
-
-CREATE OR REPLACE VIEW v_pending_fees AS
-SELECT
-    si.id AS invoice_id,
-    u.full_name AS student_name,
-    s.student_code,
-    b.batch_name,
-    c.centre_name,
-    si.month_year,
-    si.amount_due,
-    si.amount_paid,
-    si.amount_due - si.amount_paid - si.amount_discount AS balance_due,
-    si.payment_status
-FROM student_invoices si
-JOIN students s  ON s.id = si.student_id
-JOIN users u     ON u.id = s.user_id
-JOIN batches b   ON b.id = si.batch_id
-JOIN centres c   ON c.id = b.centre_id
-WHERE si.payment_status IN ('pending','partial','overdue')
-ORDER BY si.month_year, c.centre_name, b.batch_name;
-
-CREATE OR REPLACE VIEW v_student_attendance_report AS
-SELECT
-    s.student_code,
-    u.full_name AS student_name,
-    b.batch_name,
-    c.centre_name,
-    DATE_TRUNC('month', a.attendance_date)::DATE AS month_year,
-    COUNT(*) AS total_days,
-    SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END) AS present_days,
-    ROUND(
-        SUM(CASE WHEN a.status = 'present' THEN 1 ELSE 0 END)::DECIMAL / COUNT(*) * 100, 2
-    ) AS attendance_percentage
-FROM attendance a
-JOIN students s ON s.id = a.student_id
-JOIN users u    ON u.id = s.user_id
-JOIN batches b  ON b.id = a.batch_id
-JOIN centres c  ON c.id = b.centre_id
-GROUP BY s.id, s.student_code, u.full_name, b.id, b.batch_name, c.centre_name,
-         DATE_TRUNC('month', a.attendance_date)
-ORDER BY month_year DESC, attendance_percentage;
-
-CREATE OR REPLACE VIEW v_staff_attendance_report AS
-SELECT
-    u.full_name AS staff_name,
-    r.role_name,
-    c.centre_name,
-    DATE_TRUNC('month', sa.attendance_date)::DATE AS month_year,
-    COUNT(*) AS total_days,
-    SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END) AS present_days,
-    ROUND(
-        SUM(CASE WHEN sa.status = 'present' THEN 1 ELSE 0 END)::DECIMAL / COUNT(*) * 100, 2
-    ) AS attendance_percentage
-FROM staff_attendance sa
-JOIN users u  ON u.id = sa.user_id
-JOIN roles r  ON r.id = u.role_id
-JOIN centres c ON c.id = sa.centre_id
-GROUP BY u.id, u.full_name, r.role_name, c.id, c.centre_name,
-         DATE_TRUNC('month', sa.attendance_date)
-ORDER BY month_year DESC;
-
-CREATE OR REPLACE VIEW v_student_performance_report AS
-SELECT
-    s.student_code,
-    u.full_name AS student_name,
-    b.batch_name,
-    c.centre_name,
-    e.exam_name,
-    e.exam_date,
-    e.total_marks,
-    sm.marks_obtained,
-    sm.is_absent,
-    CASE WHEN sm.is_absent THEN NULL
-         ELSE ROUND((sm.marks_obtained / e.total_marks) * 100, 2)
-    END AS percentage,
-    CASE
-        WHEN sm.is_absent                                        THEN 'AB'
-        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 90    THEN 'A+'
-        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 80    THEN 'A'
-        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 70    THEN 'B+'
-        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 60    THEN 'B'
-        WHEN (sm.marks_obtained / e.total_marks) * 100 >= 50    THEN 'C'
-        ELSE                                                          'F'
-    END AS grade,
-    RANK() OVER (
-        PARTITION BY e.id
-        ORDER BY CASE WHEN sm.is_absent THEN -1 ELSE sm.marks_obtained END DESC
-    ) AS rank_in_batch
-FROM student_marks sm
-JOIN students s ON s.id = sm.student_id
-JOIN users u    ON u.id = s.user_id
-JOIN exams e    ON e.id = sm.exam_id
-JOIN batches b  ON b.id = e.batch_id
-JOIN centres c  ON c.id = b.centre_id
-WHERE e.results_published = TRUE;
-
--- Dropout rate uses total_ever_enrolled as a stable denominator.
--- currently_active is a present-day snapshot, useful for display alongside dropout count.
-CREATE OR REPLACE VIEW v_monthly_dropout_rate AS
-SELECT
-    b.batch_name,
-    c.centre_name,
-    DATE_TRUNC('month', sbe.withdrawn_at)::DATE AS month_year,
-    COUNT(*) AS dropouts,
-    (SELECT COUNT(*) FROM student_batch_enrollments
-     WHERE batch_id = b.id AND is_active = TRUE) AS currently_active,
-    (SELECT COUNT(*) FROM student_batch_enrollments
-     WHERE batch_id = b.id) AS total_ever_enrolled,
-    ROUND(
-        COUNT(*)::DECIMAL /
-        NULLIF((SELECT COUNT(*) FROM student_batch_enrollments WHERE batch_id = b.id), 0) * 100,
-        2
-    ) AS dropout_rate_percent
-FROM student_batch_enrollments sbe
-JOIN batches b ON b.id = sbe.batch_id
-JOIN centres c ON c.id = b.centre_id
-WHERE sbe.status = 'withdrawn' AND sbe.withdrawn_at IS NOT NULL
-GROUP BY b.id, b.batch_name, c.centre_name, DATE_TRUNC('month', sbe.withdrawn_at)
-ORDER BY month_year DESC, dropout_rate_percent DESC;
-
-CREATE OR REPLACE VIEW v_fee_collection_analytics AS
-SELECT
-    c.centre_name,
-    DATE_TRUNC('month', ft.payment_date)::DATE AS month_year,
-    DATE_TRUNC('year',  ft.payment_date)::DATE AS year,
-    SUM(ft.amount) AS collected,
-    COUNT(DISTINCT si.student_id) AS paying_students,
-    SUM(CASE WHEN ft.payment_mode = 'cash'   THEN ft.amount ELSE 0 END) AS cash_collected,
-    SUM(CASE WHEN ft.payment_mode = 'online' THEN ft.amount ELSE 0 END) AS online_collected
-FROM fee_transactions ft
-JOIN student_invoices si ON si.id = ft.student_invoice_id
-JOIN batches b           ON b.id = si.batch_id
-JOIN centres c           ON c.id = b.centre_id
-GROUP BY c.id, c.centre_name,
-         DATE_TRUNC('month', ft.payment_date),
-         DATE_TRUNC('year',  ft.payment_date)
-ORDER BY month_year DESC;
-
-CREATE OR REPLACE VIEW v_student_of_the_month AS
-SELECT
-    sotm.month_year,
-    sotm.class_level,
-    c.centre_name,
-    u.full_name AS student_name,
-    s.student_code,
-    u.profile_photo_url,
-    awarder.full_name AS awarded_by_name,
-    sotm.remarks
-FROM student_of_the_month sotm
-JOIN students s  ON s.id  = sotm.student_id
-JOIN users u     ON u.id  = s.user_id
-JOIN centres c   ON c.id  = sotm.centre_id
-JOIN users awarder ON awarder.id = sotm.awarded_by
-ORDER BY sotm.month_year DESC, c.centre_name, sotm.class_level;
-
-
 -- SECTION 16: ROW LEVEL SECURITY
 
 -- Returns role_name for the current authenticated active user.
@@ -1009,6 +781,91 @@ RETURNS UUID[] AS $$
     SELECT ARRAY_AGG(centre_id) FROM user_centre_assignments
     WHERE user_id = auth.uid() AND is_active = TRUE;
 $$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Returns current user's student IDs (usually one), bypassing RLS recursion.
+CREATE OR REPLACE FUNCTION get_my_student_ids()
+RETURNS UUID[] AS $$
+    SELECT COALESCE(ARRAY_AGG(id), ARRAY[]::UUID[])
+    FROM students
+    WHERE user_id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Atomic approval decision write path.
+-- Keeps request status + user activation + assignment consistent.
+CREATE OR REPLACE FUNCTION process_approval_decision(
+    p_approval_id UUID,
+    p_action TEXT,
+    p_reviewer_id UUID,
+    p_rejection_reason TEXT DEFAULT NULL
+)
+RETURNS VOID AS $$
+DECLARE
+    v_request user_approval_requests%ROWTYPE;
+BEGIN
+    IF p_action NOT IN ('approve', 'reject') THEN
+        RAISE EXCEPTION 'Invalid action: %', p_action;
+    END IF;
+
+    SELECT * INTO v_request
+    FROM user_approval_requests
+    WHERE id = p_approval_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Approval request not found.';
+    END IF;
+
+    IF v_request.status <> 'pending' THEN
+        RAISE EXCEPTION 'Approval request already processed.';
+    END IF;
+
+    IF p_action = 'approve' THEN
+        UPDATE user_approval_requests
+        SET status = 'approved',
+            reviewed_by = p_reviewer_id,
+            reviewed_at = NOW(),
+            rejection_reason = NULL,
+            updated_at = NOW()
+        WHERE id = p_approval_id;
+
+        UPDATE users
+        SET is_active = TRUE,
+            updated_at = NOW()
+        WHERE id = v_request.user_id;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'User not found for approval request.';
+        END IF;
+
+        IF v_request.centre_id IS NOT NULL THEN
+            INSERT INTO user_centre_assignments (
+                user_id,
+                centre_id,
+                is_active,
+                is_primary
+            )
+            VALUES (
+                v_request.user_id,
+                v_request.centre_id,
+                TRUE,
+                TRUE
+            )
+            ON CONFLICT (user_id, centre_id) DO UPDATE
+            SET is_active = TRUE,
+                is_primary = TRUE,
+                updated_at = NOW();
+        END IF;
+    ELSE
+        UPDATE user_approval_requests
+        SET status = 'rejected',
+            reviewed_by = p_reviewer_id,
+            reviewed_at = NOW(),
+            rejection_reason = NULLIF(BTRIM(COALESCE(p_rejection_reason, '')), ''),
+            updated_at = NOW()
+        WHERE id = p_approval_id;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 ALTER TABLE users                     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE user_active_sessions      ENABLE ROW LEVEL SECURITY;
@@ -1072,21 +929,24 @@ CREATE POLICY "own_uca" ON user_centre_assignments
     FOR SELECT USING (user_id = auth.uid());
 
 -- Inactive (unapproved) users must be able to submit and check their own approval request.
-CREATE POLICY "self_apply" ON user_approval_requests
-    FOR ALL USING (user_id = auth.uid());
+CREATE POLICY "self_apply_insert" ON user_approval_requests
+    FOR INSERT WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "self_apply_read" ON user_approval_requests
+    FOR SELECT USING (user_id = auth.uid());
 
 -- CENTRE HEAD: scoped to assigned centres.
 CREATE POLICY "ch_centres" ON centres
     FOR SELECT USING (id = ANY(get_my_centre_ids()));
 
 CREATE POLICY "ch_approval_requests" ON user_approval_requests
-    FOR ALL USING (
+    FOR SELECT USING (
         get_my_role() = 'centre_head'
         AND centre_id = ANY(get_my_centre_ids())
     );
 
 CREATE POLICY "ch_uca" ON user_centre_assignments
-    FOR ALL USING (
+    FOR SELECT USING (
         get_my_role() = 'centre_head'
         AND centre_id = ANY(get_my_centre_ids())
     );
@@ -1110,6 +970,33 @@ CREATE POLICY "ch_students" ON students
 CREATE POLICY "ch_enrollments" ON student_batch_enrollments
     FOR ALL USING (
         get_my_role() = 'centre_head'
+        AND EXISTS (
+            SELECT 1 FROM batches b
+            WHERE b.id = student_batch_enrollments.batch_id
+            AND b.centre_id = ANY(get_my_centre_ids())
+        )
+    );
+
+CREATE POLICY "teacher_batches" ON batches
+    FOR SELECT USING (
+        get_my_role() = 'teacher'
+        AND centre_id = ANY(get_my_centre_ids())
+    );
+
+CREATE POLICY "teacher_students" ON students
+    FOR SELECT USING (
+        get_my_role() = 'teacher'
+        AND EXISTS (
+            SELECT 1 FROM student_batch_enrollments sbe
+            JOIN batches b ON b.id = sbe.batch_id
+            WHERE sbe.student_id = students.id
+            AND b.centre_id = ANY(get_my_centre_ids())
+        )
+    );
+
+CREATE POLICY "teacher_enrollments" ON student_batch_enrollments
+    FOR SELECT USING (
+        get_my_role() = 'teacher'
         AND EXISTS (
             SELECT 1 FROM batches b
             WHERE b.id = student_batch_enrollments.batch_id
@@ -1301,17 +1188,20 @@ CREATE POLICY "student_profile" ON students
 
 CREATE POLICY "student_enrollments" ON student_batch_enrollments
     FOR SELECT USING (
-        student_id IN (SELECT id FROM students WHERE user_id = auth.uid())
+        get_my_role() = 'student'
+        AND student_id = ANY(get_my_student_ids())
     );
 
 CREATE POLICY "student_invoices" ON student_invoices
     FOR SELECT USING (
-        student_id IN (SELECT id FROM students WHERE user_id = auth.uid())
+        get_my_role() = 'student'
+        AND student_id = ANY(get_my_student_ids())
     );
 
 CREATE POLICY "student_attendance" ON attendance
     FOR SELECT USING (
-        student_id IN (SELECT id FROM students WHERE user_id = auth.uid())
+        get_my_role() = 'student'
+        AND student_id = ANY(get_my_student_ids())
     );
 
 CREATE POLICY "student_content" ON content
@@ -1319,15 +1209,17 @@ CREATE POLICY "student_content" ON content
         get_my_role() = 'student'
         AND is_published = TRUE
         AND batch_id IN (
-            SELECT sbe.batch_id FROM student_batch_enrollments sbe
-            JOIN students s ON s.id = sbe.student_id
-            WHERE s.user_id = auth.uid() AND sbe.is_active = TRUE
+            SELECT sbe.batch_id
+            FROM student_batch_enrollments sbe
+            WHERE sbe.student_id = ANY(get_my_student_ids())
+            AND sbe.is_active = TRUE
         )
     );
 
 CREATE POLICY "student_progress" ON content_progress
     FOR ALL USING (
-        student_id IN (SELECT id FROM students WHERE user_id = auth.uid())
+        get_my_role() = 'student'
+        AND student_id = ANY(get_my_student_ids())
     );
 
 CREATE POLICY "student_exams" ON exams
@@ -1335,33 +1227,39 @@ CREATE POLICY "student_exams" ON exams
         get_my_role() = 'student'
         AND results_published = TRUE
         AND batch_id IN (
-            SELECT sbe.batch_id FROM student_batch_enrollments sbe
-            JOIN students s ON s.id = sbe.student_id
-            WHERE s.user_id = auth.uid() AND sbe.is_active = TRUE
+            SELECT sbe.batch_id
+            FROM student_batch_enrollments sbe
+            WHERE sbe.student_id = ANY(get_my_student_ids())
+            AND sbe.is_active = TRUE
         )
     );
 
 CREATE POLICY "student_marks" ON student_marks
     FOR SELECT USING (
-        student_id IN (SELECT id FROM students WHERE user_id = auth.uid())
+        get_my_role() = 'student'
+        AND student_id = ANY(get_my_student_ids())
     );
 
 CREATE POLICY "student_points" ON points_transactions
     FOR SELECT USING (
-        student_id IN (SELECT id FROM students WHERE user_id = auth.uid())
+        get_my_role() = 'student'
+        AND student_id = ANY(get_my_student_ids())
     );
 
 CREATE POLICY "student_reminders" ON revision_reminders
     FOR SELECT USING (
-        student_id IN (SELECT id FROM students WHERE user_id = auth.uid())
+        get_my_role() = 'student'
+        AND student_id = ANY(get_my_student_ids())
     );
 
 CREATE POLICY "student_meetings" ON meeting_requests
     FOR ALL USING (
-        student_id IN (SELECT id FROM students WHERE user_id = auth.uid())
+        get_my_role() = 'student'
+        AND student_id = ANY(get_my_student_ids())
     );
 
 CREATE POLICY "student_sotm" ON student_of_the_month
     FOR SELECT USING (
-        student_id IN (SELECT id FROM students WHERE user_id = auth.uid())
+        get_my_role() = 'student'
+        AND student_id = ANY(get_my_student_ids())
     );
