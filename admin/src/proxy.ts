@@ -30,7 +30,7 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith('/login') ||
     pathname.startsWith('/signup') ||
     pathname.startsWith('/set-password') ||
-    pathname.startsWith('/auth') ||
+    pathname.startsWith('/callbacks') ||
     pathname.startsWith('/api/auth/signup')
 
   if (!user && !isPublic) {

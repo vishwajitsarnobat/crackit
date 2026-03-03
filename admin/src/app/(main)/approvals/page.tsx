@@ -1,8 +1,19 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
 
 type ApprovalItem = {
@@ -29,6 +40,9 @@ export default function ApprovalsPage() {
   const [items, setItems] = useState<ApprovalItem[]>([])
   const [loading, setLoading] = useState(true)
   const [actingId, setActingId] = useState<string | null>(null)
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false)
+  const [rejectingId, setRejectingId] = useState<string | null>(null)
+  const [rejectionReason, setRejectionReason] = useState('')
 
   function switchTab(nextTab: 'pending' | 'processed') {
     if (nextTab === tab) return
@@ -74,18 +88,13 @@ export default function ApprovalsPage() {
     }
   }, [tab])
 
-  async function handleAction(id: string, action: 'approve' | 'reject') {
+  async function handleAction(id: string, action: 'approve' | 'reject', reason?: string | null) {
     setActingId(id)
-
-    const rejectionReason =
-      action === 'reject'
-        ? window.prompt('Rejection reason (optional):')?.trim() || null
-        : null
 
     const response = await fetch(`/api/approvals/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, rejectionReason }),
+      body: JSON.stringify({ action, rejectionReason: reason ?? null }),
     })
 
     const payload = await response.json().catch(() => null)
@@ -121,20 +130,12 @@ export default function ApprovalsPage() {
         </p>
       </div>
 
-      <div className="flex items-center gap-2">
-        <Button
-          variant={tab === 'pending' ? 'default' : 'outline'}
-          onClick={() => switchTab('pending')}
-        >
-          Pending
-        </Button>
-        <Button
-          variant={tab === 'processed' ? 'default' : 'outline'}
-          onClick={() => switchTab('processed')}
-        >
-          Processed
-        </Button>
-      </div>
+      <Tabs value={tab} onValueChange={value => switchTab(value as 'pending' | 'processed')}>
+        <TabsList>
+          <TabsTrigger value="pending">Pending</TabsTrigger>
+          <TabsTrigger value="processed">Processed</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       <div className="rounded-xl border bg-card p-5">
         <h2 className="text-sm font-medium text-muted-foreground">
@@ -155,7 +156,9 @@ export default function ApprovalsPage() {
                     <p className="font-medium">{item.applicant?.full_name ?? 'Unknown user'}</p>
                     <p className="text-sm text-muted-foreground">{item.applicant?.email ?? '-'}</p>
                     <p className="text-xs text-muted-foreground">
-                      Role: <span className="uppercase">{item.requested_role}</span>
+                      <Badge variant="outline" className="uppercase tracking-wide">
+                        {item.requested_role}
+                      </Badge>
                       {item.centre?.centre_name ? ` • Centre: ${item.centre.centre_name}` : ''}
                     </p>
                   </div>
@@ -172,16 +175,20 @@ export default function ApprovalsPage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => handleAction(item.id, 'reject')}
+                        onClick={() => {
+                          setRejectingId(item.id)
+                          setRejectionReason('')
+                          setRejectDialogOpen(true)
+                        }}
                         disabled={actingId === item.id}
                       >
                         Reject
                       </Button>
                     </div>
                   ) : (
-                    <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <Badge variant={item.status === 'approved' ? 'secondary' : 'destructive'}>
                       {item.status}
-                    </span>
+                    </Badge>
                   )}
                 </div>
 
@@ -197,6 +204,40 @@ export default function ApprovalsPage() {
           </div>
         )}
       </div>
+
+      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject request</DialogTitle>
+            <DialogDescription>
+              Add an optional reason. This will be visible in approval history.
+            </DialogDescription>
+          </DialogHeader>
+
+          <Textarea
+            value={rejectionReason}
+            onChange={event => setRejectionReason(event.target.value)}
+            placeholder="Reason for rejection (optional)"
+            rows={4}
+          />
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!rejectingId) return
+                setRejectDialogOpen(false)
+                await handleAction(rejectingId, 'reject', rejectionReason.trim() || null)
+              }}
+            >
+              Confirm reject
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

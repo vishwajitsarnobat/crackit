@@ -111,16 +111,18 @@ export default function LoginPage() {
                 className="h-11 pr-10"
                 autoComplete="current-password"
               />
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon-sm"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
               >
                 {showPassword
                   ? <EyeOff className="h-4 w-4" />
                   : <Eye className="h-4 w-4" />
                 }
-              </button>
+              </Button>
             </div>
           </div>
 

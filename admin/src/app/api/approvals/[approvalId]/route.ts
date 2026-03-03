@@ -58,63 +58,26 @@ export async function PATCH(
     }
 
     if (action === 'approve') {
-      const { error: requestUpdateError } = await admin
-        .from('user_approval_requests')
-        .update({
-          status: 'approved',
-          reviewed_by: reviewer.data.reviewerId,
-          reviewed_at: new Date().toISOString(),
-          rejection_reason: null,
-        })
-        .eq('id', approvalId)
-        .eq('status', 'pending')
-        .select('id')
-        .single()
+      const { error: processError } = await admin.rpc('process_approval_decision', {
+        p_approval_id: approvalId,
+        p_action: 'approve',
+        p_reviewer_id: reviewer.data.reviewerId,
+        p_rejection_reason: null,
+      })
 
-      if (requestUpdateError) {
-        return NextResponse.json({ error: requestUpdateError.message }, { status: 400 })
-      }
-
-      const { error: userUpdateError } = await admin
-        .from('users')
-        .update({ is_active: true })
-        .eq('id', approval.user_id)
-
-      if (userUpdateError) {
-        return NextResponse.json({ error: userUpdateError.message }, { status: 400 })
-      }
-
-      if (approval.centre_id) {
-        const { error: assignmentError } = await admin.from('user_centre_assignments').upsert(
-          {
-            user_id: approval.user_id,
-            centre_id: approval.centre_id,
-            is_active: true,
-            is_primary: true,
-          },
-          { onConflict: 'user_id,centre_id' }
-        )
-
-        if (assignmentError) {
-          return NextResponse.json({ error: assignmentError.message }, { status: 400 })
-        }
+      if (processError) {
+        return NextResponse.json({ error: processError.message }, { status: 400 })
       }
 
       return NextResponse.json({ ok: true })
     }
 
-    const { error: rejectError } = await admin
-      .from('user_approval_requests')
-      .update({
-        status: 'rejected',
-        reviewed_by: reviewer.data.reviewerId,
-        reviewed_at: new Date().toISOString(),
-        rejection_reason: rejectionReason || null,
-      })
-      .eq('id', approvalId)
-      .eq('status', 'pending')
-      .select('id')
-      .single()
+    const { error: rejectError } = await admin.rpc('process_approval_decision', {
+      p_approval_id: approvalId,
+      p_action: 'reject',
+      p_reviewer_id: reviewer.data.reviewerId,
+      p_rejection_reason: rejectionReason || null,
+    })
 
     if (rejectError) {
       return NextResponse.json({ error: rejectError.message }, { status: 400 })
