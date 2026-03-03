@@ -417,6 +417,19 @@ export function PerformanceDashboard({ initialData }: { initialData: Performance
     setStudentId('')
   }
 
+  async function handleBatchChange(nextBatchId: string) {
+    setBatchId(nextBatchId)
+    setStudentId('')
+
+    const params = new URLSearchParams()
+    if (centreId) params.set('centreId', centreId)
+    if (nextBatchId) params.set('batchId', nextBatchId)
+    if (fromDate) params.set('from', format(fromDate, 'yyyy-MM-dd'))
+    if (toDate) params.set('to', format(toDate, 'yyyy-MM-dd'))
+
+    await loadData(params)
+  }
+
   async function loadData(params?: URLSearchParams) {
     setLoading(true)
 
@@ -452,7 +465,6 @@ export function PerformanceDashboard({ initialData }: { initialData: Performance
   }
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData()
   }, [])
 
@@ -490,7 +502,7 @@ export function PerformanceDashboard({ initialData }: { initialData: Performance
 
           <div className="space-y-2">
             <Label htmlFor="filter-batch">Batch</Label>
-            <Select value={batchId} onValueChange={value => setBatchId(value)}>
+            <Select value={batchId} onValueChange={handleBatchChange}>
               <SelectTrigger id="filter-batch" className="h-10 w-full">
                 <SelectValue placeholder="Select batch" />
               </SelectTrigger>
