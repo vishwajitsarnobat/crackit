@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle2 } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, Loader2, CheckCircle2, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
 
 type Role = 'ceo' | 'centre_head' | 'teacher' | 'accountant'
@@ -121,8 +121,8 @@ export default function SignupPage() {
     return (
       <div className="w-full max-w-[420px]">
         <div className="rounded-2xl border bg-card p-10 shadow-sm text-center">
-          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent/10">
-            <CheckCircle2 className="h-7 w-7 text-accent" />
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-success/10">
+            <CheckCircle2 className="h-7 w-7 text-success" />
           </div>
           <h2 className="font-serif text-2xl tracking-tight">
             Request submitted
@@ -141,6 +141,9 @@ export default function SignupPage() {
   return (
     <div className="w-full max-w-[420px]">
       <div className="mb-8">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <UserPlus className="h-6 w-6" />
+        </div>
         <h1 className="font-serif text-3xl tracking-tight text-foreground">
           Request access
         </h1>
@@ -149,7 +152,7 @@ export default function SignupPage() {
         </p>
       </div>
 
-      <div className="rounded-2xl border bg-card p-8 shadow-sm">
+      <div className="rounded-2xl border bg-card p-8 shadow-sm transition-shadow hover:shadow-md">
         <div className="space-y-5">
 
           <div className="space-y-2">
@@ -250,7 +253,7 @@ export default function SignupPage() {
           )}
 
           <Button
-            className="w-full h-11 font-medium"
+            className="w-full h-11 font-medium bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={handleSignup}
             disabled={loading}
           >
@@ -272,7 +275,7 @@ export default function SignupPage() {
           Already approved?{' '}
           <Link
             href="/login"
-            className="font-medium text-foreground underline underline-offset-4 hover:text-accent transition-colors"
+            className="font-medium text-primary underline underline-offset-4 hover:text-primary/80 transition-colors"
           >
             Sign in
           </Link>

@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, Loader2, KeyRound } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function SetPasswordPage() {
@@ -43,9 +43,16 @@ export default function SetPasswordPage() {
     router.refresh()
   }
 
+  const strengthLevel = password.length >= 12 ? 4 : password.length >= 8 ? 3 : Math.min(Math.floor(password.length / 3), 2)
+  const strengthColor = password.length >= 12 ? 'bg-success' : password.length >= 8 ? 'bg-warning' : 'bg-destructive'
+  const strengthLabel = password.length < 8 ? 'Too short' : password.length < 12 ? 'Acceptable' : 'Strong'
+
   return (
     <div className="w-full max-w-[420px]">
       <div className="mb-8">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <KeyRound className="h-6 w-6" />
+        </div>
         <h1 className="font-serif text-3xl tracking-tight text-foreground">
           Set your password
         </h1>
@@ -54,7 +61,7 @@ export default function SetPasswordPage() {
         </p>
       </div>
 
-      <div className="rounded-2xl border bg-card p-8 shadow-sm">
+      <div className="rounded-2xl border bg-card p-8 shadow-sm transition-shadow hover:shadow-md">
         <div className="space-y-5">
 
           <div className="space-y-2">
@@ -104,30 +111,19 @@ export default function SetPasswordPage() {
                 {[...Array(4)].map((_, i) => (
                   <div
                     key={i}
-                    className={`h-1 flex-1 rounded-full transition-colors ${
-                      i < Math.min(Math.floor(password.length / 3), 4)
-                        ? password.length >= 12
-                          ? 'bg-accent'
-                          : password.length >= 8
-                          ? 'bg-yellow-500'
-                          : 'bg-destructive'
-                        : 'bg-border'
-                    }`}
+                    className={`h-1.5 flex-1 rounded-full transition-colors ${i < strengthLevel ? strengthColor : 'bg-border'
+                      }`}
                   />
                 ))}
               </div>
               <p className="text-xs text-muted-foreground">
-                {password.length < 8
-                  ? 'Too short'
-                  : password.length < 12
-                  ? 'Acceptable'
-                  : 'Strong'}
+                {strengthLabel}
               </p>
             </div>
           )}
 
           <Button
-            className="w-full h-11 font-medium"
+            className="w-full h-11 font-medium bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={handleSetPassword}
             disabled={loading}
           >

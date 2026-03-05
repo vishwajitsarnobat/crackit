@@ -1,0 +1,19 @@
+Website
+Phase 1:
+Sub phase 1 for admin view only
+All analytics pages including approval, attendance, performance, expenses, salary, 
+profile page, teacher attendance.
+Sub phase 2 for admin data entry:
+Adding new centres
+Sub phase 3:
+Admin can download all reports in pdf and excel format.
+
+Phase 2:
+Sub phase 1 for teachers:
+Attendance, marks entry
+Sub phase 2 for accountants:
+Adding expenses, salaries, fees record
+Sub phase 3 for centre admin:
+Centre admin can add teacher attendance
+Sub phase 4 for teachers:
+Teachers add video and pdf urls in respective subjects

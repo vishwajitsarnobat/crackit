@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Separator } from '@/components/ui/separator'
-import { Eye, EyeOff, ArrowRight, Loader2 } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, Loader2, LogIn } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function LoginPage() {
@@ -69,6 +69,9 @@ export default function LoginPage() {
   return (
     <div className="w-full max-w-[420px]">
       <div className="mb-8">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <LogIn className="h-6 w-6" />
+        </div>
         <h1 className="font-serif text-3xl tracking-tight text-foreground">
           Welcome back
         </h1>
@@ -77,7 +80,7 @@ export default function LoginPage() {
         </p>
       </div>
 
-      <div className="rounded-2xl border bg-card p-8 shadow-sm">
+      <div className="rounded-2xl border bg-card p-8 shadow-sm transition-shadow hover:shadow-md">
         <div className="space-y-5">
 
           <div className="space-y-2">
@@ -127,7 +130,7 @@ export default function LoginPage() {
           </div>
 
           <Button
-            className="w-full h-11 font-medium"
+            className="w-full h-11 font-medium bg-primary text-primary-foreground hover:bg-primary/90"
             onClick={handleLogin}
             disabled={loading}
           >
@@ -149,7 +152,7 @@ export default function LoginPage() {
           Need access?{' '}
           <Link
             href="/signup"
-            className="font-medium text-foreground underline underline-offset-4 hover:text-accent transition-colors"
+            className="font-medium text-primary underline underline-offset-4 hover:text-primary/80 transition-colors"
           >
             Request an account
           </Link>

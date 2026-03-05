@@ -11,7 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Separator } from '@/components/ui/separator'
+import { Card, CardContent } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
@@ -64,24 +64,24 @@ export default function ApprovalsPage() {
   useEffect(() => {
     let cancelled = false
 
-    ;(async () => {
-      try {
-        const data = await fetchApprovals(tab)
-        if (!cancelled) {
-          setItems(data)
+      ; (async () => {
+        try {
+          const data = await fetchApprovals(tab)
+          if (!cancelled) {
+            setItems(data)
+          }
+        } catch (error) {
+          if (!cancelled) {
+            const message = error instanceof Error ? error.message : 'Failed to load approvals.'
+            toast.error(message)
+            setItems([])
+          }
+        } finally {
+          if (!cancelled) {
+            setLoading(false)
+          }
         }
-      } catch (error) {
-        if (!cancelled) {
-          const message = error instanceof Error ? error.message : 'Failed to load approvals.'
-          toast.error(message)
-          setItems([])
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false)
-        }
-      }
-    })()
+      })()
 
     return () => {
       cancelled = true
@@ -137,73 +137,93 @@ export default function ApprovalsPage() {
         </TabsList>
       </Tabs>
 
-      <div className="rounded-xl border bg-card p-5">
-        <h2 className="text-sm font-medium text-muted-foreground">
-          {tab === 'pending' ? 'Pending approval requests' : 'Approval history'}
-        </h2>
-        <Separator className="my-4" />
+      <Card className="gap-0 py-0 overflow-hidden animate-fade-in shadow-sm hover:shadow-md transition-shadow">
+        <div className="border-b bg-muted/30 px-5 py-3.5">
+          <h2 className="text-base font-semibold tracking-tight">
+            {tab === 'pending' ? 'Pending Requests' : 'Approval History'}
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            {tab === 'pending' ? 'Review requests waiting for your approval.' : 'Past decisions made on access requests.'}
+          </p>
+        </div>
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">Loading...</div>
+          ) : items.length === 0 ? (
+            <div className="p-8 text-center text-sm text-muted-foreground">No requests found.</div>
+          ) : (
+            <div className="divide-y">
+              {items.map(item => (
+                <div key={item.id} className="p-5 transition-colors hover:bg-muted/30">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="space-y-1.5 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold">{item.applicant?.full_name ?? 'Unknown user'}</p>
+                        {tab !== 'pending' && (
+                          <Badge variant={item.status === 'approved' ? 'success' : 'destructive'} className="uppercase text-[10px] h-5 px-1.5">
+                            {item.status}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate">{item.applicant?.email ?? '-'}</p>
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        <Badge variant="outline" className="uppercase tracking-wide text-[10px] bg-background">
+                          {item.requested_role.replace('_', ' ')}
+                        </Badge>
+                        {item.centre?.centre_name && (
+                          <span className="text-xs text-muted-foreground font-medium flex items-center gap-1">
+                            • {item.centre.centre_name}
+                          </span>
+                        )}
+                      </div>
+                    </div>
 
-        {loading ? (
-          <p className="text-sm text-muted-foreground">Loading...</p>
-        ) : items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No requests found.</p>
-        ) : (
-          <div className="space-y-4">
-            {items.map(item => (
-              <div key={item.id} className="rounded-lg border p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="font-medium">{item.applicant?.full_name ?? 'Unknown user'}</p>
-                    <p className="text-sm text-muted-foreground">{item.applicant?.email ?? '-'}</p>
-                    <p className="text-xs text-muted-foreground">
-                      <Badge variant="outline" className="uppercase tracking-wide">
-                        {item.requested_role}
-                      </Badge>
-                      {item.centre?.centre_name ? ` • Centre: ${item.centre.centre_name}` : ''}
-                    </p>
+                    {tab === 'pending' && (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          size="sm"
+                          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                          onClick={() => handleAction(item.id, 'approve')}
+                          disabled={actingId === item.id}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="hover:bg-destructive/10 hover:text-destructive"
+                          onClick={() => {
+                            setRejectingId(item.id)
+                            setRejectionReason('')
+                            setRejectDialogOpen(true)
+                          }}
+                          disabled={actingId === item.id}
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    )}
                   </div>
 
-                  {tab === 'pending' ? (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => handleAction(item.id, 'approve')}
-                        disabled={actingId === item.id}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          setRejectingId(item.id)
-                          setRejectionReason('')
-                          setRejectDialogOpen(true)
-                        }}
-                        disabled={actingId === item.id}
-                      >
-                        Reject
-                      </Button>
+                  {item.applicant_note && (
+                    <div className="mt-4 rounded-md bg-muted/50 p-3 text-sm border">
+                      <span className="font-medium text-foreground/80">Note: </span>
+                      <span className="text-muted-foreground">{item.applicant_note}</span>
                     </div>
-                  ) : (
-                    <Badge variant={item.status === 'approved' ? 'secondary' : 'destructive'}>
-                      {item.status}
-                    </Badge>
+                  )}
+
+                  {item.rejection_reason && (
+                    <div className="mt-4 rounded-md bg-rose-500/10 p-3 text-sm border border-rose-500/20 text-rose-600 dark:text-rose-400">
+                      <span className="font-medium">Reason: </span>
+                      {item.rejection_reason}
+                    </div>
                   )}
                 </div>
-
-                {item.applicant_note && (
-                  <p className="mt-3 text-sm text-muted-foreground">Note: {item.applicant_note}</p>
-                )}
-
-                {item.rejection_reason && (
-                  <p className="mt-2 text-sm text-destructive">Reason: {item.rejection_reason}</p>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
         <DialogContent>

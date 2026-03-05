@@ -1,4 +1,4 @@
--- CRACK IT COACHING INSTITUTE — DATABASE SCHEMA v3.2
+-- CRACK IT COACHING INSTITUTE - DATABASE SCHEMA v3.2
 -- PostgreSQL 14+ (Supabase) | 3NF | UUIDs | RLS | Triggers | Views
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -6,7 +6,7 @@ CREATE EXTENSION IF NOT EXISTS pg_cron;
 
 
 -- SECTION 1: SERIAL COUNTERS
--- Replaces COUNT(*)+1 pattern — race-condition-safe via row lock.
+-- Replaces COUNT(*)+1 pattern - race-condition-safe via row lock.
 -- One row per named counter; year column triggers reset each year.
 
 CREATE TABLE id_counters (
@@ -165,7 +165,7 @@ CREATE TABLE students (
 CREATE INDEX idx_students_user   ON students(user_id);
 CREATE INDEX idx_students_active ON students(is_active);
 
--- is_active is derived from status — no sync trigger needed.
+-- is_active is derived from status - no sync trigger needed.
 -- withdrawn_at auto-set by trigger when status changes to 'withdrawn'.
 CREATE TABLE student_batch_enrollments (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -210,7 +210,7 @@ CREATE INDEX idx_invoices_batch   ON student_invoices(batch_id);
 CREATE INDEX idx_invoices_status  ON student_invoices(payment_status);
 CREATE INDEX idx_invoices_month   ON student_invoices(month_year);
 
--- Immutable audit log — never updated or deleted.
+-- Immutable audit log - never updated or deleted.
 -- receipt_number auto-generated via trigger (REC-2026-00001).
 CREATE TABLE fee_transactions (
     id                 UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -343,6 +343,7 @@ CREATE TABLE exams (
     id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     batch_id         UUID REFERENCES batches(id) ON DELETE CASCADE,
     exam_name        VARCHAR(300) NOT NULL,
+    subject          VARCHAR(100),
     exam_date        DATE NOT NULL,
     total_marks      DECIMAL(10,2) NOT NULL CHECK (total_marks > 0),
     passing_marks    DECIMAL(10,2),
@@ -495,7 +496,7 @@ CREATE TRIGGER trg_revision_reminders_updated_at
 CREATE TRIGGER trg_meeting_requests_updated_at
     BEFORE UPDATE ON meeting_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Auto-generate student code STU20260001 — counter-table approach avoids race conditions.
+-- Auto-generate student code STU20260001 - counter-table approach avoids race conditions.
 CREATE OR REPLACE FUNCTION generate_student_code()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -528,7 +529,7 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_generate_student_code
     BEFORE INSERT ON students FOR EACH ROW EXECUTE FUNCTION generate_student_code();
 
--- Auto-generate receipt number REC-2026-00001 — same counter-table approach.
+-- Auto-generate receipt number REC-2026-00001 - same counter-table approach.
 CREATE OR REPLACE FUNCTION generate_receipt_number()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -676,7 +677,7 @@ CREATE TRIGGER trg_advance_revision_stage
     FOR EACH ROW EXECUTE FUNCTION advance_revision_stage();
 
 -- Sets withdrawn_at when enrollment status changes to 'withdrawn'.
--- is_active is a generated column — no need to set it here.
+-- is_active is a generated column - no need to set it here.
 CREATE OR REPLACE FUNCTION set_withdrawn_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -732,7 +733,7 @@ CREATE TRIGGER trg_validate_marks
 
 -- SECTION 14: CRON JOBS
 
--- Run on the 1st of each month at 01:00 — copies last invoice to new month for active enrollments.
+-- Run on the 1st of each month at 01:00 - copies last invoice to new month for active enrollments.
 SELECT cron.schedule('create-monthly-invoices', '0 1 1 * *', $$
     INSERT INTO student_invoices (student_id, batch_id, month_year, monthly_fee, amount_due)
     SELECT
@@ -757,7 +758,7 @@ SELECT cron.schedule('create-monthly-invoices', '0 1 1 * *', $$
     ON CONFLICT (student_id, batch_id, month_year) DO NOTHING;
 $$);
 
--- Daily at midnight — mark unpaid invoices from prior months as overdue.
+-- Daily at midnight - mark unpaid invoices from prior months as overdue.
 SELECT cron.schedule('mark-overdue', '0 0 * * *', $$
     UPDATE student_invoices
     SET payment_status = 'overdue', updated_at = NOW()
@@ -852,8 +853,7 @@ BEGIN
             )
             ON CONFLICT (user_id, centre_id) DO UPDATE
             SET is_active = TRUE,
-                is_primary = TRUE,
-                updated_at = NOW();
+                is_primary = TRUE;
         END IF;
     ELSE
         UPDATE user_approval_requests
@@ -1263,3 +1263,35 @@ CREATE POLICY "student_sotm" ON student_of_the_month
         get_my_role() = 'student'
         AND student_id = ANY(get_my_student_ids())
     );
+
+
+-- SECTION 17: ESSENTIAL SEED DATA
+-- Required for app to function. Run once on fresh database.
+
+-- Counter rows used by code-generation triggers.
+INSERT INTO id_counters (name, year, last_value)
+VALUES
+  ('student_code', EXTRACT(YEAR FROM CURRENT_DATE)::INTEGER, 0),
+  ('receipt_number', EXTRACT(YEAR FROM CURRENT_DATE)::INTEGER, 0)
+ON CONFLICT (name) DO UPDATE
+SET year = EXCLUDED.year;
+
+-- Role definitions (must match CHECK constraint on roles.role_name).
+INSERT INTO roles (role_name, display_name, level)
+VALUES
+  ('ceo', 'CEO / Super Admin', 1),
+  ('centre_head', 'Centre Head', 2),
+  ('teacher', 'Teacher', 3),
+  ('accountant', 'Accountant', 4),
+  ('student', 'Student', 5)
+ON CONFLICT (role_name) DO UPDATE
+SET
+  display_name = EXCLUDED.display_name,
+  level = EXCLUDED.level,
+  is_active = TRUE,
+  updated_at = NOW();
+
+-- Default development centre.
+INSERT INTO centres (centre_code, centre_name, address, city, phone, is_active)
+VALUES ('DEV-001', 'Crack It Dev Centre', 'Test Address', 'Test City', '0000000000', TRUE)
+ON CONFLICT (centre_code) DO NOTHING;

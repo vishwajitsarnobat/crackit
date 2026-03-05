@@ -7,6 +7,7 @@ const EMPTY_DATA = {
     centres: [],
     batches: [],
     students: [],
+    subjects: [],
     selectedStudentId: null,
   },
   summary: {
@@ -19,6 +20,7 @@ const EMPTY_DATA = {
   trendMode: 'batch' as const,
   trend: [],
   batchComparison: [],
+  subjectBreakdown: [],
   marks: [],
 }
 

@@ -1,5 +1,5 @@
 # Crack It Coaching Institute - Database Documentation
-**Version:** 3.2 (Feb 2026)
+**Version:** 3.3 (Mar 2026)
 **Database:** PostgreSQL 14+ (Supabase)
 **Tables:** 24 | **Views:** 0 | **Triggers:** 15
 
@@ -208,8 +208,10 @@ Daily midnight cron
 
 | Table | Purpose |
 |-------|---------|
-| `exams` | Offline exams per batch. `results_published` flag controls student visibility |
+| `exams` | Offline exams per batch. `results_published` flag controls student visibility. `subject` enables subject-wise analysis |
 | `student_marks` | Manually entered marks. `is_absent = TRUE` forces `marks_obtained = 0` |
+
+**`exams.subject`** - Optional `VARCHAR(100)`. Enables subject-wise filtering and breakdown in analytics.
 
 **Trigger:** `validate_marks` - rejects marks exceeding `total_marks`.
 

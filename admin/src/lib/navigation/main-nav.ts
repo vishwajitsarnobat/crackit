@@ -3,6 +3,7 @@ import type { AppRole } from '@/lib/auth/current-user'
 export type MainNavItem = {
   label: string
   href: string
+  icon: string
   allowedRoles: AppRole[]
 }
 
@@ -10,16 +11,25 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
   {
     label: 'Dashboard',
     href: '/dashboard',
+    icon: 'LayoutDashboard',
     allowedRoles: ['ceo', 'centre_head', 'teacher', 'accountant'],
   },
   {
     label: 'Performance',
     href: '/analytics/performance',
+    icon: 'TrendingUp',
+    allowedRoles: ['ceo', 'centre_head', 'teacher'],
+  },
+  {
+    label: 'Attendance',
+    href: '/analytics/attendance',
+    icon: 'CalendarCheck',
     allowedRoles: ['ceo', 'centre_head', 'teacher'],
   },
   {
     label: 'Approvals',
     href: '/approvals',
+    icon: 'ShieldCheck',
     allowedRoles: ['ceo', 'centre_head'],
   },
 ]

@@ -28,7 +28,7 @@ export function LogoutButton() {
   }
 
   return (
-    <Button variant="outline" size="sm" onClick={handleLogout} disabled={loading}>
+    <Button variant="ghost" size="sm" onClick={handleLogout} disabled={loading} className="text-muted-foreground hover:text-destructive hover:bg-destructive/10">
       {loading ? <Loader2 className="animate-spin" /> : <LogOut />}
       Logout
     </Button>
