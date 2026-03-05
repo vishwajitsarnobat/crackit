@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
 
     // ── Per-student breakdown ──
     const sMap = new Map<string, { present: number; absent: number }>()
-    for (const r of rows) {
+    for (const r of scopedRows) {
         const s = sMap.get(r.student_id) ?? { present: 0, absent: 0 }
         if (r.status === 'present') s.present++; else s.absent++
         sMap.set(r.student_id, s)

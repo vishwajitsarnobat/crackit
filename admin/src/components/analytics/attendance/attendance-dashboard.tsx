@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { CalendarCheck, CalendarX, CalendarDays, Percent } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Pie, PieChart, Cell } from 'recharts'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -48,9 +48,9 @@ function attendanceTone(pct: number | null) {
 
 /* ── Section Card ─────────────────────────────────── */
 
-function SectionCard({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
+function SectionCard({ title, description, children, className = '' }: { title: string; description: string; children: React.ReactNode; className?: string }) {
     return (
-        <Card className="gap-0 py-0 overflow-hidden">
+        <Card className={`gap-0 py-0 overflow-hidden ${className}`}>
             <div className="border-b bg-muted/30 px-5 py-3.5">
                 <CardTitle className="text-base tracking-tight">{title}</CardTitle>
                 <CardDescription className="mt-0.5">{description}</CardDescription>
@@ -63,6 +63,33 @@ function SectionCard({ title, description, children }: { title: string; descript
 }
 
 /* ── Daily Trend Chart ────────────────────────────── */
+
+function StatusDonutChart({ summary }: { summary: AttendancePayload['summary'] }) {
+    if (summary.totalDays === 0) return <EmptyState title="No attendance data" message="No records found." />
+
+    const chartData = [
+        { name: 'Present', value: summary.presentCount, color: '#16a34a' },
+        { name: 'Absent', value: summary.absentCount, color: '#dc2626' }
+    ]
+
+    const config = {
+        present: { label: 'Present', color: '#16a34a' },
+        absent: { label: 'Absent', color: '#dc2626' }
+    } satisfies ChartConfig
+
+    return (
+        <ChartContainer config={config} className="mx-auto aspect-square max-h-[280px]">
+            <PieChart>
+                <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
+                <Pie data={chartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={2} paddingAngle={2}>
+                    {chartData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                </Pie>
+            </PieChart>
+        </ChartContainer>
+    )
+}
 
 function DailyTrendChart({ data }: { data: AttendancePayload['dailyTrend'] }) {
     if (!data.length) return <EmptyState title="No attendance data" message="No records found for the selected filters." />
@@ -118,14 +145,26 @@ function StudentBreakdownTable({ rows }: { rows: AttendancePayload['studentBreak
                             <TableRow key={r.student_id} className={`transition-colors hover:bg-muted/30 ${i % 2 === 0 ? 'bg-background' : 'bg-muted/10'}`}>
                                 <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                                 <TableCell>
-                                    <span className="font-medium">{r.student_name}</span>
-                                    {r.student_code && <span className="ml-1.5 text-xs text-muted-foreground">({r.student_code})</span>}
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                                            {r.student_name.slice(0, 2).toUpperCase()}
+                                        </div>
+                                        <div>
+                                            <p className="font-medium leading-none">{r.student_name}</p>
+                                            {r.student_code && <p className="text-xs text-muted-foreground mt-1">{r.student_code}</p>}
+                                        </div>
+                                    </div>
                                 </TableCell>
                                 <TableCell className="text-center tabular-nums text-emerald-600 dark:text-emerald-400">{r.present}</TableCell>
                                 <TableCell className="text-center tabular-nums text-rose-600 dark:text-rose-400">{r.absent}</TableCell>
                                 <TableCell className="text-center tabular-nums">{r.total}</TableCell>
-                                <TableCell className="text-right">
-                                    <Badge variant="outline" className={t.text}>{pctLabel(r.percent)}</Badge>
+                                <TableCell>
+                                    <div className="flex items-center justify-end gap-2">
+                                        <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden hidden sm:block">
+                                            <div className={`h-full ${t.bar} transition-all`} style={{ width: `${r.percent ?? 0}%` }} />
+                                        </div>
+                                        <Badge variant="outline" className={`${t.text} min-w-[3.5rem] justify-center`}>{pctLabel(r.percent)}</Badge>
+                                    </div>
                                 </TableCell>
                             </TableRow>
                         )
@@ -228,10 +267,16 @@ export function AttendanceDashboard() {
                     accent={summary.attendancePercent !== null ? (summary.attendancePercent >= 85 ? 'success' : summary.attendancePercent >= 70 ? 'warning' : 'danger') : 'default'} />
             </div>
 
-            {/* Daily Trend */}
-            <SectionCard title="Daily Attendance Trend" description="Stacked bar chart showing present and absent counts per day.">
-                <DailyTrendChart data={data?.dailyTrend ?? []} />
-            </SectionCard>
+            {/* Charts */}
+            <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
+                <SectionCard title="Status Breakdown" description="Overall present vs absent ratio.">
+                    <StatusDonutChart summary={summary} />
+                </SectionCard>
+
+                <SectionCard title="Daily Attendance Trend" className="lg:col-span-2" description="Stacked bar chart showing present and absent counts per day.">
+                    <DailyTrendChart data={data?.dailyTrend ?? []} />
+                </SectionCard>
+            </div>
 
             {/* Student Breakdown */}
             <SectionCard title="Student Breakdown" description="Individual attendance ranked by percentage.">

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { BarChart3, BookOpen, TrendingUp, UserX, Trophy } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, XAxis, YAxis, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -151,9 +151,14 @@ function ComparisonBars({ rows }: { rows: PerformancePayload['batchComparison'] 
               return (
                 <div key={r.student_id} className="rounded-lg border bg-card p-2.5 transition-colors hover:bg-muted/30">
                   <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{r.student_name ?? 'Unknown'}</p>
-                      <p className="text-xs text-muted-foreground">Position {i + 1}</p>
+                    <div className="min-w-0 flex items-center gap-3">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                        {(r.student_name ?? 'U').slice(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="truncate text-sm font-medium">{r.student_name ?? 'Unknown'}</p>
+                        <p className="text-xs text-muted-foreground">Position {i + 1}</p>
+                      </div>
                     </div>
                     <div className="text-right">
                       <p className={`text-sm font-semibold ${t.text}`}>{fmt(score)}</p>
@@ -186,17 +191,17 @@ function SubjectChart({ data }: { data: SubjectBreakdown[] }) {
   } satisfies ChartConfig
 
   return (
-    <ChartContainer config={config} className="h-[280px] w-full aspect-auto">
-      <BarChart data={data} layout="vertical" margin={{ left: 4, right: 24, top: 8, bottom: 8 }}>
-        <CartesianGrid horizontal={false} strokeDasharray="3 3" />
-        <XAxis type="number" domain={[0, 100]} tickLine={false} axisLine={false} />
-        <YAxis type="category" dataKey="subject" tickLine={false} axisLine={false} width={90} />
+    <ChartContainer config={config} className="mx-auto aspect-[4/3] max-h-[300px]">
+      <RadarChart data={data} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+        <PolarGrid className="stroke-muted/30" />
+        <PolarAngleAxis dataKey="subject" className="text-xs font-medium" tick={{ fill: "currentColor" }} />
+        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
         <ChartTooltip cursor={false} content={
           <ChartTooltipContent formatter={(value, name) => [fmt(Number(value)), name === 'average' ? 'Avg' : 'Top']} />
         } />
-        <Bar dataKey="average" fill="var(--color-average)" radius={[0, 4, 4, 0]} barSize={18} />
-        <Bar dataKey="top" fill="var(--color-top)" radius={[0, 4, 4, 0]} barSize={18} opacity={0.5} />
-      </BarChart>
+        <Radar dataKey="top" stroke="var(--color-top)" fill="var(--color-top)" fillOpacity={0.2} strokeWidth={2} />
+        <Radar dataKey="average" stroke="var(--color-average)" fill="var(--color-average)" fillOpacity={0.5} strokeWidth={2} />
+      </RadarChart>
     </ChartContainer>
   )
 }
@@ -345,12 +350,31 @@ export function PerformanceDashboard({ initialData }: { initialData: Performance
                     <TableCell>{r.exam_name}</TableCell>
                     <TableCell>{r.subject ?? <span className="text-muted-foreground">-</span>}</TableCell>
                     <TableCell>{r.batch_name}</TableCell>
-                    <TableCell>{r.student_name ?? 'Unknown'}{r.student_code ? ` (${r.student_code})` : ''}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
+                          {(r.student_name ?? 'U').slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-medium leading-none">{r.student_name ?? 'Unknown'}</p>
+                          {r.student_code && <p className="text-xs text-muted-foreground mt-1">{r.student_code}</p>}
+                        </div>
+                      </div>
+                    </TableCell>
                     <TableCell className="text-right font-medium tabular-nums">
                       {r.is_absent ? <Badge variant="destructive">Absent</Badge> : `${r.marks_obtained}/${r.total_marks}`}
                     </TableCell>
-                    <TableCell className="text-right font-medium tabular-nums">
-                      {r.percentage === null ? <span className="text-muted-foreground">-</span> : <Badge variant="outline">{fmt(r.percentage)}</Badge>}
+                    <TableCell>
+                      {r.percentage === null ? (
+                        <span className="text-muted-foreground text-right block w-full">-</span>
+                      ) : (
+                        <div className="flex items-center justify-end gap-2">
+                          <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden hidden sm:block">
+                            <div className={`h-full ${tone(r.percentage).bar} transition-all`} style={{ width: `${r.percentage}%` }} />
+                          </div>
+                          <Badge variant="outline" className={`${tone(r.percentage).text} min-w-[4rem] justify-center`}>{fmt(r.percentage)}</Badge>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
