@@ -1,19 +1,37 @@
-Website
-Phase 1:
-Sub phase 1 for admin view only
-All analytics pages including approval, attendance, performance, expenses, salary, 
-profile page, teacher attendance.
-Sub phase 2 for admin data entry:
-Adding new centres
-Sub phase 3:
-Admin can download all reports in pdf and excel format.
+Website Roadmap
 
-Phase 2:
-Sub phase 1 for teachers:
-Attendance, marks entry
-Sub phase 2 for accountants:
-Adding expenses, salaries, fees record
-Sub phase 3 for centre admin:
-Centre admin can add teacher attendance
-Sub phase 4 for teachers:
-Teachers add video and pdf urls in respective subjects
+Phase 1: Core Foundation & Admin Dashboards
+- Sub-phase 1.1 (Admin/View-Only):
+  - Approval Dashboard (review pending registrations)
+  - Attendance Analytics (trends and breakdowns)
+  - Performance Analytics (exam trends, batch comparisons, subject radars)
+  - Financial Analytics (overview of expenses and salaries)
+  - Profile Pages (Staff and Students, including fee details & reward points)
+  - Teacher Attendance Dashboard (view teacher logs)
+- Sub-phase 1.2 (Admin Data Entry):
+  - Centre Management (add fields/centres)
+  - User-Centre Assignments (assigning approved users)
+  - Student Enrollments (handle forms and specific batch assignment)
+- Sub-phase 1.3 (Centre Heads / Admin):
+  - Course Management
+  - Batch Management
+- Sub-phase 1.4 (Cross-Role Reporting):
+  - PDF & Excel report downloads for Admins, Centre Heads, and Teachers.
+
+Phase 2: Day-to-Day Operations
+- Sub-phase 2.1 (Teachers):
+  - Daily Attendance Entry (Present/Absent)
+  - Marks Entry (Offline scope)
+  - Content Library (Upload/link PDF notes and YouTube video URLs)
+- Sub-phase 2.2 (Accountants):
+  - Expense Logging
+  - Salary Management
+  - Fee Management (generate invoices, record fee entries)
+- Sub-phase 2.3 (Centre Admin):
+  - Staff Attendance Entry (daily logging for teachers including late/partial)
+
+Phase 3: Advanced Features & Engagement
+- Sub-phase 3.1 (Centre Heads):
+  - Reward Points Logic Implementation (Defining workflows for point awarding/deduction)
+- Sub-phase 3.2 (Admins, Centre Heads, Accountants):
+  - Transaction Logs Section (Immutable log of all fee and point transactions with filters)
