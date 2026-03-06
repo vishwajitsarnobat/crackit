@@ -27,6 +27,12 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
     allowedRoles: ['ceo', 'centre_head', 'teacher'],
   },
   {
+    label: 'Financials',
+    href: '/analytics/financial',
+    icon: 'Wallet',
+    allowedRoles: ['ceo', 'centre_head', 'accountant'],
+  },
+  {
     label: 'Approvals',
     href: '/approvals',
     icon: 'ShieldCheck',
