@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, TrendingUp, CalendarCheck, ShieldCheck, Wallet } from 'lucide-react'
+import { LayoutDashboard, TrendingUp, CalendarCheck, ShieldCheck, Wallet, UserCheck } from 'lucide-react'
 
 type NavItem = { label: string; href: string; icon: string }
 
@@ -12,6 +12,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
     CalendarCheck,
     ShieldCheck,
     Wallet,
+    UserCheck,
 }
 
 export function NavLinks({ items }: { items: NavItem[] }) {

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { CalendarCheck, CalendarX, CalendarDays, Percent } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis, Pie, PieChart, Cell } from 'recharts'
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { StatCard } from '@/components/analytics/shared/stat-card'
 import { FilterBar, SelectFilter, DateFilter, type FilterOption } from '@/components/analytics/shared/filter-bar'
 import { EmptyState } from '@/components/analytics/shared/empty-state'
+import { DonutChart } from '@/components/analytics/shared/donut-chart'
 
 /* ── Types ────────────────────────────────────────── */
 
@@ -65,11 +66,9 @@ function SectionCard({ title, description, children, className = '' }: { title: 
 /* ── Daily Trend Chart ────────────────────────────── */
 
 function StatusDonutChart({ summary }: { summary: AttendancePayload['summary'] }) {
-    if (summary.totalDays === 0) return <EmptyState title="No attendance data" message="No records found." />
-
-    const chartData = [
-        { name: 'Present', value: summary.presentCount, color: '#16a34a' },
-        { name: 'Absent', value: summary.absentCount, color: '#dc2626' }
+    const data = [
+        { name: 'Present', value: summary.presentCount, fill: '#16a34a' },
+        { name: 'Absent', value: summary.absentCount, fill: '#dc2626' }
     ]
 
     const config = {
@@ -77,18 +76,7 @@ function StatusDonutChart({ summary }: { summary: AttendancePayload['summary'] }
         absent: { label: 'Absent', color: '#dc2626' }
     } satisfies ChartConfig
 
-    return (
-        <ChartContainer config={config} className="mx-auto aspect-square max-h-[280px]">
-            <PieChart>
-                <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                <Pie data={chartData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={2} paddingAngle={2}>
-                    {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                </Pie>
-            </PieChart>
-        </ChartContainer>
-    )
+    return <DonutChart data={data} config={config} emptyMessage="No attendance data available." />
 }
 
 function DailyTrendChart({ data }: { data: AttendancePayload['dailyTrend'] }) {

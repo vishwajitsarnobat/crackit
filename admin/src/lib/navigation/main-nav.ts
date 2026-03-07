@@ -27,6 +27,12 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
     allowedRoles: ['ceo', 'centre_head', 'teacher'],
   },
   {
+    label: 'Staff Attendance',
+    href: '/analytics/staff-attendance',
+    icon: 'UserCheck',
+    allowedRoles: ['ceo', 'centre_head', 'teacher'],
+  },
+  {
     label: 'Financials',
     href: '/analytics/financial',
     icon: 'Wallet',

@@ -1,12 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { TrendingUp, CalendarCheck, ShieldCheck, ArrowRight, Wallet } from 'lucide-react'
+import { TrendingUp, CalendarCheck, ShieldCheck, ArrowRight, Wallet, UserCheck } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 
 const QUICK_LINKS = [
   { label: 'Performance', description: 'Analyze exam scores & trends', href: '/analytics/performance', icon: TrendingUp, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-500/10' },
   { label: 'Attendance', description: 'Track student attendance', href: '/analytics/attendance', icon: CalendarCheck, color: 'text-indigo-600 dark:text-indigo-400', bg: 'bg-indigo-500/10' },
+  { label: 'Staff Attendance', description: 'Monitor teacher presence', href: '/analytics/staff-attendance', icon: UserCheck, color: 'text-cyan-600 dark:text-cyan-400', bg: 'bg-cyan-500/10' },
   { label: 'Financials', description: 'Monitor revenue & expenses', href: '/analytics/financial', icon: Wallet, color: 'text-amber-600 dark:text-amber-400', bg: 'bg-amber-500/10' },
   { label: 'Approvals', description: 'Review pending requests', href: '/approvals', icon: ShieldCheck, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-rose-500/10' },
 ]
@@ -19,7 +20,9 @@ export default async function DashboardPage() {
 
   if (!user) redirect('/login')
 
-  const firstName = user.user_metadata?.full_name?.split(' ')[0] || user.email?.split('@')[0] || 'there'
+  const { data: profile } = await supabase.from('users').select('full_name').eq('id', user.id).single()
+  const displayName = profile?.full_name || user.user_metadata?.full_name
+  const firstName = displayName?.split(' ')[0] || user.email?.split('@')[0] || 'there'
 
   return (
     <div className="space-y-8 animate-fade-in">

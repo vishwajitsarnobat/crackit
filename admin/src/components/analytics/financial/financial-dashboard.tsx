@@ -6,7 +6,8 @@ import { ArrowUpRight, ArrowDownRight, Wallet, ReceiptText, Banknote } from 'luc
 import {
     Pie, PieChart, Cell,
     Bar, BarChart, XAxis, YAxis,
-    Line, LineChart, CartesianGrid
+    Line, LineChart, CartesianGrid,
+    ComposedChart
 } from 'recharts'
 import { toast } from 'sonner'
 
@@ -170,6 +171,38 @@ function MonthlyTrendChart({ data }: { data: TrendPoint[] }) {
                 <Line type="monotone" dataKey="salaries" stroke="var(--color-salaries)" strokeWidth={2} dot={false} />
                 <Line type="monotone" dataKey="profit" stroke="var(--color-profit)" strokeWidth={2} strokeDasharray="5 5" dot={false} />
             </LineChart>
+        </ChartContainer>
+    )
+}
+
+/* ── Net Profit Bar + Line (Yearly view) ─────────── */
+
+const profitConfig = {
+    profit: { label: 'Net Profit', color: '#8b5cf6' },
+} satisfies ChartConfig
+
+function ProfitBarLineChart({ data }: { data: TrendPoint[] }) {
+    if (!data.length) return <EmptyState title="No data" message="No monthly data available for this year." />
+    const chartData = data.map(d => ({
+        monthLabel: monthLabel(d.month),
+        profit: d.profit,
+        fill: d.profit >= 0 ? '#10b981' : '#ef4444',
+    }))
+
+    return (
+        <ChartContainer config={profitConfig} className="h-[300px] w-full">
+            <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                <XAxis dataKey="monthLabel" tickLine={false} axisLine={false} className="text-xs" />
+                <YAxis tickLine={false} axisLine={false} className="text-xs" tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`} />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="profit" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                    {chartData.map((entry, i) => (
+                        <Cell key={`bar-${i}`} fill={entry.fill} />
+                    ))}
+                </Bar>
+                <Line type="monotone" dataKey="profit" stroke="#8b5cf6" strokeWidth={2.5} dot={{ r: 4, fill: '#8b5cf6' }} tooltipType="none" legendType="none" />
+            </ComposedChart>
         </ChartContainer>
     )
 }
@@ -426,11 +459,16 @@ export function FinancialDashboard() {
                 />
             </div>
 
-            {/* Monthly Trend (yearly view only) */}
+            {/* Monthly Trend + Profit Chart (yearly view only) */}
             {viewMode === 'year' && (
-                <SectionCard title="Monthly Trend" description="Month-by-month revenue, expenses, salaries, and net profit.">
-                    <MonthlyTrendChart data={data?.monthlyTrend ?? []} />
-                </SectionCard>
+                <>
+                    <SectionCard title="Monthly Trend" description="Month-by-month revenue, expenses, salaries, and net profit.">
+                        <MonthlyTrendChart data={data?.monthlyTrend ?? []} />
+                    </SectionCard>
+                    <SectionCard title="Net Profit" description="Monthly profit/loss with trend line — green for profit, red for loss.">
+                        <ProfitBarLineChart data={data?.monthlyTrend ?? []} />
+                    </SectionCard>
+                </>
             )}
 
             {/* Visualizations */}

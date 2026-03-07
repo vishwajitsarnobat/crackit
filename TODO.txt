@@ -35,3 +35,14 @@ Phase 3: Advanced Features & Engagement
   - Reward Points Logic Implementation (Defining workflows for point awarding/deduction)
 - Sub-phase 3.2 (Admins, Centre Heads, Accountants):
   - Transaction Logs Section (Immutable log of all fee and point transactions with filters)
+
+App 
+- Add achievements in student reports (on every month's report). Add a jsonb textbox for it. Use filter components in app for subject and range selection.
+- Give centre head a button on performance dashboard to send the previous months report update notification to student. It will be displayed subject wise monthly report.
+- Put attendance in report too.
+
+- To accountant, show non zero invoices, give 2 options, either to clear entire invoice, or to enter amount paid, the transaction will automatically be processed accordingly.
+- admin and centre head can make students inactive and give a filter for active and inactive students on student Management dashboard.
+
+- When we add teacher batch enrollment, update the analysis permissions from entire
+centre to restricted only to assigned batches for teachers.

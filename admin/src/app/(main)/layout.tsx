@@ -26,6 +26,9 @@ export default async function MainLayout({ children }: { children: React.ReactNo
             <NavLinks items={navItems} />
           </div>
           <div className="flex items-center gap-2">
+            <Link href="/profile" className="flex items-center gap-2 text-sm font-medium hover:text-primary transition-colors px-3 py-2 rounded-md hover:bg-muted">
+              Profile
+            </Link>
             <ThemeToggle />
             <LogoutButton />
           </div>
