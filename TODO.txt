@@ -46,3 +46,8 @@ App
 
 - When we add teacher batch enrollment, update the analysis permissions from entire
 centre to restricted only to assigned batches for teachers.
+
+- For staff attendance, also show for which days teacher was partially present.
+- Give month based bar chart for attendance too.
+- In app fees payment notification.
+- Notification when teacher uploads something in a batch

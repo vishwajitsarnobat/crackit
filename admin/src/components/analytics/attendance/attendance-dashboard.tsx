@@ -8,7 +8,6 @@ import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -17,6 +16,7 @@ import { StatCard } from '@/components/analytics/shared/stat-card'
 import { FilterBar, SelectFilter, DateFilter, type FilterOption } from '@/components/analytics/shared/filter-bar'
 import { EmptyState } from '@/components/analytics/shared/empty-state'
 import { DonutChart } from '@/components/analytics/shared/donut-chart'
+import { SectionCard } from '@/components/analytics/shared/section-card'
 
 /* ── Types ────────────────────────────────────────── */
 
@@ -45,22 +45,6 @@ function attendanceTone(pct: number | null) {
     if (pct >= 85) return { bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400', label: 'Excellent' }
     if (pct >= 70) return { bar: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400', label: 'Moderate' }
     return { bar: 'bg-rose-500', text: 'text-rose-600 dark:text-rose-400', label: 'Low' }
-}
-
-/* ── Section Card ─────────────────────────────────── */
-
-function SectionCard({ title, description, children, className = '' }: { title: string; description: string; children: React.ReactNode; className?: string }) {
-    return (
-        <Card className={`gap-0 py-0 overflow-hidden ${className}`}>
-            <div className="border-b bg-muted/30 px-5 py-3.5">
-                <CardTitle className="text-base tracking-tight">{title}</CardTitle>
-                <CardDescription className="mt-0.5">{description}</CardDescription>
-            </div>
-            <CardContent className="px-5 py-5">
-                {children}
-            </CardContent>
-        </Card>
-    )
 }
 
 /* ── Daily Trend Chart ────────────────────────────── */

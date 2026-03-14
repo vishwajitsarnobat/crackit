@@ -19,9 +19,10 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext | null
     return null
   }
 
+  // Single join query saving 1 roundtrip
   const { data: profile } = await supabase
     .from('users')
-    .select('role_id, is_active')
+    .select('is_active, roles!inner(role_name)')
     .eq('id', user.id)
     .single()
 
@@ -33,15 +34,12 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext | null
     }
   }
 
-  const { data: roleRow } = await supabase
-    .from('roles')
-    .select('role_name')
-    .eq('id', profile.role_id)
-    .single()
+  // extract role_name
+  const roleName = (profile.roles as any)?.role_name as AppRole | undefined
 
   return {
     userId: user.id,
     isActive: profile.is_active === true,
-    role: (roleRow?.role_name as AppRole | undefined) ?? null,
+    role: roleName ?? null,
   }
 }

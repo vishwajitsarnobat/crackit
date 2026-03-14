@@ -36,6 +36,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'You are not allowed to view performance.' }, { status: 403 })
   }
 
+  const role = roleData!.role_name as AllowedRole
+
   const { searchParams } = new URL(request.url)
   const centreId = searchParams.get('centreId')
   const batchId = searchParams.get('batchId')
@@ -44,12 +46,22 @@ export async function GET(request: NextRequest) {
   const fromDate = searchParams.get('from')
   const toDate = searchParams.get('to')
 
-  // ── Centres & Batches ──
-  const { data: centresData, error: centresErr } = await supabase.from('centres').select('id, centre_name').eq('is_active', true).order('centre_name')
+  // ── Centres & Batches (scoped by role) ──
+  let accessibleCentreIds: string[] = []
+  if (role === 'ceo') {
+    const { data } = await supabase.from('centres').select('id').eq('is_active', true)
+    accessibleCentreIds = (data ?? []).map(c => c.id)
+  } else {
+    const { data } = await supabase.from('user_centre_assignments').select('centre_id').eq('user_id', user.id).eq('is_active', true)
+    accessibleCentreIds = (data ?? []).map(a => a.centre_id)
+  }
+
+  const { data: centresData, error: centresErr } = await supabase.from('centres').select('id, centre_name').in('id', accessibleCentreIds).eq('is_active', true).order('centre_name')
   if (centresErr) return NextResponse.json({ error: centresErr.message }, { status: 400 })
 
-  let batchQ = supabase.from('batches').select('id, batch_name, centre_id').eq('is_active', true).order('batch_name')
-  if (centreId) batchQ = batchQ.eq('centre_id', centreId)
+  const centresToQuery = centreId && accessibleCentreIds.includes(centreId) ? [centreId] : accessibleCentreIds
+
+  let batchQ = supabase.from('batches').select('id, batch_name, centre_id').in('centre_id', centresToQuery).eq('is_active', true).order('batch_name')
   const { data: batchesData, error: batchesErr } = await batchQ
   if (batchesErr) return NextResponse.json({ error: batchesErr.message }, { status: 400 })
 

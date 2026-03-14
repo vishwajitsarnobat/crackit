@@ -12,7 +12,7 @@ import {
 import { toast } from 'sonner'
 
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
-import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
+import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
@@ -21,6 +21,7 @@ import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
 import { StatCard } from '@/components/analytics/shared/stat-card'
 import { FilterBar, SelectFilter } from '@/components/analytics/shared/filter-bar'
 import { EmptyState } from '@/components/analytics/shared/empty-state'
+import { SectionCard } from '@/components/analytics/shared/section-card'
 
 /* ── Types ────────────────────────────────────────── */
 
@@ -65,20 +66,6 @@ const monthLabel = (m: string) => {
     const [, mm] = m.split('-')
     const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     return names[parseInt(mm) - 1] ?? m
-}
-
-/* ── Section Card ─────────────────────────────────── */
-
-function SectionCard({ title, description, children, className = '' }: { title: string; description: string; children: React.ReactNode; className?: string }) {
-    return (
-        <Card className={`gap-0 py-0 overflow-hidden ${className}`}>
-            <div className="border-b bg-muted/30 px-5 py-3.5">
-                <CardTitle className="text-base tracking-tight">{title}</CardTitle>
-                <CardDescription className="mt-0.5">{description}</CardDescription>
-            </div>
-            <CardContent className="px-5 py-5">{children}</CardContent>
-        </Card>
-    )
 }
 
 /* ── Charts ───────────────────────────────────────── */
