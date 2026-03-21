@@ -1,45 +1,63 @@
-import { createClient } from '@/lib/supabase/server'
+// runs on server, returns the userId, role and is_active
 
-export type AppRole = 'ceo' | 'centre_head' | 'teacher' | 'accountant' | 'student'
+import {SupabaseClient} from "@supabase/supabase-js";
+
+// it is needed outside this file too, hence export
+export type AppRole =
+    | "ceo"
+    | "centre_head"
+    | "teacher"
+    | "accountant"
+    | "student";
 
 export type CurrentUserContext = {
-  userId: string
-  isActive: boolean
-  role: AppRole | null
-}
+    userId: string;
+    isActive: boolean;
+    role: AppRole | null;
+};
 
-export async function getCurrentUserContext(): Promise<CurrentUserContext | null> {
-  const supabase = await createClient()
+export async function getCurrentUserContext(
+    supabase: SupabaseClient,
+): Promise<CurrentUserContext | null> {
+    // no db query, comes from supabase auth
+    const {
+        data: {user},
+    } = await supabase.auth.getUser();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) {
-    return null
-  }
-
-  // Single join query saving 1 roundtrip
-  const { data: profile } = await supabase
-    .from('users')
-    .select('is_active, roles!inner(role_name)')
-    .eq('id', user.id)
-    .single()
-
-  if (!profile) {
-    return {
-      userId: user.id,
-      isActive: false,
-      role: null,
+    // unauthenticated user
+    if (!user) {
+        return null;
     }
-  }
 
-  // extract role_name
-  const roleName = (profile.roles as any)?.role_name as AppRole | undefined
+    // Single join query saving 1 roundtrip, or it had been 2 calls, 1 for user_id and then for its role
+    // this is from db, not auth
+    const {data: profile, error} = await supabase
+        .from("users")
+        .select("is_active, roles!inner(role_name)") // match the role too
+        .eq("id", user.id)
+        .single();
 
-  return {
-    userId: user.id,
-    isActive: profile.is_active === true,
-    role: roleName ?? null,
-  }
+    if (error) {
+        console.error("Failed to fetch profile.");
+    }
+
+    // user exists in auth but no db entry
+    if (!profile) {
+        return {
+            userId: user.id,
+            isActive: false,
+            role: null,
+        };
+    }
+
+    // as any ignores typechecks
+    // role is always defined by design
+    const roleName = (profile.roles as any)?.role_name as AppRole | undefined;
+
+    return {
+        userId: user.id,
+        // === to check both value and type (false === 0 will be false)
+        isActive: profile.is_active === true,
+        role: roleName ?? null,
+    };
 }
