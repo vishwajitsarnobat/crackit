@@ -1,3 +1,10 @@
+/**
+ * Financial Analytics API
+ * GET — Returns revenue, expenses, salaries, net profit, and trend data.
+ *       Supports monthly or yearly view via month/year params.
+ *       Includes expense breakdown chart data and fee collection status.
+ *       Role-scoped: CEO/centre_head/accountant.
+ */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 

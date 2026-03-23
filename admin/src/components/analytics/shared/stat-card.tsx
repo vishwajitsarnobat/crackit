@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Reusable Stat Card Component (KPI metrics)
+ * Displays a single key performance indicator with an icon and value.
+ * Supports different styling accents (success, warning, danger).
+ */
+
 import { type ReactNode } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 

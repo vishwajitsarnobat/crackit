@@ -1,3 +1,8 @@
+/**
+ * Approval Action API (single approval)
+ * PATCH — Approves or rejects a pending approval request via process_approval_decision RPC.
+ *         Validates reviewer permissions and request status before processing.
+ */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { canReviewRequest, getReviewerContext } from '@/lib/approvals/reviewer'

@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Reusable Filter Bar Components
+ * Includes generic SelectFilter, DateFilter, and FilterBar wrapper.
+ * Used across all analytics dashboards for unified filtering UI.
+ */
+
 import { type ReactNode } from 'react'
 import { format } from 'date-fns'
 import { CalendarIcon } from 'lucide-react'

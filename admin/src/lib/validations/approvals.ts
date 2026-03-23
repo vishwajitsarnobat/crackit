@@ -1,4 +1,7 @@
-// if approval is rejected, the ceo or centre head must provide reason
+/**
+ * Approval Validation Schema (Zod)
+ * - processApprovalSchema — validates approval actions; requires rejectionReason when action=reject
+ */
 
 import {z} from "zod";
 

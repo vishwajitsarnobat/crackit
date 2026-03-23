@@ -1,3 +1,9 @@
+/**
+ * Card UI Components
+ * A set of components (Card, Header, Title, Content, Footer) to construct modular card layouts.
+ * Used extensively in dashboards and forms.
+ */
+
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

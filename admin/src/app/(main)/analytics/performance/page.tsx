@@ -1,3 +1,8 @@
+/**
+ * Performance Analytics Page
+ * Renders the Performance Dashboard after fetching initial data and verifying permissions.
+ */
+
 import { redirect } from 'next/navigation'
 import { PerformanceDashboard } from '@/components/analytics/performance/performance-dashboard'
 import { getCurrentUserContext } from '@/lib/auth/current-user'

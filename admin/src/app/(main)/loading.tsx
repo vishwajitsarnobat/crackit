@@ -1,3 +1,8 @@
+/**
+ * Global Loading UI
+ * Displays a styled skeleton loader while main layout pages are being fetched or rendered.
+ */
+
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function Loading() {

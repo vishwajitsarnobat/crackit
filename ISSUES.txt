@@ -1,3 +1,14 @@
  - Staff attendance no date selected line chart.
  - Student enrollment dashboard, no student visible.
  - Teacher batch assignment dashboard error.
+
+Everything is loading so slow, why?
+
+ Place approvals in the end, after manage
+ Centres section is broken, unable to create new centre, duplicate key value violates unique constraint "centres_centre_code_key"
+Add batch is also not working. When any centre is selected, its batches are not visible.
+
+Enrollments are meant to manage the relation between students and enrolling them into batches. It has issues too.
+
+I think there is some serious issue, the rendering and loading is taking time and there are lot of requests sent to db.
+Fix it.

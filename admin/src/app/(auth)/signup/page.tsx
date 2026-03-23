@@ -1,5 +1,10 @@
 'use client'
 
+/**
+ * Signup Page
+ * Allows new users to register and select their role (with admin approval required).
+ */
+
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'

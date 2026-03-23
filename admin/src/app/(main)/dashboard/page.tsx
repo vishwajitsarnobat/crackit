@@ -1,3 +1,8 @@
+/**
+ * Dashboard Page
+ * Renders the main dashboard overview based on the current user's role.
+ */
+
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'

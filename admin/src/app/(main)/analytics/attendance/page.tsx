@@ -1,3 +1,8 @@
+/**
+ * Attendance Analytics Page
+ * Renders the Attendance Dashboard after verifying user authentication and permissions.
+ */
+
 import { redirect } from 'next/navigation'
 import { AttendanceDashboard } from '@/components/analytics/attendance/attendance-dashboard'
 import { getCurrentUserContext } from '@/lib/auth/current-user'

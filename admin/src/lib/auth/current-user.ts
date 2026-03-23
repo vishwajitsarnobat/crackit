@@ -1,6 +1,11 @@
-// runs on server, returns the userId, role and is_active
+/**
+ * Current User Context (server-side)
+ * Fetches the authenticated user's ID, role, and active status from Supabase auth + users table.
+ * Returns null if unauthenticated. Used by layout.tsx to determine role for rendering.
+ * Exports: getCurrentUserContext(), AppRole type
+ */
 
-import {SupabaseClient} from "@supabase/supabase-js";
+import {createClient} from "../supabase/server";
 
 // it is needed outside this file too, hence export
 export type AppRole =
@@ -16,12 +21,11 @@ export type CurrentUserContext = {
     role: AppRole | null;
 };
 
-export async function getCurrentUserContext(
-    supabase: SupabaseClient,
-): Promise<CurrentUserContext | null> {
+export async function getCurrentUserContext(): Promise<CurrentUserContext | null> {
+    const supabase = await createClient();
     // no db query, comes from supabase auth
     const {
-        data: {user},
+        data: {user}
     } = await supabase.auth.getUser();
 
     // unauthenticated user

@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Staff Attendance Dashboard Component
+ * Data visualization for daily staff attendance across centres.
+ * Features: Summary KPIs, daily trend line chart, status donut chart, and teacher breakdown table.
+ */
+
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { UserCheck, Clock, UserX, UserMinus, Percent } from 'lucide-react'

@@ -1,3 +1,10 @@
+/**
+ * Teacher Batch Assignment API
+ * GET   — Returns teacher-batch assignments + centres/batches/teachers dropdowns.
+ *         Builds teacher list from user_centre_assignments, filters to role=teacher.
+ * POST  — Assigns a teacher to a batch (or re-activates existing)
+ * PATCH — Un-assigns (deactivates) a teacher-batch assignment
+ */
 import { createClient } from '@/lib/supabase/server'
 import { withAuth, apiSuccess, apiError } from '@/lib/api/api-helpers'
 import { assignTeacherSchema, unassignTeacherSchema } from '@/lib/validations/manage'
@@ -16,11 +23,18 @@ export const GET = withAuth(async (request, ctx) => {
         const { data } = await supabase.from('centres').select('id, centre_name').eq('is_active', true).order('centre_name')
         allCentresData = data
     } else {
+        if (centreIds.length === 0) return apiSuccess({ assignments: [], centres: [], batches: [], teachers: [] })
         const { data } = await supabase.from('centres').select('id, centre_name').in('id', centreIds).eq('is_active', true).order('centre_name')
         allCentresData = data
     }
 
-    const { data: batchesData } = await supabase.from('batches').select('id, batch_name, centre_id').in('centre_id', ctx.profile.role === 'ceo' && centreFilter ? [centreFilter] : queryIds).eq('is_active', true).order('batch_name')
+    let batchQuery = supabase.from('batches').select('id, batch_name, centre_id').eq('is_active', true).order('batch_name')
+    if (ctx.profile.role === 'ceo') {
+        if (centreFilter) batchQuery = batchQuery.eq('centre_id', centreFilter)
+    } else {
+        batchQuery = batchQuery.in('centre_id', queryIds)
+    }
+    const { data: batchesData } = await batchQuery
 
     // 3. Fetch teachers assigned to accessible centres
     const ucaQuery = supabase

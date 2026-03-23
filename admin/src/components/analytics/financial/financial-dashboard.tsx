@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Financial Dashboard Component
+ * Data visualization for revenue (fees collected), expenses, and staff salaries.
+ * Features: KPI stat cards, monthly/yearly trend line charts, expense donut charts, and detailed data tables.
+ */
+
 import { useEffect, useState } from 'react'
 import { format } from 'date-fns'
 import { ArrowUpRight, ArrowDownRight, Wallet, ReceiptText, Banknote } from 'lucide-react'

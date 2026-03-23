@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Manage Centres Page Component
+ * Allows the CEO to manage branches/centres.
+ * Features: Adding, editing, and deactivating centres with location details.
+ */
+
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { Plus, Pencil, Power } from 'lucide-react'

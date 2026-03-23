@@ -1,5 +1,10 @@
 'use client'
 
+/**
+ * Approvals Page
+ * Client component to display and manage pending approvals for the current user.
+ */
+
 import { useEffect, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

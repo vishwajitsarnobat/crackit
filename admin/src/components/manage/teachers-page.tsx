@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Manage Teachers Page Component
+ * Allows centre heads and admins to assign teachers to specific batches.
+ * Features: Assigning teachers to a batch and unassigning them.
+ */
+
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { Users } from 'lucide-react'

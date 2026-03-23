@@ -1,3 +1,8 @@
+/**
+ * Financial Analytics Page
+ * Renders the Financial Dashboard after verifying user authentication and permissions.
+ */
+
 import { redirect } from 'next/navigation'
 import { FinancialDashboard } from '@/components/analytics/financial/financial-dashboard'
 import { getCurrentUserContext } from '@/lib/auth/current-user'

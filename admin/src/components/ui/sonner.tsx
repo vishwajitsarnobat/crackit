@@ -1,5 +1,10 @@
 "use client"
 
+/**
+ * Sonner Toaster UI Component
+ * Wraps the 'sonner' library to display toast notifications globally.
+ */
+
 import {
   CircleCheckIcon,
   InfoIcon,

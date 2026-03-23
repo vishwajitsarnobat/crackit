@@ -1,5 +1,9 @@
-// a function tp get information about the reviewer(current user)
-// function to check that if reviewer can accept the account request
+/**
+ * Approval Reviewer Utilities (server-side)
+ * - ReviewerContext type      — shape for reviewer identity
+ * - getReviewerContext()      — authenticates user, validates CEO/centre_head role, returns centreIds
+ * - canReviewRequest()        — checks if a reviewer can approve/reject a given role+centre request
+ */
 
 import {createClient} from "@/lib/supabase/server";
 import {getCurrentUserContext} from "../auth/current-user";
@@ -16,14 +20,13 @@ export async function getReviewerContext(): Promise<
     | {ok: true; data: ReviewerContext}
     | {ok: false; status: number; error: string}
 > {
-    const supabase = await createClient();
-    const profile = await getCurrentUserContext(supabase);
+    const profile = await getCurrentUserContext();
 
     if (!profile) {
         return {
             ok: false,
             status: 401,
-            error: "Youar account is not authenticated.",
+            error: "Your account is not authenticated.",
         };
     }
 
@@ -45,6 +48,7 @@ export async function getReviewerContext(): Promise<
         };
     }
 
+    const supabase = await createClient();
     let centreIds: string[] = [];
     if (roleName === "centre_head") {
         const {data: assignments} = await supabase

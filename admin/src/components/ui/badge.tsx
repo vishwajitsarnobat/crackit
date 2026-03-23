@@ -1,3 +1,9 @@
+/**
+ * Badge UI Component
+ * Provides a highly customizable badge element using class-variance-authority.
+ * Used for status labels, counts, and minor highlights.
+ */
+
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"

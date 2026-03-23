@@ -1,3 +1,9 @@
+/**
+ * Staff Attendance Analytics API
+ * GET — Returns staff attendance data: daily trend, per-teacher breakdown, summary.
+ *       Supports filters: centreId, teacherId, from/to date range.
+ *       Role-scoped: CEO/centre_head sees all staff, teacher sees own data only.
+ */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUserContext } from '@/lib/auth/current-user'
@@ -131,8 +137,8 @@ export async function GET(request: NextRequest) {
         // 5. Daily trend
         if (records.length > 0) {
             const dates = records.map(r => r.attendance_date).sort()
-            const startStr = fromDate || dates[dates.length - 1] // Oldest record
-            const endStr = toDate || dates[0] // Newest record
+            const startStr = fromDate || dates[0] // Oldest record
+            const endStr = toDate || dates[dates.length - 1] // Newest record
 
             const startObj = new Date(startStr + 'T00:00:00')
             const endObj = new Date(endStr + 'T00:00:00')

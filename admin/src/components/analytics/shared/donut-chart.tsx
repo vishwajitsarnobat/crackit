@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Reusable Donut Chart Component
+ * Used across analytics dashboards for displaying status breakdowns.
+ * Provides custom tooltips, responsive container, and legend.
+ */
+
 import { PieChart, Pie, Cell } from 'recharts'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
 import { EmptyState } from '@/components/analytics/shared/empty-state'

@@ -1,5 +1,10 @@
 "use client"
 
+/**
+ * Separator UI Component
+ * Wraps Radix UI Separator primitive to create visual dividing lines.
+ */
+
 import * as React from "react"
 import { Separator as SeparatorPrimitive } from "radix-ui"
 

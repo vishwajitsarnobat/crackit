@@ -1,5 +1,11 @@
 "use client"
 
+/**
+ * Chart UI Components
+ * A set of generic wrappers and tooltips for Recharts elements.
+ * Provides custom theming, accessibility, and standardized layouts for analytics.
+ */
+
 import * as React from "react"
 import * as RechartsPrimitive from "recharts"
 

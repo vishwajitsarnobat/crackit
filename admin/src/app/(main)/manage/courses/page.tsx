@@ -1,3 +1,8 @@
+/**
+ * Manage Courses Page
+ * Renders the courses management UI after verifying user authentication context.
+ */
+
 import { getCurrentUserContext } from '@/lib/auth/current-user'
 import { redirect } from 'next/navigation'
 import { CoursesPage } from '@/components/manage/courses-page'

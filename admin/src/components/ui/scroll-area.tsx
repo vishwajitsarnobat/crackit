@@ -1,5 +1,11 @@
 "use client"
 
+/**
+ * Scroll Area UI Component
+ * Wraps Radix UI Scroll Area to provide a custom cross-browser scrollbar.
+ * Used in tables and long lists to maintain layout structure.
+ */
+
 import * as React from "react"
 import { ScrollArea as ScrollAreaPrimitive } from "radix-ui"
 

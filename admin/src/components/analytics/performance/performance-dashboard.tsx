@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Performance Dashboard Component
+ * Data visualization for exam results and student academic performance.
+ * Features: Line charts for score trends, rank/consistency comparisons, and subject-wise radar charts.
+ */
+
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { BarChart3, BookOpen, TrendingUp, UserX, Trophy } from 'lucide-react'

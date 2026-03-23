@@ -1,3 +1,10 @@
+/**
+ * Next.js Middleware (proxy)
+ * - Refreshes Supabase auth tokens on every navigation request
+ * - Redirects unauthenticated users to /login (except auth & API routes)
+ * - Redirects authenticated users away from auth pages to /dashboard
+ * Exports: proxy(request), config.matcher
+ */
 import {createServerClient} from "@supabase/ssr";
 import {NextResponse, type NextRequest} from "next/server";
 

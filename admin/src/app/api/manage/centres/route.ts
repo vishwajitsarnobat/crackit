@@ -1,3 +1,9 @@
+/**
+ * Centre Management API
+ * GET   — Returns all centres (CEO) or assigned centres (centre_head)
+ * POST  — Creates a new centre with auto centre-head assignment
+ * PATCH — Updates centre details or toggles is_active (CEO only)
+ */
 import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -43,7 +49,13 @@ export const POST = withAuth(async (request, ctx) => {
         .select()
         .single()
 
-    if (error) return apiError(error.message, 400)
+    if (error) {
+        const msg = error.message?.toLowerCase() || '';
+        if (msg.includes('unique constraint') || msg.includes('duplicate key') || msg.includes('centres_centre_code_key')) {
+            return apiError('A centre with this code already exists. Please use a different code.', 400)
+        }
+        return apiError(error.message, 400)
+    }
 
     if (ctx.profile.role === 'centre_head') {
         await adminClient.from('user_centre_assignments').insert({

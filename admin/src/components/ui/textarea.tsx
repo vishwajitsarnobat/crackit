@@ -1,3 +1,8 @@
+/**
+ * Textarea UI Component
+ * A stylized wrapper around the native HTML textarea element.
+ */
+
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

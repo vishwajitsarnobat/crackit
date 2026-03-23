@@ -1,5 +1,10 @@
 "use client"
 
+/**
+ * Tabs UI Components
+ * Wraps Radix UI Tabs primitives to create toggleable content panels.
+ */
+
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Tabs as TabsPrimitive } from "radix-ui"

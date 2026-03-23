@@ -1,3 +1,8 @@
+/**
+ * Root Layout
+ * The highest-level Next.js layout, wrapping the entire app with fonts, theming, and toast providers.
+ */
+
 import type { Metadata } from 'next'
 import { DM_Sans, Instrument_Serif } from 'next/font/google'
 import { ThemeProvider } from '@/components/theme-provider'

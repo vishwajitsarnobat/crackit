@@ -1,5 +1,11 @@
 "use client"
 
+/**
+ * Label UI Component
+ * A styled wrapper around Radix UI Label primitives.
+ * Links descriptive text with input elements for accessibility.
+ */
+
 import * as React from "react"
 import { Label as LabelPrimitive } from "radix-ui"
 

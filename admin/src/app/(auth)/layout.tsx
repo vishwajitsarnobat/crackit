@@ -1,3 +1,8 @@
+/**
+ * Auth Layout
+ * Provides the centered layout wrapper for authentication pages (Login, Signup, Reset Password).
+ */
+
 import Link from 'next/link'
 import { ThemeToggle } from '@/components/theme-toggle'
 

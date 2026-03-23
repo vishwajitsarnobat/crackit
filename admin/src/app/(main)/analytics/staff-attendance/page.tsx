@@ -1,3 +1,8 @@
+/**
+ * Staff Attendance Analytics Page
+ * Renders the Staff Attendance Dashboard after verifying user authentication context.
+ */
+
 import { getCurrentUserContext } from '@/lib/auth/current-user'
 import { redirect } from 'next/navigation'
 import { StaffAttendanceDashboard } from '@/components/analytics/staff-attendance/staff-attendance-dashboard'

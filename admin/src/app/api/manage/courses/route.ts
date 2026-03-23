@@ -1,3 +1,9 @@
+/**
+ * Course Management API
+ * GET   — Returns all courses (active + inactive)
+ * POST  — Creates a new course (course_name, target_exam)
+ * PATCH — Updates course details or toggles is_active
+ */
 import { createClient } from '@/lib/supabase/server'
 import { withAuth, apiSuccess, apiError } from '@/lib/api/api-helpers'
 import { createCourseSchema, updateCourseSchema } from '@/lib/validations/manage'

@@ -1,3 +1,9 @@
+/**
+ * Reusable Section Card Component
+ * A stylized card with a title, description, and content area.
+ * Used consistently in dashboards to wrap distinct analytical reports/charts.
+ */
+
 import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
 
 export function SectionCard({

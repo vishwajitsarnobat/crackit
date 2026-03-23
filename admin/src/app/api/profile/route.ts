@@ -1,3 +1,8 @@
+/**
+ * User Profile API
+ * GET   — Returns authenticated user's profile (name, role, centres, etc.)
+ * PATCH — Updates fullName and phone for the authenticated user (requires self_update RLS)
+ */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 

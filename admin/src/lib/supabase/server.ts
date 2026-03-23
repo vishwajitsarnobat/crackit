@@ -1,5 +1,9 @@
-// this is used on server side, it checks auth, executes the query for user ensures the
-// RLS policies are applied on request from browser side, it is not exposed to browser side
+/**
+ * Supabase Server Client (server-side)
+ * Creates a Supabase client for Server Components, API routes, and middleware.
+ * Reads/writes session cookies via next/headers. RLS policies are enforced.
+ * Exports: createClient()
+ */
 
 // helper for server side request management
 import {createServerClient} from "@supabase/ssr";

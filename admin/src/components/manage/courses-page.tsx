@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Manage Courses Page Component
+ * Allows admins to manage educational courses offered across all centres.
+ * Features: Adding, editing, and deactivating courses and their target exams.
+ */
+
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { Plus, Pencil, Power } from 'lucide-react'

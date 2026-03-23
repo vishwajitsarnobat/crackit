@@ -1,3 +1,8 @@
+/**
+ * Main Layout
+ * The authenticated shell layout, including the sidebar navigation, header, and main content area.
+ */
+
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { ThemeToggle } from '@/components/theme-toggle'

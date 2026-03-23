@@ -1,3 +1,9 @@
+/**
+ * Input UI Component
+ * A styled wrapper around the native HTML input element.
+ * Provides consistent styling, focus rings, and disabled states.
+ */
+
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

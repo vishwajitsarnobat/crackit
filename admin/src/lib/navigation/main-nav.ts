@@ -1,4 +1,10 @@
-// returns which pages should be rendered based on the role
+/**
+ * Navigation Configuration
+ * - MainNavItem type           — shape for nav items with optional subItems
+ * - MAIN_NAV_ITEMS             — full nav tree (Dashboard, Analytics, Manage, Data Entry, Reports)
+ * - getVisibleMainNav(role)    — filters nav items by the user's AppRole
+ * Each item specifies allowedRoles and an icon key that maps to lucide-react in nav-links.tsx.
+ */
 
 import type {AppRole} from "@/lib/auth/current-user";
 
@@ -91,12 +97,87 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
         ],
     },
     {
+        label: "Data Entry",
+        icon: "ClipboardEdit",
+        allowedRoles: ["ceo", "centre_head", "teacher", "accountant"],
+        subItems: [
+            {
+                label: "Attendance",
+                href: "/data-entry/attendance",
+                icon: "CalendarCheck",
+                allowedRoles: ["ceo", "centre_head", "teacher"],
+            },
+            {
+                label: "Marks Entry",
+                href: "/data-entry/marks",
+                icon: "FileCheck",
+                allowedRoles: ["ceo", "centre_head", "teacher"],
+            },
+            {
+                label: "Content Library",
+                href: "/data-entry/content",
+                icon: "Library",
+                allowedRoles: ["ceo", "centre_head", "teacher"],
+            },
+            {
+                label: "Expenses",
+                href: "/data-entry/expenses",
+                icon: "Receipt",
+                allowedRoles: ["ceo", "centre_head", "accountant"],
+            },
+            {
+                label: "Salaries",
+                href: "/data-entry/salaries",
+                icon: "Banknote",
+                allowedRoles: ["ceo", "centre_head", "accountant"],
+            },
+            {
+                label: "Fee Management",
+                href: "/data-entry/fees",
+                icon: "Wallet",
+                allowedRoles: ["ceo", "centre_head", "accountant"],
+            },
+            {
+                label: "Staff Attendance",
+                href: "/data-entry/staff-attendance",
+                icon: "UserCheck",
+                allowedRoles: ["ceo", "centre_head"],
+            },
+        ],
+    },
+    {
+        label: "Reports",
+        icon: "BarChart2",
+        allowedRoles: ["ceo", "centre_head", "teacher"],
+        subItems: [
+            {
+                label: "Student Profile",
+                href: "/reports/student-profile",
+                icon: "UserCheck",
+                allowedRoles: ["ceo", "centre_head", "teacher"],
+            },
+            {
+                label: "Attendance",
+                href: "/reports/attendance",
+                icon: "CalendarCheck",
+                allowedRoles: ["ceo", "centre_head", "teacher"],
+            },
+            {
+                label: "Performance",
+                href: "/reports/performance",
+                icon: "TrendingUp",
+                allowedRoles: ["ceo", "centre_head", "teacher"],
+            },
+        ],
+    },
+    {
         label: "Approvals",
         href: "/approvals",
         icon: "ShieldCheck",
         allowedRoles: ["ceo", "centre_head"],
     },
 ];
+
 
 export function getVisibleMainNav(role: AppRole | null) {
     if (!role) return []; // even if some non logged in user tries to get, we return nothing

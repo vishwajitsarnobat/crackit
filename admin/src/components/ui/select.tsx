@@ -1,5 +1,10 @@
 "use client"
 
+/**
+ * Select UI Components
+ * Wraps Radix UI Select primitives to create custom dropdown selectors.
+ */
+
 import * as React from "react"
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
 import { Select as SelectPrimitive } from "radix-ui"

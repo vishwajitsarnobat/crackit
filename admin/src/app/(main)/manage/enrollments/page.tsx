@@ -1,3 +1,8 @@
+/**
+ * Manage Enrollments Page
+ * Renders the student enrollment UI after verifying user authentication context.
+ */
+
 import { getCurrentUserContext } from '@/lib/auth/current-user'
 import { redirect } from 'next/navigation'
 import { EnrollmentsPage } from '@/components/manage/enrollments-page'

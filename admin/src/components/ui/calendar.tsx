@@ -1,5 +1,11 @@
 "use client"
 
+/**
+ * Calendar UI Component
+ * A stylized date picker element wrapping react-day-picker.
+ * Used across the application for date filtering and data entry.
+ */
+
 import * as React from "react"
 import {
   ChevronDownIcon,

@@ -1,3 +1,9 @@
+/**
+ * Button UI Component
+ * Reusable button element with pre-defined variants and sizes using class-variance-authority.
+ * Supports rendering as a Next.js Link via the asChild prop.
+ */
+
 import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"

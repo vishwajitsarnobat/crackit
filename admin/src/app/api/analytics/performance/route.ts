@@ -1,3 +1,10 @@
+/**
+ * Performance Analytics API
+ * GET — Returns exam-level performance data: trend, batch comparison, subject breakdown.
+ *       Supports filters: centreId, batchId, studentId, subject, from/to date.
+ *       Includes consistency scores (std-dev based) per student.
+ *       Role-scoped: CEO/centre_head/teacher.
+ */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 

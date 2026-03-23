@@ -1,5 +1,9 @@
-// runs on server, checks authentication, defines format for returnin data
-// and error. returns context with centreIds
+/**
+ * API Helper Utilities (server-side)
+ * - apiSuccess(data) / apiError(message, status) — standardized JSON responses
+ * - withAuth(handler, allowedRoles)              — HOF that authenticates, checks role,
+ *   pre-fetches centreIds for non-CEO, and passes AuthContext to the handler
+ */
 
 // we define a template for functions to run with auth here?
 // when we run some function as withAuth(func_name, allowedRoles), auth is
@@ -7,8 +11,8 @@
 // handler runs the actual funtion func_name is all the conditions are satisfied.
 
 import {NextResponse, type NextRequest} from "next/server";
-import {createClient} from "@/lib/supabase/server";
-import {getCurrentUserContext, type AppRole} from "@/lib/auth/current-user";
+import {type AppRole} from "@/lib/auth/current-user";
+import { createClient } from "../supabase/server";
 
 // only centreIds is extra as compared to CurrentUserContext
 export type ApiContext = {
@@ -45,21 +49,33 @@ export function withAuth(handler: RouteHandler, allowedRoles?: AppRole[]) {
     return async (req: NextRequest, props?: unknown) => {
         try {
             const supabase = await createClient();
-            const profile = await getCurrentUserContext(supabase);
+            const {data: {user}}=await supabase.auth.getUser();
 
-            if (!profile) {
+            if (!user) {
                 return apiError("Your account is not authenticated.", 401);
             }
 
-            if (!profile.isActive) {
+            const {data: profile, error} = await supabase
+                .from("users")
+                .select("is_active, roles!inner(role_name)") // match the role too
+                .eq("id", user.id)
+                .single();
+            
+            if (error) {
+                return apiError("No entry in users table found.", 403);
+            }
+
+            if (!profile.is_active) {
                 return apiError("Your account is not active.", 403);
             }
 
-            if (!profile.role) {
+            const roleName = (profile.roles as any)?.role_name as AppRole | undefined;
+
+            if (roleName === undefined) {
                 return apiError("Your role is not configured.", 403);
             }
 
-            if (allowedRoles && !allowedRoles.includes(profile.role)) {
+            if (allowedRoles && !allowedRoles.includes(roleName)) {
                 // we are not using allowedRoles.length > 0
                 // by default if allowedRoles are passes, even if empty, it will block the requests.
                 return apiError(
@@ -70,11 +86,11 @@ export function withAuth(handler: RouteHandler, allowedRoles?: AppRole[]) {
 
             // pre-fetch centre assignments for non-CEOs
             let centreIds: string[] = [];
-            if (profile.role !== "ceo") {
+            if (roleName !== "ceo") {
                 const {data: assignments, error} = await supabase
                     .from("user_centre_assignments")
                     .select("centre_id")
-                    .eq("user_id", profile.userId)
+                    .eq("user_id", user.id)
                     .eq("is_active", true);
 
                 if (error) {
@@ -89,9 +105,9 @@ export function withAuth(handler: RouteHandler, allowedRoles?: AppRole[]) {
 
                 // Enforce that centre heads/teachers/accountants must have at least one assigned centre
                 if (
-                    (profile.role === "centre_head" ||
-                        profile.role === "teacher" ||
-                        profile.role === "accountant") &&
+                    (roleName === "centre_head" ||
+                        roleName === "teacher" ||
+                        roleName === "accountant") &&
                     centreIds.length === 0
                 ) {
                     return apiError(
@@ -103,10 +119,10 @@ export function withAuth(handler: RouteHandler, allowedRoles?: AppRole[]) {
 
             // Build Context
             const ctx: ApiContext = {
-                user: {id: profile.userId},
+                user: {id: user.id},
                 profile: {
-                    isActive: profile.isActive,
-                    role: profile.role,
+                    isActive: profile.is_active,
+                    role: roleName,
                     centreIds,
                 },
             };

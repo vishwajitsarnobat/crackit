@@ -1,3 +1,9 @@
+/**
+ * Approvals List API
+ * GET — Returns pending or processed approval requests with applicant/centre info.
+ *       CEO reviews centre_head/accountant requests; centre_head reviews teacher/student.
+ *       Supports ?status=pending|processed filter.
+ */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getReviewerContext } from '@/lib/approvals/reviewer'

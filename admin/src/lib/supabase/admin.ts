@@ -1,4 +1,9 @@
-// imports base SDK, full database access
+/**
+ * Supabase Admin Client (server-side only)
+ * Uses SUPABASE_SERVICE_ROLE_KEY for full database access, bypassing RLS.
+ * Used for admin operations: user creation, approval processing, cross-table queries.
+ * Exports: createAdminClient()
+ */
 import {createClient} from "@supabase/supabase-js";
 
 export function createAdminClient() {

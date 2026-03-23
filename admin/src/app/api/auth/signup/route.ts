@@ -1,3 +1,9 @@
+/**
+ * Auth Signup API
+ * GET  — Returns active centres for the signup form dropdown
+ * POST — Creates a new user: auth user → users table row → approval request.
+ *        Rolls back auth user + DB row on failure. Supports CEO/centre_head/teacher/accountant roles.
+ */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 

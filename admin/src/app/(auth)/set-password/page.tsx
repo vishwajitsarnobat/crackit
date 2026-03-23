@@ -1,5 +1,10 @@
 'use client'
 
+/**
+ * Set Password Page
+ * Allows users logging in for the first time or resetting their password to set a new password.
+ */
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'

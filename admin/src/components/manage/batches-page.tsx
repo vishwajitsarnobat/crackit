@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Manage Batches Page Component
+ * Allows admins and centre heads to manage student batches.
+ * Features: Creating, editing, and deactivating batches within specific centres and courses.
+ */
+
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { Plus, Pencil, Power } from 'lucide-react'

@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Profile Page Component
+ * Allows users to view their account details (role, email, centres) and update their name/phone.
+ * Features: Client-side fetching of profile data and update form.
+ */
+
 import { useState, useEffect } from 'react'
 import { format } from 'date-fns'
 import { toast } from 'sonner'

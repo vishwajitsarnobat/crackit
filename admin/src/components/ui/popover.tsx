@@ -1,5 +1,11 @@
 "use client"
 
+/**
+ * Popover UI Components
+ * Wraps Radix UI Popover primitives to create dropdowns and contextual menus.
+ * Often used alongside Date Pickers and complex filters.
+ */
+
 import * as React from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
 

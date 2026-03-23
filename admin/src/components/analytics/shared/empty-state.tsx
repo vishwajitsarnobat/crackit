@@ -1,3 +1,9 @@
+/**
+ * Reusable Empty State Component
+ * Displayed when data is absent in tables or charts across dashboards.
+ * Displays an icon, title, and instructional message.
+ */
+
 import { InboxIcon } from 'lucide-react'
 
 type EmptyStateProps = {

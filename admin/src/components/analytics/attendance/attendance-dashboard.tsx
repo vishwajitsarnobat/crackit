@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Attendance Dashboard Component
+ * Data visualization for student attendance across centres and batches.
+ * Features: Daily trend charts (bar charts), status breakdown (donut chart), and individual student percentage tables.
+ */
+
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { CalendarCheck, CalendarX, CalendarDays, Percent } from 'lucide-react'

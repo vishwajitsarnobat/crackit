@@ -1,4 +1,8 @@
-// TODO: we aren't bothering accountant here and also ceo, check future use once
+/**
+ * Auth Validation Schema (Zod)
+ * - signupSchema — validates signup form (fullName, email, password, role, centreIds)
+ *   Enforces: centre_head/teacher must have at least one centreId
+ */
 
 import {z} from "zod";
 

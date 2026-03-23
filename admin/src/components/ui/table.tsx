@@ -1,5 +1,10 @@
 "use client"
 
+/**
+ * Table UI Components
+ * A set of responsive wrapper components for standard HTML table elements.
+ */
+
 import * as React from "react"
 
 import { cn } from "@/lib/utils"

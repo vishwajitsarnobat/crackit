@@ -1,3 +1,8 @@
+/**
+ * Skeleton UI Component
+ * A stylized placeholder element used to indicate loading states.
+ */
+
 import { cn } from "@/lib/utils"
 
 function Skeleton({

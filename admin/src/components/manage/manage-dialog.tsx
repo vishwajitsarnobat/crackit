@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Manage Dialog Component
+ * A reusable dialog overlay component for forms across the management pages.
+ * Handles the open/close state, title, and form submission with a loading state.
+ */
+
 import { type ReactNode } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'

@@ -1,5 +1,11 @@
 'use client'
 
+/**
+ * Manage Enrollments Page Component
+ * Allows centre heads and admins to enroll students into specific batches.
+ * Features: Adding students, viewing enrollments, and deactivating enrolled students.
+ */
+
 import { useState, useEffect } from 'react'
 import { format, getDaysInMonth, getDate } from 'date-fns'
 import { toast } from 'sonner'
@@ -274,7 +280,7 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
                         <div className="p-3 bg-muted/50 rounded-lg text-sm border">
                             <div className="flex justify-between items-center text-muted-foreground mb-1">
                                 <span>Prorated first invoice:</span>
-                                <span>(Days remaining in obj month)</span>
+                                <span>Prorated for remaining days in month</span>
                             </div>
                             <div className="flex justify-between items-center font-medium">
                                 <span>Amount Due:</span>

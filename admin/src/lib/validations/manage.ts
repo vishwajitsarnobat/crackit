@@ -1,3 +1,11 @@
+/**
+ * Manage Validation Schemas (Zod)
+ * - createCentreSchema / updateCentreSchema   — centre CRUD validation
+ * - createBatchSchema / updateBatchSchema     — batch CRUD validation
+ * - createCourseSchema / updateCourseSchema   — course CRUD validation
+ * - createEnrollmentSchema / updateEnrollmentSchema — student enrollment validation
+ * - assignTeacherSchema / unassignTeacherSchema     — teacher-batch assignment validation
+ */
 import {z} from "zod";
 
 export const createCentreSchema = z.object({

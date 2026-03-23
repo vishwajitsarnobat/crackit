@@ -1,3 +1,9 @@
+/**
+ * Student Attendance Analytics API
+ * GET — Returns attendance data: daily trend, per-student breakdown, summary stats.
+ *       Supports filters: centreId, batchId, studentId, from/to date range.
+ *       Role-scoped: CEO sees all centres, centre_head/teacher sees assigned.
+ */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 

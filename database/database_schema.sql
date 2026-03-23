@@ -87,6 +87,21 @@ CREATE TABLE user_centre_assignments (
 CREATE INDEX idx_uca_user   ON user_centre_assignments(user_id);
 CREATE INDEX idx_uca_centre ON user_centre_assignments(centre_id);
 
+-- Teachers are assigned to specific batches within their centres
+CREATE TABLE teacher_batch_assignments (
+    id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id    UUID REFERENCES users(id) ON DELETE CASCADE,
+    batch_id   UUID REFERENCES batches(id) ON DELETE CASCADE,
+    subject    VARCHAR(100),
+    is_active  BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, batch_id)
+);
+
+CREATE INDEX idx_tba_user ON teacher_batch_assignments(user_id);
+CREATE INDEX idx_tba_batch ON teacher_batch_assignments(batch_id);
+
 -- Approval inbox.
 -- CEO approves: centre_head, accountant (centre_id = NULL).
 -- Centre head approves: teacher, student (centre_id = their centre).

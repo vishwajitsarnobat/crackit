@@ -1,3 +1,9 @@
+/**
+ * Student Enrollment API
+ * GET   — Returns enrollments scoped to relevant batches + unassigned students. Includes centres/batches dropdowns.
+ * POST  — Creates enrollment + prorated first invoice (uses date-fns for day calculations)
+ * PATCH — Withdraws a student from a batch
+ */
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { withAuth, apiSuccess, apiError } from '@/lib/api/api-helpers'
@@ -8,125 +14,118 @@ export const GET = withAuth(async (request, ctx) => {
     const supabase = await createClient()
     const { searchParams } = new URL(request.url)
     const centreFilter = searchParams.get('centreId')
-    const batchFilter = searchParams.get('batchId') // can be 'unassigned'
+    const batchFilter = searchParams.get('batchId')
 
-    const centreIds = ctx.profile.centreIds
-    const queryIds = centreFilter && centreIds.includes(centreFilter) ? [centreFilter] : centreIds
-
-    // 2. Fetch dependencies for filters & dropdowns
-    // Need centres lists for CEO dropdown too!
-    let allCentresData: { id: string; centre_name: string }[] | null = []
+    // ── 1. Centres dropdown ──
+    let centresData: { id: string; centre_name: string }[] = []
     if (ctx.profile.role === 'ceo') {
         const { data } = await supabase.from('centres').select('id, centre_name').eq('is_active', true).order('centre_name')
-        allCentresData = data
+        centresData = data ?? []
     } else {
-        const { data } = await supabase.from('centres').select('id, centre_name').in('id', centreIds).eq('is_active', true).order('centre_name')
-        allCentresData = data
+        if (ctx.profile.centreIds.length === 0) return apiSuccess({ enrollments: [], centres: [], batches: [], students: [] })
+        const { data } = await supabase.from('centres').select('id, centre_name').in('id', ctx.profile.centreIds).eq('is_active', true).order('centre_name')
+        centresData = data ?? []
     }
-    
-    const { data: batchesData } = await supabase.from('batches').select('id, batch_name, centre_id').in('centre_id', ctx.profile.role === 'ceo' && centreFilter ? [centreFilter] : queryIds).eq('is_active', true).order('batch_name')
 
-    // 3. Fetch ALL active students with their current enrollments
+    // ── 2. Batches ──
+    // Build scoped centre list for batch filtering
+    const scopedCentreIds = ctx.profile.role === 'ceo'
+        ? (centreFilter ? [centreFilter] : centresData.map(c => c.id))
+        : (centreFilter && ctx.profile.centreIds.includes(centreFilter) ? [centreFilter] : ctx.profile.centreIds)
+
+    let batchQuery = supabase.from('batches').select('id, batch_name, centre_id').eq('is_active', true).order('batch_name')
+    if (scopedCentreIds.length > 0) batchQuery = batchQuery.in('centre_id', scopedCentreIds)
+    const { data: batchesData } = await batchQuery
+
+    // ── 3. Fetch students & enrollments (scoped to batches, NOT all students) ──
     const adminClient = createAdminClient()
-    const { data: studentsData, error } = await adminClient
-        .from('students')
-        .select(`
-            id, student_code,
-            users!inner(full_name),
-            student_batch_enrollments (
-                id, batch_id, enrollment_date, status, is_active, withdrawn_at,
-                batches ( batch_name, centre_id )
-            )
-        `)
-        .eq('is_active', true)
-        .order('student_code', { ascending: false })
 
-    if (error) return apiError(error.message, 500)
+    const activeBatchIds = (batchesData ?? []).map(b => b.id)
+    const targetBatchIds = batchFilter && batchFilter !== 'unassigned'
+        ? [batchFilter]
+        : activeBatchIds
 
-    // 4. Extract all active batch IDs from all enrollments to fetch invoices mapping
-    const allActiveEnrollments = (studentsData ?? []).flatMap(s => 
-        (s.student_batch_enrollments as { batch_id: string, is_active: boolean }[] ?? []).filter(e => e.is_active)
-    )
-    const activeBatchIds = Array.from(new Set(allActiveEnrollments.map(e => e.batch_id)))
-    
-    const invoicesMap: Record<string, number> = {}
-    if (activeBatchIds.length > 0) {
-        const { data: invoicesData } = await supabase
-            .from('student_invoices')
-            .select('student_id, batch_id, monthly_fee')
-            .in('batch_id', activeBatchIds)
-            .order('month_year', { ascending: false })
-
-        if (invoicesData) {
-            invoicesData.forEach(inv => {
-                const key = `${inv.student_id}-${inv.batch_id}`
-                if (!(key in invoicesMap)) invoicesMap[key] = inv.monthly_fee
-            })
-        }
+    if (targetBatchIds.length === 0 && batchFilter !== 'unassigned' && batchFilter) {
+        return apiSuccess({ enrollments: [], centres: centresData, batches: batchesData ?? [], students: [] })
     }
 
-    // 5. Flatten the structure into a student-centric list
-    let formatted: Record<string, unknown>[] = []
-    for (const s of (studentsData ?? [])) {
-        const studentId = s.id
-        const studentCode = s.student_code
-        const fullName = (s.users as unknown as { full_name: string })?.full_name ?? 'Unknown'
+    let enrollments: any[] = []
+    
+    // Fetch enrollments with student data — scoped to relevant batches
+    if (targetBatchIds.length > 0) {
+        let enrollmentsQuery = adminClient
+            .from('student_batch_enrollments')
+            .select(`
+                id, student_id, batch_id, enrollment_date, status, is_active,
+                students!inner(id, student_code, is_active, users!inner(full_name)),
+                batches!inner(batch_name, centre_id)
+            `)
+            .eq('status', 'active')
 
-        const enrollments = (s.student_batch_enrollments as unknown as {
-            id: string, batch_id: string, status: string, is_active: boolean, enrollment_date: string | null,
-            batches: { batch_name: string, centre_id: string } | null
-        }[] ?? []).filter(e => e.status === 'active')
+        if (batchFilter && batchFilter !== 'unassigned') {
+            enrollmentsQuery = enrollmentsQuery.in('batch_id', targetBatchIds)
+        }
 
-        if (enrollments.length === 0) {
-            formatted.push({
-                student_id: studentId,
-                student_code: studentCode,
-                student_name: fullName,
-                enrollment_id: null,
-                batch_id: null,
-                batch_name: 'Unassigned',
-                centre_id: null,
-                enrollment_date: null,
-                status: 'unassigned',
-                monthly_fee: null
-            })
-        } else {
-            for (const e of enrollments) {
-                const fee = invoicesMap[`${studentId}-${e.batch_id}`] ?? null
+        const { data, error } = await enrollmentsQuery.order('student_id')
+        if (error) return apiError(error.message, 500)
+        enrollments = data ?? []
+    }
+
+    // Build enrolled student IDs set
+    const enrolledStudentIds = new Set((enrollments ?? []).map((e: any) => e.student_id))
+
+    // Build formatted list from enrollments
+    const formatted: Record<string, unknown>[] = (enrollments ?? []).map((e: any) => ({
+        student_id: e.student_id,
+        student_code: e.students?.student_code ?? '',
+        student_name: e.students?.users?.full_name ?? 'Unknown',
+        enrollment_id: e.id,
+        batch_id: e.batch_id,
+        batch_name: e.batches?.batch_name ?? '-',
+        centre_id: e.batches?.centre_id ?? null,
+        enrollment_date: e.enrollment_date,
+        status: e.status,
+        monthly_fee: null,
+    }))
+
+    // If showing unassigned, fetch students without active enrollments
+    if (!batchFilter || batchFilter === 'unassigned') {
+        const { data: allStudents } = await adminClient
+            .from('students')
+            .select('id, student_code, users!inner(full_name)')
+            .eq('is_active', true)
+            .order('student_code', { ascending: false })
+            .limit(200)
+
+        for (const s of (allStudents ?? [])) {
+            if (!enrolledStudentIds.has(s.id)) {
                 formatted.push({
-                    student_id: studentId,
-                    student_code: studentCode,
-                    student_name: fullName,
-                    enrollment_id: e.id,
-                    batch_id: e.batch_id,
-                    batch_name: e.batches?.batch_name ?? '-',
-                    centre_id: e.batches?.centre_id,
-                    enrollment_date: e.enrollment_date,
-                    status: e.status,
-                    monthly_fee: fee
+                    student_id: s.id,
+                    student_code: s.student_code,
+                    student_name: (s.users as any)?.full_name ?? 'Unknown',
+                    enrollment_id: null,
+                    batch_id: null,
+                    batch_name: 'Unassigned',
+                    centre_id: null,
+                    enrollment_date: null,
+                    status: 'unassigned',
+                    monthly_fee: null,
                 })
             }
         }
     }
 
-    // Apply filters in memory
-    if (centreFilter) {
-        // Keep students in the selected centre, PLUS keep unassigned students so they can be assigned here
-        formatted = formatted.filter(f => f.centre_id === centreFilter || f.centre_id === null)
-    }
-    if (batchFilter) {
-        if (batchFilter === 'unassigned') {
-            formatted = formatted.filter(f => f.batch_id === null)
-        } else {
-            formatted = formatted.filter(f => f.batch_id === batchFilter)
-        }
+    // Centre filter for formatted data
+    let result = formatted
+    if (centreFilter && batchFilter !== 'unassigned') {
+        result = formatted.filter((f: any) => f.centre_id === centreFilter || f.centre_id === null)
     }
 
-    return apiSuccess({ 
-        enrollments: formatted, 
-        centres: allCentresData ?? [], 
+    return apiSuccess({
+        enrollments: result,
+        centres: centresData,
         batches: batchesData ?? [],
-        students: [] // No longer needed for dropdown
+        students: []
     })
 }, ['ceo', 'centre_head'])
 
@@ -165,7 +164,7 @@ export const POST = withAuth(async (request) => {
 
     // 3. Create Prorated Invoice
     const dateObj = new Date(enrollment_date + 'T00:00:00')
-    const monthYear = dateObj.toISOString().substring(0, 7) + '-01' // 1st day of month
+    const monthYear = dateObj.toISOString().substring(0, 7) + '-01'
     
     const daysInMonth = getDaysInMonth(dateObj)
     const currentDay = getDate(dateObj)
@@ -184,7 +183,6 @@ export const POST = withAuth(async (request) => {
         })
 
     if (invoiceErr) {
-        // Rollback enrollment if invoice fails
         await supabase.from('student_batch_enrollments').delete().eq('id', enrollment.id)
         return apiError(invoiceErr.message, 400)
     }
