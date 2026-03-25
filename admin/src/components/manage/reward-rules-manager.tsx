@@ -192,9 +192,9 @@ export function RewardRulesManager() {
   return (
     <div className="space-y-4">
       <Card className="gap-0 overflow-hidden py-0">
-        <div className="flex items-center justify-between border-b bg-muted/30 px-5 py-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
           <div>
-            <CardTitle className="text-base tracking-tight">Reward Rules</CardTitle>
+            <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Reward Rules</CardTitle>
             <CardDescription className="mt-0.5">Define reusable monthly rules for attendance, performance, and timely fee payment rewards.</CardDescription>
           </div>
           <div className="flex items-center gap-3">
@@ -207,19 +207,19 @@ export function RewardRulesManager() {
         </div>
 
         {loading ? (
-          <div className="h-52 animate-pulse bg-muted/20" />
+          <div className="h-52 animate-pulse bg-primary/10 dark:bg-white/[0.04]" />
         ) : rules.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-12 text-center text-sm text-muted-foreground">
             <Sparkles className="mb-3 h-8 w-8 opacity-20" />
             No reward rules defined yet.
           </div>
         ) : (
-          <div className="divide-y">
+          <div className="divide-y divide-secondary/10">
             {rules.map((rule) => (
-              <div key={rule.id} className="flex flex-col gap-4 px-5 py-4 xl:flex-row xl:items-start xl:justify-between">
+              <div key={rule.id} className="flex flex-col gap-4 px-5 py-4 xl:flex-row xl:items-start xl:justify-between hover:bg-primary/6 dark:hover:bg-white/[0.03]">
                 <div className="space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="font-medium">{rule.rule_name}</div>
+                    <div className="font-medium text-secondary dark:text-foreground">{rule.rule_name}</div>
                     <Badge variant="outline" className={rule.is_active ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-red-500/10 text-red-600 border-red-200'}>
                       {rule.is_active ? 'Active' : 'Inactive'}
                     </Badge>
@@ -232,10 +232,10 @@ export function RewardRulesManager() {
                     <div>Centre: <span className="font-medium text-foreground">{centres.find((centre) => centre.id === rule.centre_id)?.centre_name ?? 'Global / N/A'}</span></div>
                     <div>Batch: <span className="font-medium text-foreground">{batches.find((batch) => batch.id === rule.batch_id)?.batch_name ?? 'N/A'}</span></div>
                   </div>
-                  <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="rounded-2xl border border-secondary/10 bg-white/55 px-3 py-2 text-xs text-muted-foreground dark:bg-white/[0.04]">
                     Criteria: <span className="font-mono">{JSON.stringify(rule.criteria)}</span>
                   </div>
-                  <div className="rounded-md border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                  <div className="rounded-2xl border border-secondary/10 bg-white/55 px-3 py-2 text-xs text-muted-foreground dark:bg-white/[0.04]">
                     Recent runs:{' '}
                     {rule.executions && rule.executions.length > 0 ? (
                       <span className="space-y-1">

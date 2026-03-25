@@ -88,8 +88,8 @@ type FilterBarProps = {
 export function FilterBar({ title = 'Filters', description, children, actions, gridClass = "md:grid-cols-5" }: FilterBarProps) {
     return (
         <Card className="gap-4 overflow-hidden py-0">
-            <div className="border-b border-white/10 bg-slate-950/35 px-5 py-3.5">
-                <CardTitle className="text-base tracking-tight text-white">{title}</CardTitle>
+            <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+                <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">{title}</CardTitle>
                 {description && <CardDescription className="mt-1">{description}</CardDescription>}
             </div>
             <CardContent className="space-y-4 px-5 py-5">

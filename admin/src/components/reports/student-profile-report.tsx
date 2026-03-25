@@ -59,18 +59,18 @@ export function StudentProfileReport({ role }: { role: AppRole }) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-        <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Reports</Badge>
+      <section className="glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Reports</Badge>
         <div className="mt-4 max-w-3xl">
-          <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Student Profile Reports</h1>
-          <p className="mt-3 text-base text-slate-300">Browse student cards immediately, narrow them with centre or batch filters, and generate a complete student profile PDF directly from each card.</p>
+          <h1 className="font-serif text-4xl tracking-tight text-secondary dark:text-primary sm:text-5xl">Student Profile Reports</h1>
+          <p className="mt-3 text-base text-muted-foreground">Browse student cards immediately, narrow them with centre or batch filters, and generate a complete student profile PDF directly from each card.</p>
         </div>
       </section>
 
-      <Card className="gap-0 overflow-hidden border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-        <div className="border-b bg-slate-950/35 px-5 py-3.5">
-          <CardTitle className="text-white">Report Filters</CardTitle>
-          <CardDescription className="text-slate-400">Student cards load immediately. CEO can filter by centre and batch, while centre head stays scoped to their centre.</CardDescription>
+      <Card className="gap-0 overflow-hidden py-0">
+        <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+          <CardTitle className="text-secondary dark:text-primary">Report Filters</CardTitle>
+          <CardDescription>Student cards load immediately. CEO can filter by centre and batch, while centre head stays scoped to their centre.</CardDescription>
         </div>
         <div className="grid gap-4 px-5 py-5 md:grid-cols-[220px_240px_1fr]">
           {role === 'ceo' && (
@@ -92,9 +92,9 @@ export function StudentProfileReport({ role }: { role: AppRole }) {
       {students.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {students.map((student) => (
-            <Card key={student.id} className="border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+            <Card key={student.id} className="py-0">
               <div className="flex items-start justify-between gap-4 px-6 pt-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-400/15 bg-slate-950/55 text-sky-300">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-secondary/10 bg-white/70 text-secondary dark:bg-white/[0.05] dark:text-primary">
                   <UserSquare2 className="h-5 w-5" />
                 </div>
                 <Badge variant="outline" className={student.is_active ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-300' : 'border-red-400/20 bg-red-500/10 text-red-300'}>
@@ -102,12 +102,12 @@ export function StudentProfileReport({ role }: { role: AppRole }) {
                 </Badge>
               </div>
               <div className="px-6 pb-6 pt-4">
-                <div className="text-xl font-semibold text-white">{student.student_name}</div>
-                <div className="mt-1 font-mono text-xs text-slate-400">{student.student_code || 'No code assigned'}</div>
-                <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/35 p-4 text-sm text-slate-300">
+                <div className="text-xl font-semibold text-secondary dark:text-foreground">{student.student_name}</div>
+                <div className="mt-1 font-mono text-xs text-muted-foreground">{student.student_code || 'No code assigned'}</div>
+                <div className="mt-4 rounded-[24px] border border-secondary/10 bg-white/60 p-4 text-sm text-muted-foreground dark:bg-white/[0.04]">
                   <div className="flex items-center justify-between">
                     <span>Class level</span>
-                    <span className="font-medium text-white">{student.class_level}</span>
+                    <span className="font-medium text-secondary dark:text-foreground">{student.class_level}</span>
                   </div>
                 </div>
                 <div className="mt-5 flex justify-end">
@@ -120,8 +120,8 @@ export function StudentProfileReport({ role }: { role: AppRole }) {
           ))}
         </div>
       ) : (
-        <Card className="border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-          <div className="p-10 text-center text-sm text-slate-400">{loading ? 'Loading student report cards...' : 'No student cards match the current filters.'}</div>
+        <Card>
+          <div className="p-10 text-center text-sm text-muted-foreground">{loading ? 'Loading student report cards...' : 'No student cards match the current filters.'}</div>
         </Card>
       )}
     </div>

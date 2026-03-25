@@ -32,16 +32,16 @@ export function ManageDialog({ open, onOpenChange, title, description, children,
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="sm:max-w-xl">
                 <form onSubmit={handleSubmit}>
                     <DialogHeader>
                         <DialogTitle>{title}</DialogTitle>
                         {description && <DialogDescription>{description}</DialogDescription>}
                     </DialogHeader>
-                    <div className="grid gap-4 py-4">
+                    <div className="grid gap-4 py-5">
                         {children}
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="border-t border-secondary/10 pt-4">
                         <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>Cancel</Button>
                         <Button type="submit" disabled={saving}>
                             {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

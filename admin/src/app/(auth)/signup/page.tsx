@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -125,11 +126,11 @@ export default function SignupPage() {
   if (done) {
     return (
       <div className="w-full max-w-[420px]">
-        <div className="rounded-2xl border bg-card p-10 shadow-sm text-center">
+        <div className="glass-panel soft-ring rounded-[32px] p-10 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-success/10">
             <CheckCircle2 className="h-7 w-7 text-success" />
           </div>
-          <h2 className="font-serif text-2xl tracking-tight">
+          <h2 className="font-serif text-2xl tracking-tight text-secondary dark:text-primary">
             Request submitted
           </h2>
           <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
@@ -146,18 +147,19 @@ export default function SignupPage() {
   return (
     <div className="w-full max-w-[420px]">
       <div className="mb-8">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Request Access</Badge>
+        <div className="mb-4 mt-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-secondary/10 bg-white/60 text-secondary dark:bg-white/[0.05] dark:text-primary">
           <UserPlus className="h-6 w-6" />
         </div>
-        <h1 className="font-serif text-3xl tracking-tight text-foreground">
+        <h1 className="font-serif text-4xl tracking-tight text-secondary dark:text-primary">
           Request access
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Your account will be reviewed before activation
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          Request an institute account for your role. Access is activated after admin approval.
         </p>
       </div>
 
-      <div className="rounded-2xl border bg-card p-8 shadow-sm transition-shadow hover:shadow-md">
+      <div className="glass-panel soft-ring rounded-[32px] p-8">
         <div className="space-y-5">
 
           <div className="space-y-2">
@@ -274,7 +276,7 @@ export default function SignupPage() {
 
         </div>
 
-        <Separator className="my-6" />
+        <Separator className="my-6 bg-secondary/10" />
 
         <p className="text-center text-sm text-muted-foreground">
           Already approved?{' '}

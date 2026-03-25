@@ -17,10 +17,10 @@ type StatCardProps = {
 }
 
 const iconBgStyles = {
-    default: 'bg-primary/10 text-primary',
-    success: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400',
-    warning: 'bg-amber-500/10 text-amber-600 dark:text-amber-400',
-    danger: 'bg-rose-500/10 text-rose-600 dark:text-rose-400',
+    default: 'bg-primary/18 text-secondary dark:text-primary',
+    success: 'bg-emerald-500/12 text-emerald-700 dark:text-emerald-300',
+    warning: 'bg-amber-500/12 text-amber-700 dark:text-amber-300',
+    danger: 'bg-rose-500/12 text-rose-700 dark:text-rose-300',
 } as const
 
 const borderAccent = {
@@ -31,18 +31,18 @@ const borderAccent = {
 } as const
 
 const valueStyles = {
-    default: '',
-    success: 'text-emerald-600 dark:text-emerald-400',
-    warning: 'text-amber-600 dark:text-amber-400',
-    danger: 'text-rose-600 dark:text-rose-400',
+    default: 'text-secondary dark:text-foreground',
+    success: 'text-emerald-700 dark:text-emerald-300',
+    warning: 'text-amber-700 dark:text-amber-300',
+    danger: 'text-rose-700 dark:text-rose-300',
 } as const
 
 export function StatCard({ label, value, icon, accent = 'default' }: StatCardProps) {
     return (
-        <Card className={`relative overflow-hidden border border-l-[3px] ${borderAccent[accent]} bg-card transition-all hover:shadow-md hover:-translate-y-0.5`}>
+        <Card className={`relative overflow-hidden border border-l-[3px] ${borderAccent[accent]} bg-card/95 transition-all hover:-translate-y-0.5`}>
             <CardContent className="flex items-center gap-4 px-4 py-4">
                 {icon && (
-                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${iconBgStyles[accent]}`}>
+                    <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${iconBgStyles[accent]}`}>
                         {icon}
                     </div>
                 )}

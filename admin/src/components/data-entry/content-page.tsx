@@ -124,9 +124,10 @@ export function ContentPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-3xl tracking-tight">Task Content Library</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Choose an assigned batch, review uploaded content, and add document or video links with remarks.</p>
+      <div className="glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Tasks</Badge>
+        <h1 className="mt-3 font-serif text-4xl tracking-tight text-secondary dark:text-primary">Content Library</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Open any assigned batch, review its published material, and add new study links with context for students.</p>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
@@ -142,10 +143,10 @@ export function ContentPage() {
         />
 
         <Card className="gap-0 overflow-hidden py-0">
-          <div className="border-b bg-muted/30 px-5 py-3.5">
+          <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <CardTitle className="text-base tracking-tight">Batch Content</CardTitle>
+                <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Batch Content</CardTitle>
                 <CardDescription className="mt-0.5">{selectedBatch ? `Content uploaded for ${selectedBatch.batch_name}` : 'Select a batch to view content items.'}</CardDescription>
               </div>
               {effectiveSelectedBatchId && (
@@ -168,19 +169,19 @@ export function ContentPage() {
               </div>
 
               {loadingContent ? (
-                <div className="h-56 animate-pulse rounded-xl bg-muted/20" />
+                <div className="h-56 animate-pulse rounded-[24px] bg-primary/10 dark:bg-white/[0.04]" />
               ) : filteredContent.length === 0 ? (
-                <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">No content has been added for this batch yet.</div>
+                <div className="rounded-[24px] border border-dashed border-secondary/20 bg-white/40 dark:bg-white/[0.02] p-10 text-center text-sm text-muted-foreground">No content has been added for this batch yet.</div>
               ) : (
                 <div className="space-y-3">
                   {filteredContent.map((item) => {
                     const TypeIcon = TYPE_ICONS[item.content_type]
 
                     return (
-                      <div key={item.id} className="rounded-xl border bg-background p-4">
+                       <div key={item.id} className="rounded-[24px] border border-secondary/10 bg-white/60 p-4 dark:bg-white/[0.04]">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
-                            <div className="font-medium">{item.title}</div>
+                            <div className="font-medium text-secondary dark:text-foreground">{item.title}</div>
                             <div className="mt-1 text-sm text-muted-foreground">{item.remarks || 'No remarks provided.'}</div>
                           </div>
                           <div className="flex gap-2">
@@ -193,8 +194,8 @@ export function ContentPage() {
                           </div>
                         </div>
                         <div className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-                          <div>Uploaded by: <span className="font-medium text-foreground">{item.uploader_name || 'Unknown'}</span></div>
-                          <div>Created: <span className="font-medium text-foreground">{item.created_at.slice(0, 10)}</span></div>
+                          <div>Uploaded by: <span className="font-medium text-secondary dark:text-foreground">{item.uploader_name || 'Unknown'}</span></div>
+                          <div>Created: <span className="font-medium text-secondary dark:text-foreground">{item.created_at.slice(0, 10)}</span></div>
                         </div>
                         <div className="mt-4 flex flex-wrap justify-end gap-2">
                           <Button variant="outline" size="sm" asChild>

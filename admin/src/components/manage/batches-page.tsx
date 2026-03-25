@@ -128,9 +128,10 @@ export function BatchesPage({ role }: { role: AppRole }) {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="glass-panel soft-ring flex items-center justify-between rounded-[32px] px-8 py-8">
                 <div>
-                    <h1 className="font-serif text-3xl tracking-tight">Batch Management</h1>
+                    <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Management</Badge>
+                    <h1 className="mt-3 font-serif text-4xl tracking-tight text-secondary dark:text-primary">Batch Management</h1>
                     <p className="mt-1 text-sm text-muted-foreground">Review batches across centres, filter by status, and manage batch details within your allowed scope.</p>
                 </div>
                 {role === 'centre_head' && (
@@ -139,8 +140,8 @@ export function BatchesPage({ role }: { role: AppRole }) {
             </div>
 
             <Card className="gap-0 py-0 overflow-hidden">
-                <div className="border-b bg-muted/30 px-5 py-3.5">
-                    <CardTitle className="text-base tracking-tight">Batch Filters</CardTitle>
+                <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+                    <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Batch Filters</CardTitle>
                     <CardDescription className="mt-0.5">Search by code, name, centre, or academic year and narrow the table by centre and active status.</CardDescription>
                 </div>
                 <div className="grid gap-4 px-5 py-4 md:grid-cols-[1fr_240px_200px]">
@@ -159,17 +160,17 @@ export function BatchesPage({ role }: { role: AppRole }) {
             </Card>
 
             <Card className="gap-0 py-0 overflow-hidden">
-                <div className="border-b bg-muted/30 px-5 py-3.5">
-                    <CardTitle className="text-base tracking-tight">All Batches</CardTitle>
+                <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+                    <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">All Batches</CardTitle>
                     <CardDescription className="mt-0.5">{filteredBatches.length} batch(es) found</CardDescription>
                 </div>
                 {loading ? (
-                    <div className="animate-pulse h-40 bg-muted/20" />
+                    <div className="animate-pulse h-40 bg-primary/10 dark:bg-white/[0.04]" />
                 ) : filteredBatches.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground text-sm">No batches found.</div>
                 ) : (
                     <Table>
-                        <TableHeader className="bg-muted/50">
+                        <TableHeader className="bg-primary/10 dark:bg-white/[0.04]">
                             <TableRow>
                                 <TableHead className="w-12">#</TableHead>
                                 <TableHead>Code</TableHead>
@@ -182,7 +183,7 @@ export function BatchesPage({ role }: { role: AppRole }) {
                         </TableHeader>
                         <TableBody>
                             {filteredBatches.map((b, i) => (
-                                <TableRow key={b.id} className="transition-colors hover:bg-muted/30">
+                                <TableRow key={b.id} className="transition-colors hover:bg-primary/8 dark:hover:bg-white/[0.03]">
                                     <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                                     <TableCell className="font-mono text-xs">{b.batch_code}</TableCell>
                                     <TableCell className="font-medium">{b.batch_name}</TableCell>

@@ -73,18 +73,18 @@ export function PerformanceReport({ role }: { role: AppRole }) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-        <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Reports</Badge>
+      <section className="glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Reports</Badge>
         <div className="mt-4 max-w-3xl">
-          <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Performance Reports</h1>
-          <p className="mt-3 text-base text-slate-300">Browse performance cards immediately, refine them with centre, batch, or search filters, and download a detailed academic report.</p>
+          <h1 className="font-serif text-4xl tracking-tight text-secondary dark:text-primary sm:text-5xl">Performance Reports</h1>
+          <p className="mt-3 text-base text-muted-foreground">Browse performance cards immediately, refine them with centre, batch, or search filters, and download a detailed academic report.</p>
         </div>
       </section>
 
-      <Card className="gap-0 overflow-hidden border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-        <div className="border-b bg-slate-950/35 px-5 py-3.5">
-          <CardTitle className="text-white">Report Filters</CardTitle>
-          <CardDescription className="text-slate-400">Student cards load immediately for the selected date range, and the final date range is confirmed again before PDF download.</CardDescription>
+      <Card className="gap-0 overflow-hidden py-0">
+        <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+          <CardTitle className="text-secondary dark:text-primary">Report Filters</CardTitle>
+          <CardDescription>Student cards load immediately for the selected date range, and the final date range is confirmed again before PDF download.</CardDescription>
         </div>
         <div className="grid gap-4 px-5 py-5 md:grid-cols-[220px_240px_180px_180px_1fr]">
           {role === 'ceo' && (
@@ -110,20 +110,20 @@ export function PerformanceReport({ role }: { role: AppRole }) {
       {students.length > 0 ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {students.map((student) => (
-            <Card key={student.id} className="border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+            <Card key={student.id} className="py-0">
               <div className="flex items-start justify-between gap-4 px-6 pt-6">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-400/15 bg-slate-950/55 text-sky-300">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-secondary/10 bg-white/70 text-secondary dark:bg-white/[0.05] dark:text-primary">
                   <TrendingUp className="h-5 w-5" />
                 </div>
-                <Badge variant="outline" className="border-sky-400/20 bg-sky-400/10 text-sky-300">Avg {student.average_percentage.toFixed(1)}%</Badge>
+                <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Avg {student.average_percentage.toFixed(1)}%</Badge>
               </div>
               <div className="px-6 pb-6 pt-4">
-                <div className="text-xl font-semibold text-white">{student.student_name}</div>
-                <div className="mt-1 font-mono text-xs text-slate-400">{student.student_code || 'No code assigned'}</div>
-                <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/35 p-4 text-sm text-slate-300">
-                  <div className="flex items-center justify-between"><span>Exams count</span><span className="font-medium text-white">{student.exams_count}</span></div>
-                  <div className="mt-2 flex items-center justify-between"><span>Average %</span><span className="font-medium text-white">{student.average_percentage.toFixed(1)}%</span></div>
-                  <div className="mt-2 flex items-center justify-between"><span>Top %</span><span className="font-medium text-white">{student.top_percentage.toFixed(1)}%</span></div>
+                <div className="text-xl font-semibold text-secondary dark:text-foreground">{student.student_name}</div>
+                <div className="mt-1 font-mono text-xs text-muted-foreground">{student.student_code || 'No code assigned'}</div>
+                <div className="mt-4 rounded-[24px] border border-secondary/10 bg-white/60 p-4 text-sm text-muted-foreground dark:bg-white/[0.04]">
+                  <div className="flex items-center justify-between"><span>Exams count</span><span className="font-medium text-secondary dark:text-foreground">{student.exams_count}</span></div>
+                  <div className="mt-2 flex items-center justify-between"><span>Average %</span><span className="font-medium text-secondary dark:text-foreground">{student.average_percentage.toFixed(1)}%</span></div>
+                  <div className="mt-2 flex items-center justify-between"><span>Top %</span><span className="font-medium text-secondary dark:text-foreground">{student.top_percentage.toFixed(1)}%</span></div>
                 </div>
                 <div className="mt-5 flex justify-end">
                   <Button onClick={() => openDownloadPrompt(student.id)}>
@@ -135,8 +135,8 @@ export function PerformanceReport({ role }: { role: AppRole }) {
           ))}
         </div>
       ) : (
-        <Card className="border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-          <div className="p-10 text-center text-sm text-slate-400">{loading ? 'Loading performance report cards...' : 'No performance report cards match the current filters.'}</div>
+        <Card>
+          <div className="p-10 text-center text-sm text-muted-foreground">{loading ? 'Loading performance report cards...' : 'No performance report cards match the current filters.'}</div>
         </Card>
       )}
 

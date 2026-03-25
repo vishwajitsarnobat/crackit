@@ -242,12 +242,13 @@ export function FeesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-3xl tracking-tight">Task Fees</h1>
+      <div className="glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Tasks</Badge>
+        <h1 className="mt-3 font-serif text-4xl tracking-tight text-secondary dark:text-primary">Fee Collection</h1>
         <p className="mt-1 text-sm text-muted-foreground">Review student fee cards, open month-wise invoice history, and collect full or partial payments with reward-point offsets.</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[240px_180px_1fr]">
+      <div className="grid gap-4 rounded-[28px] border border-secondary/10 bg-white/45 p-5 dark:bg-white/[0.03] md:grid-cols-[240px_180px_1fr]">
         <SelectField id="fees-batch" label="Batch" value={effectiveSelectedBatch} onChange={setSelectedBatch} options={batches.map((batch) => ({ value: batch.id, label: `${batch.batch_name} - ${batch.centre_name}` }))} placeholder="Select batch" />
         <SelectField id="fees-status" label="Status" value={statusFilter} onChange={setStatusFilter} options={[{ value: 'all', label: 'All' }, { value: 'pending', label: 'Pending' }, { value: 'partial', label: 'Partial' }, { value: 'paid', label: 'Paid' }, { value: 'overdue', label: 'Overdue' }]} />
         <div className="space-y-2">
@@ -262,27 +263,27 @@ export function FeesPage() {
       {effectiveSelectedBatch && (
         <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
           <Card className="gap-0 overflow-hidden py-0">
-            <div className="border-b bg-muted/30 px-5 py-3.5">
-              <CardTitle className="text-base tracking-tight">Student Fee Cards</CardTitle>
+            <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+              <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Student Fee Cards</CardTitle>
               <CardDescription className="mt-0.5">{studentSummaries.length} student card(s)</CardDescription>
             </div>
             <div className="max-h-[700px] overflow-y-auto">
               {loading ? (
-                <div className="h-56 animate-pulse bg-muted/20" />
+                <div className="h-56 animate-pulse bg-primary/10 dark:bg-white/[0.04]" />
               ) : studentSummaries.length === 0 ? (
                 <div className="p-10 text-center text-sm text-muted-foreground">No student invoices match the current batch and status filter.</div>
               ) : (
-                <div className="divide-y">
+                <div className="divide-y divide-secondary/10">
                   {studentSummaries.map((student) => (
                     <button
                       key={student.student_id}
                       type="button"
                       onClick={() => { setSelectedStudentId(student.student_id); setSelectedInvoiceId(''); setDiscountTarget('') }}
-                      className={`w-full px-5 py-4 text-left transition-colors hover:bg-muted/30 ${effectiveSelectedStudentId === student.student_id ? 'bg-muted/40' : ''}`}
+                      className={`w-full px-5 py-4 text-left transition-colors hover:bg-primary/8 dark:hover:bg-white/[0.03] ${effectiveSelectedStudentId === student.student_id ? 'bg-primary/14 dark:bg-white/[0.06]' : ''}`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="font-medium">{student.student_name}</div>
+                          <div className="font-medium text-secondary dark:text-foreground">{student.student_name}</div>
                           <div className="font-mono text-xs text-muted-foreground">{student.student_code || '-'}</div>
                         </div>
                         <Badge variant="outline" className={student.pendingMonths > 0 ? 'bg-amber-500/10 text-amber-600 border-amber-200' : 'bg-emerald-500/10 text-emerald-600 border-emerald-200'}>
@@ -290,8 +291,8 @@ export function FeesPage() {
                         </Badge>
                       </div>
                       <div className="mt-4 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-                        <div>Paid till: <span className="font-medium text-foreground">{student.paidTill ? student.paidTill.slice(0, 7) : 'Not paid yet'}</span></div>
-                        <div>Pending: <span className="font-medium text-foreground">Rs {student.pendingAmount.toLocaleString('en-IN')}</span></div>
+                        <div>Paid till: <span className="font-medium text-secondary dark:text-foreground">{student.paidTill ? student.paidTill.slice(0, 7) : 'Not paid yet'}</span></div>
+                        <div>Pending: <span className="font-medium text-secondary dark:text-foreground">Rs {student.pendingAmount.toLocaleString('en-IN')}</span></div>
                       </div>
                     </button>
                   ))}
@@ -301,8 +302,8 @@ export function FeesPage() {
           </Card>
 
           <Card className="gap-0 overflow-hidden py-0">
-            <div className="border-b bg-muted/30 px-5 py-3.5">
-              <CardTitle className="text-base tracking-tight">Student Fee Detail</CardTitle>
+            <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+              <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Student Fee Detail</CardTitle>
               <CardDescription className="mt-0.5">Month-wise invoice history, reward discount visibility, and payment records.</CardDescription>
             </div>
 
@@ -310,23 +311,23 @@ export function FeesPage() {
               <div className="p-10 text-center text-sm text-muted-foreground">Select a student card to review fee months and payments.</div>
             ) : (
               <div className="space-y-5 px-5 py-5">
-                <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border bg-muted/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4 rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
                   <div>
-                    <div className="text-xl font-semibold">{selectedStudent.student_name}</div>
+                    <div className="text-xl font-semibold text-secondary dark:text-foreground">{selectedStudent.student_name}</div>
                     <div className="mt-1 font-mono text-sm text-muted-foreground">{selectedStudent.student_code || '-'}</div>
                   </div>
                     <div className="grid gap-2 text-sm sm:grid-cols-2">
-                      <div className="rounded-lg border bg-background px-3 py-2">
+                      <div className="rounded-2xl border border-secondary/10 bg-white/70 px-3 py-2 dark:bg-white/[0.05]">
                         <div className="text-muted-foreground">Reward points</div>
-                        <div className="font-medium">{selectedStudent.current_points}</div>
+                        <div className="font-medium text-secondary dark:text-foreground">{selectedStudent.current_points}</div>
                       </div>
-                      <div className="rounded-lg border bg-background px-3 py-2">
+                      <div className="rounded-2xl border border-secondary/10 bg-white/70 px-3 py-2 dark:bg-white/[0.05]">
                         <div className="text-muted-foreground">Reward applied</div>
-                        <div className="font-medium">Rs {selectedStudentRewardAllocation.toLocaleString('en-IN')}</div>
+                        <div className="font-medium text-secondary dark:text-foreground">Rs {selectedStudentRewardAllocation.toLocaleString('en-IN')}</div>
                       </div>
-                      <div className="rounded-lg border bg-background px-3 py-2">
+                      <div className="rounded-2xl border border-secondary/10 bg-white/70 px-3 py-2 dark:bg-white/[0.05]">
                         <div className="text-muted-foreground">Pending amount</div>
-                        <div className="font-medium">Rs {selectedStudent.pendingAmount.toLocaleString('en-IN')}</div>
+                        <div className="font-medium text-secondary dark:text-foreground">Rs {selectedStudent.pendingAmount.toLocaleString('en-IN')}</div>
                     </div>
                   </div>
                 </div>
@@ -338,11 +339,11 @@ export function FeesPage() {
                       key={invoice.id}
                       type="button"
                        onClick={() => setSelectedInvoiceId(invoice.id)}
-                      className={`w-full rounded-xl border p-4 text-left transition-colors hover:bg-muted/20 ${selectedInvoice?.id === invoice.id ? 'border-sky-400/50 bg-sky-500/5' : 'bg-background'}`}
+                      className={`w-full rounded-[24px] border border-secondary/10 p-4 text-left transition-colors hover:bg-primary/10 dark:hover:bg-white/[0.04] ${selectedInvoice?.id === invoice.id ? 'border-primary/35 bg-primary/12 dark:bg-primary/10' : 'bg-white/60 dark:bg-white/[0.04]'}`}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <div className="font-medium">{invoice.month_year.slice(0, 7)}</div>
+                          <div className="font-medium text-secondary dark:text-foreground">{invoice.month_year.slice(0, 7)}</div>
                           <div className="mt-1 text-sm text-muted-foreground">Due Rs {invoice.amount_due.toLocaleString('en-IN')} · Paid Rs {invoice.amount_paid.toLocaleString('en-IN')}</div>
                         </div>
                         <Badge variant="outline" className={STATUS_COLORS[invoice.payment_status]}>{invoice.payment_status}</Badge>
@@ -355,26 +356,26 @@ export function FeesPage() {
                   <>
                     <div className="space-y-3">
                       <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Selected Invoice</div>
-                      <div className="rounded-xl border bg-background p-4">
+                      <div className="rounded-[24px] border border-secondary/10 bg-white/60 dark:bg-white/[0.04] p-4">
                         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                           <div>
                             <div className="text-muted-foreground">Monthly fee</div>
-                            <div className="font-medium">Rs {selectedInvoice.monthly_fee.toLocaleString('en-IN')}</div>
+                            <div className="font-medium text-secondary dark:text-foreground">Rs {selectedInvoice.monthly_fee.toLocaleString('en-IN')}</div>
                           </div>
                           <div>
                             <div className="text-muted-foreground">Reward discount</div>
-                            <div className="font-medium">Rs {selectedInvoice.amount_discount.toLocaleString('en-IN')}</div>
+                            <div className="font-medium text-secondary dark:text-foreground">Rs {selectedInvoice.amount_discount.toLocaleString('en-IN')}</div>
                           </div>
                           <div>
                             <div className="text-muted-foreground">Already paid</div>
-                            <div className="font-medium">Rs {selectedInvoice.amount_paid.toLocaleString('en-IN')}</div>
+                            <div className="font-medium text-secondary dark:text-foreground">Rs {selectedInvoice.amount_paid.toLocaleString('en-IN')}</div>
                           </div>
                           <div>
                             <div className="text-muted-foreground">Payable now</div>
-                            <div className="font-medium">Rs {selectedInvoice.payable_amount.toLocaleString('en-IN')}</div>
+                            <div className="font-medium text-secondary dark:text-foreground">Rs {selectedInvoice.payable_amount.toLocaleString('en-IN')}</div>
                           </div>
                         </div>
-                        <div className="mt-4 rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+                        <div className="mt-4 rounded-2xl border border-secondary/10 bg-white/60 dark:bg-white/[0.04] p-3 text-sm text-muted-foreground">
                           Payable fee is calculated as `max(0, pending fees - reward points applied)`. Reward discount is visible separately so money payments and point redemption remain auditable.
                         </div>
                       </div>
@@ -382,7 +383,7 @@ export function FeesPage() {
 
                     <div className="space-y-3">
                       <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Reward Offset</div>
-                      <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 md:grid-cols-[200px_1fr_auto]">
+                      <div className="grid gap-4 rounded-[24px] border border-secondary/10 bg-white/55 dark:bg-white/[0.04] p-4 md:grid-cols-[200px_1fr_auto]">
                         <div className="space-y-2">
                           <Label htmlFor="reward-discount">Total Reward Allocation (Rs)</Label>
                           <Input id="reward-discount" type="number" step="1" min={0} max={Math.min(selectedStudentRawPending, selectedStudent.current_points + selectedStudentRewardAllocation)} value={discountInputValue} onChange={(event) => setDiscountTarget(event.target.value)} />
@@ -394,16 +395,16 @@ export function FeesPage() {
                           <Button variant="outline" onClick={() => void applyRewardDiscount(discountInputValue)} disabled={saving}>Apply</Button>
                         </div>
                       </div>
-                      <div className="rounded-xl border bg-background p-4">
-                        <div className="text-sm font-medium">Current allocation by invoice month</div>
+                      <div className="rounded-[24px] border border-secondary/10 bg-white/60 dark:bg-white/[0.04] p-4">
+                        <div className="text-sm font-medium text-secondary dark:text-foreground">Current allocation by invoice month</div>
                         {currentAllocationBreakdown.length === 0 ? (
                           <div className="mt-2 text-sm text-muted-foreground">No reward allocation is applied to this student right now.</div>
                         ) : (
                           <div className="mt-3 grid gap-2 sm:grid-cols-2">
                             {currentAllocationBreakdown.map((entry) => (
-                              <div key={entry.month_year} className="rounded-lg border bg-muted/20 px-3 py-2 text-sm">
+                              <div key={entry.month_year} className="rounded-2xl border border-secondary/10 bg-white/60 dark:bg-white/[0.04] px-3 py-2 text-sm">
                                 <div className="text-muted-foreground">{entry.month_year.slice(0, 7)}</div>
-                                <div className="font-medium">Rs {entry.amount_discount.toLocaleString('en-IN')}</div>
+                                <div className="font-medium text-secondary dark:text-foreground">Rs {entry.amount_discount.toLocaleString('en-IN')}</div>
                               </div>
                             ))}
                           </div>
@@ -420,16 +421,16 @@ export function FeesPage() {
                     <div className="space-y-3">
                       <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Reward Allocation History</div>
                       {detailsLoading ? (
-                        <div className="h-24 animate-pulse rounded-xl bg-muted/20" />
+                        <div className="h-24 animate-pulse rounded-[24px] bg-primary/10 dark:bg-white/[0.04]" />
                       ) : rewardAllocations.length === 0 ? (
-                        <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No reward allocation history exists for this invoice month yet.</div>
+                        <div className="rounded-[24px] border border-dashed border-secondary/20 bg-white/40 dark:bg-white/[0.02] p-6 text-sm text-muted-foreground">No reward allocation history exists for this invoice month yet.</div>
                       ) : (
                         <div className="space-y-3">
                           {rewardAllocations.map((allocation) => (
-                            <div key={allocation.id} className="rounded-xl border bg-background p-4">
+                            <div key={allocation.id} className="rounded-[24px] border border-secondary/10 bg-white/60 dark:bg-white/[0.04] p-4">
                               <div className="flex flex-wrap items-start justify-between gap-3">
                                 <div>
-                                  <div className="font-medium">Reward allocation of Rs {allocation.allocation_amount.toLocaleString('en-IN')}</div>
+                                  <div className="font-medium text-secondary dark:text-foreground">Reward allocation of Rs {allocation.allocation_amount.toLocaleString('en-IN')}</div>
                                   <div className="mt-1 text-sm text-muted-foreground">{allocation.points_description || 'Reward allocation ledger entry'}</div>
                                   <div className="mt-1 text-xs text-muted-foreground">Reason: {allocation.points_reason || 'N/A'} · By {allocation.created_by_name || 'Unknown'} · Logged {allocation.created_at.slice(0, 10)}</div>
                                 </div>
@@ -444,20 +445,20 @@ export function FeesPage() {
                     <div className="space-y-3">
                       <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Payment History</div>
                       {detailsLoading ? (
-                        <div className="h-32 animate-pulse rounded-xl bg-muted/20" />
+                        <div className="h-32 animate-pulse rounded-[24px] bg-primary/10 dark:bg-white/[0.04]" />
                       ) : transactions.length === 0 ? (
-                        <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No payments recorded for this invoice month yet.</div>
+                        <div className="rounded-[24px] border border-dashed border-secondary/20 bg-white/40 dark:bg-white/[0.02] p-6 text-sm text-muted-foreground">No payments recorded for this invoice month yet.</div>
                       ) : (
                         <div className="space-y-3">
                           {transactions.map((transaction) => (
-                            <div key={transaction.id} className="rounded-xl border bg-background p-4">
+                            <div key={transaction.id} className="rounded-[24px] border border-secondary/10 bg-white/60 dark:bg-white/[0.04] p-4">
                               <div className="flex flex-wrap items-start justify-between gap-3">
                                 <div>
-                                  <div className="font-medium">Receipt {transaction.receipt_number}</div>
+                                  <div className="font-medium text-secondary dark:text-foreground">Receipt {transaction.receipt_number}</div>
                                   <div className="mt-1 text-sm text-muted-foreground">{transaction.payment_mode} payment on {transaction.payment_date}</div>
                                   <div className="mt-1 text-xs text-muted-foreground">Collected by {transaction.collected_by_name || 'Unknown'} · Logged {transaction.created_at.slice(0, 10)}</div>
                                 </div>
-                                <div className="font-medium">Rs {Number(transaction.amount).toLocaleString('en-IN')}</div>
+                                <div className="font-medium text-secondary dark:text-foreground">Rs {Number(transaction.amount).toLocaleString('en-IN')}</div>
                               </div>
                             </div>
                           ))}

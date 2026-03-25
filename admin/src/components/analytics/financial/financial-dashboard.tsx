@@ -145,13 +145,13 @@ export function FinancialDashboard() {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_30%),radial-gradient(circle_at_right,rgba(34,197,94,0.12),transparent_26%),linear-gradient(180deg,rgba(15,23,42,0.52),rgba(2,6,23,0.86))]" />
+      <section className="relative overflow-hidden glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(148,198,145,0.34),transparent_30%),radial-gradient(circle_at_right,rgba(4,231,254,0.12),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.42),rgba(255,255,255,0.16))] dark:bg-[radial-gradient(circle_at_top_left,rgba(148,198,145,0.18),transparent_28%),radial-gradient(circle_at_right,rgba(4,231,254,0.08),transparent_22%),linear-gradient(180deg,rgba(24,35,28,0.34),rgba(10,16,12,0.16))]" />
         <div className="relative space-y-4">
-          <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Analytics</Badge>
+          <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Analytics</Badge>
           <div className="max-w-3xl">
-            <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Financial Overview</h1>
-            <p className="mt-3 text-base text-slate-300">Track centre liquidity, expense structure, teacher salary status, and student fee status with a cleaner finance-first dashboard.</p>
+            <h1 className="font-serif text-4xl tracking-tight text-secondary dark:text-foreground sm:text-5xl">Financial Overview</h1>
+            <p className="mt-3 text-base text-muted-foreground">Track collections, pending dues, salary status, and expense structure with a clearer institute finance view.</p>
           </div>
         </div>
       </section>
@@ -170,7 +170,7 @@ export function FinancialDashboard() {
       </div>
 
       {loading ? (
-        <div className="h-40 animate-pulse rounded-[28px] border border-white/10 bg-slate-900/35" />
+        <div className="h-40 animate-pulse rounded-[28px] border border-secondary/10 bg-primary/10 dark:bg-white/[0.04]" />
       ) : (
       <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
         <SectionCard title="Expense Breakdown" description="Sorted by contribution for the selected month. This is the only category-level expense chart in the finance view.">
@@ -222,14 +222,14 @@ export function FinancialDashboard() {
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filteredSalarySummaries.map((teacher) => (
-              <div key={teacher.teacher_id} className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
-                <div className="font-semibold text-white">{teacher.teacher_name}</div>
-                <div className="mt-2 text-sm text-slate-400">Paid salary till month</div>
-                <div className="font-medium text-white">{teacher.paid_till ? teacher.paid_till.slice(0, 7) : 'Not paid yet'}</div>
-                <div className="mt-3 text-sm text-slate-400">Pending for months</div>
-                <div className="font-medium text-white">{teacher.pending_months.length ? teacher.pending_months.map((monthKey) => monthKey.slice(0, 7)).join(', ') : 'None'}</div>
-                <div className="mt-3 text-sm text-slate-400">Total pending amount</div>
-                <div className="font-medium text-white">Rs {teacher.total_pending_amount.toLocaleString('en-IN')}</div>
+              <div key={teacher.teacher_id} className="rounded-2xl border border-secondary/10 bg-white/55 dark:bg-white/[0.04] p-4">
+                <div className="font-semibold text-secondary dark:text-foreground">{teacher.teacher_name}</div>
+                <div className="mt-2 text-sm text-muted-foreground">Paid salary till month</div>
+                <div className="font-medium text-secondary dark:text-foreground">{teacher.paid_till ? teacher.paid_till.slice(0, 7) : 'Not paid yet'}</div>
+                <div className="mt-3 text-sm text-muted-foreground">Pending for months</div>
+                <div className="font-medium text-secondary dark:text-foreground">{teacher.pending_months.length ? teacher.pending_months.map((monthKey) => monthKey.slice(0, 7)).join(', ') : 'None'}</div>
+                <div className="mt-3 text-sm text-muted-foreground">Total pending amount</div>
+                <div className="font-medium text-secondary dark:text-foreground">Rs {teacher.total_pending_amount.toLocaleString('en-IN')}</div>
               </div>
             ))}
           </div>
@@ -247,15 +247,15 @@ export function FinancialDashboard() {
         ) : (
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {filteredFeeSummaries.map((student) => (
-              <div key={student.student_id} className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
-                <div className="font-semibold text-white">{student.student_name}</div>
+              <div key={student.student_id} className="rounded-2xl border border-secondary/10 bg-white/55 dark:bg-white/[0.04] p-4">
+                <div className="font-semibold text-secondary dark:text-foreground">{student.student_name}</div>
                 <div className="mt-1 font-mono text-xs text-slate-500">{student.student_code || '-'}</div>
-                <div className="mt-2 text-sm text-slate-400">Paid fees till month</div>
-                <div className="font-medium text-white">{student.paid_till ? student.paid_till.slice(0, 7) : 'Not paid yet'}</div>
-                <div className="mt-3 text-sm text-slate-400">Pending for months</div>
-                <div className="font-medium text-white">{student.pending_months.length ? student.pending_months.map((monthKey) => monthKey.slice(0, 7)).join(', ') : 'None'}</div>
-                <div className="mt-3 text-sm text-slate-400">Total pending amount</div>
-                <div className="font-medium text-white">Rs {student.total_pending_amount.toLocaleString('en-IN')}</div>
+                <div className="mt-2 text-sm text-muted-foreground">Paid fees till month</div>
+                <div className="font-medium text-secondary dark:text-foreground">{student.paid_till ? student.paid_till.slice(0, 7) : 'Not paid yet'}</div>
+                <div className="mt-3 text-sm text-muted-foreground">Pending for months</div>
+                <div className="font-medium text-secondary dark:text-foreground">{student.pending_months.length ? student.pending_months.map((monthKey) => monthKey.slice(0, 7)).join(', ') : 'None'}</div>
+                <div className="mt-3 text-sm text-muted-foreground">Total pending amount</div>
+                <div className="font-medium text-secondary dark:text-foreground">Rs {student.total_pending_amount.toLocaleString('en-IN')}</div>
               </div>
             ))}
           </div>

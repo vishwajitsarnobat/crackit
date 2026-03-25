@@ -200,8 +200,9 @@ export function MarksPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-3xl tracking-tight">Task Exam Marks</h1>
+      <div className="glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Tasks</Badge>
+        <h1 className="mt-3 font-serif text-4xl tracking-tight text-secondary dark:text-primary">Marks Entry</h1>
         <p className="mt-1 text-sm text-muted-foreground">Choose an assigned batch, create or open an exam, and enter marks student by student in one sheet.</p>
       </div>
 
@@ -218,10 +219,10 @@ export function MarksPage() {
         />
 
         <Card className="gap-0 overflow-hidden py-0">
-          <div className="border-b bg-muted/30 px-5 py-3.5">
+          <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <CardTitle className="flex items-center gap-2 text-base tracking-tight">
+                <CardTitle className="flex items-center gap-2 text-base tracking-tight text-secondary dark:text-primary">
                   <FileCheck className="h-4 w-4" />{selectedExam ? 'Marks Sheet' : 'Exams'}
                 </CardTitle>
                 <CardDescription className="mt-0.5">
@@ -248,16 +249,16 @@ export function MarksPage() {
               </div>
 
               {loadingExams ? (
-                <div className="h-56 animate-pulse rounded-xl bg-muted/20" />
+                <div className="h-56 animate-pulse rounded-[24px] bg-primary/10 dark:bg-white/[0.04]" />
               ) : filteredExams.length === 0 ? (
-                <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">No exams created for this batch yet.</div>
+                <div className="rounded-[24px] border border-dashed border-secondary/20 bg-white/40 dark:bg-white/[0.02] p-10 text-center text-sm text-muted-foreground">No exams created for this batch yet.</div>
               ) : (
                 <div className="space-y-3">
                   {filteredExams.map((exam) => (
-                    <div key={exam.id} className="rounded-xl border bg-background p-4">
+                    <div key={exam.id} className="rounded-[24px] border border-secondary/10 bg-white/60 p-4 dark:bg-white/[0.04]">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <div className="font-medium">{exam.exam_name}</div>
+                          <div className="font-medium text-secondary dark:text-foreground">{exam.exam_name}</div>
                           <div className="mt-1 text-sm text-muted-foreground">{exam.subject || 'General'} · {exam.exam_date}</div>
                         </div>
                         <Badge variant="outline" className={exam.results_published ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-amber-500/10 text-amber-600 border-amber-200'}>
@@ -265,8 +266,8 @@ export function MarksPage() {
                         </Badge>
                       </div>
                       <div className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-                        <div>Total marks: <span className="font-medium text-foreground">{exam.total_marks}</span></div>
-                        <div>Passing marks: <span className="font-medium text-foreground">{exam.passing_marks ?? 'N/A'}</span></div>
+                        <div>Total marks: <span className="font-medium text-secondary dark:text-foreground">{exam.total_marks}</span></div>
+                        <div>Passing marks: <span className="font-medium text-secondary dark:text-foreground">{exam.passing_marks ?? 'N/A'}</span></div>
                       </div>
                       <div className="mt-4 flex flex-wrap justify-end gap-2">
                         <Button variant="outline" size="sm" onClick={() => { setSelectedExamId(exam.id); setDraftMarks({}) }}>Open Mark Sheet</Button>
@@ -279,9 +280,9 @@ export function MarksPage() {
             </div>
           ) : (
             <div className="space-y-4 px-5 py-5">
-              <div className="flex flex-wrap items-end justify-between gap-4 rounded-xl border bg-muted/20 p-4">
+              <div className="flex flex-wrap items-end justify-between gap-4 rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
                 <div>
-                  <div className="font-medium">{selectedExam.exam_name}</div>
+                  <div className="font-medium text-secondary dark:text-foreground">{selectedExam.exam_name}</div>
                   <div className="mt-1 text-sm text-muted-foreground">{selectedExam.subject || 'General'} · {selectedExam.exam_date}</div>
                 </div>
                 <div className="flex gap-2">
@@ -291,13 +292,13 @@ export function MarksPage() {
               </div>
 
               {loadingMarks ? (
-                <div className="h-56 animate-pulse rounded-xl bg-muted/20" />
+                <div className="h-56 animate-pulse rounded-[24px] bg-primary/10 dark:bg-white/[0.04]" />
               ) : marksRows.length === 0 ? (
-                <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">No students are available for this exam.</div>
+                <div className="rounded-[24px] border border-dashed border-secondary/20 bg-white/40 dark:bg-white/[0.02] p-10 text-center text-sm text-muted-foreground">No students are available for this exam.</div>
               ) : (
                 <div className="space-y-3">
                   {marksRows.map((mark, index) => (
-                    <div key={mark.student_id} className="grid gap-4 rounded-xl border bg-background p-4 md:grid-cols-[1fr_160px_120px] md:items-center">
+                    <div key={mark.student_id} className="grid gap-4 rounded-[24px] border border-secondary/10 bg-white/60 p-4 dark:bg-white/[0.04] md:grid-cols-[1fr_160px_120px] md:items-center">
                       <div>
                         <div className="font-medium">{index + 1}. {mark.student_name}</div>
                         <div className="font-mono text-xs text-muted-foreground">{mark.student_code || '-'}</div>

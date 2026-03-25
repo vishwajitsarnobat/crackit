@@ -130,13 +130,13 @@ export function PerformanceDashboard() {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_30%),radial-gradient(circle_at_right,rgba(52,211,153,0.10),transparent_26%),linear-gradient(180deg,rgba(15,23,42,0.52),rgba(2,6,23,0.86))]" />
+      <section className="relative overflow-hidden glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(148,198,145,0.34),transparent_30%),radial-gradient(circle_at_right,rgba(4,231,254,0.12),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.42),rgba(255,255,255,0.16))] dark:bg-[radial-gradient(circle_at_top_left,rgba(148,198,145,0.18),transparent_28%),radial-gradient(circle_at_right,rgba(4,231,254,0.08),transparent_22%),linear-gradient(180deg,rgba(24,35,28,0.34),rgba(10,16,12,0.16))]" />
         <div className="relative space-y-4">
-          <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Analytics</Badge>
+          <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Analytics</Badge>
           <div className="max-w-3xl">
-            <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Performance Intelligence</h1>
-            <p className="mt-3 text-base text-slate-300">Compare overall performance, subject-wise strength, rank position, and consistency for students within your allowed scope.</p>
+            <h1 className="font-serif text-4xl tracking-tight text-secondary dark:text-foreground sm:text-5xl">Performance Analysis</h1>
+            <p className="mt-3 text-base text-muted-foreground">Compare overall performance, subject-wise strength, rank position, and consistency for students within your allowed scope.</p>
           </div>
         </div>
       </section>
@@ -217,14 +217,14 @@ export function PerformanceDashboard() {
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {comparisonData.slice(0, 6).map((row) => (
-                <div key={row.student_id} className="rounded-xl border border-white/10 bg-slate-950/25 p-4 text-sm">
-                  <div className="font-medium">{row.student_name}</div>
+                <div key={row.student_id} className="rounded-[24px] border border-secondary/10 bg-white/50 p-4 text-sm dark:bg-white/[0.03]">
+                  <div className="font-medium text-secondary dark:text-foreground">{row.student_name}</div>
                   <div className="mt-2 grid gap-1 text-muted-foreground">
-                    <div>Rank position: <span className="font-medium text-foreground">#{row.rank_position}</span></div>
-                    <div>Consistency rank: <span className="font-medium text-foreground">{row.consistency_rank ? `#${row.consistency_rank}` : '-'}</span></div>
-                    <div>Average: <span className="font-medium text-foreground">{fmt(row.average_percentage)}</span></div>
-                    <div>Consistency: <span className="font-medium text-foreground">{fmt(row.consistency_score)}</span></div>
-                    <div>Exams used: <span className="font-medium text-foreground">{row.exam_count}</span></div>
+                    <div>Rank position: <span className="font-medium text-secondary dark:text-foreground">#{row.rank_position}</span></div>
+                    <div>Consistency rank: <span className="font-medium text-secondary dark:text-foreground">{row.consistency_rank ? `#${row.consistency_rank}` : '-'}</span></div>
+                    <div>Average: <span className="font-medium text-secondary dark:text-foreground">{fmt(row.average_percentage)}</span></div>
+                    <div>Consistency: <span className="font-medium text-secondary dark:text-foreground">{fmt(row.consistency_score)}</span></div>
+                    <div>Exams used: <span className="font-medium text-secondary dark:text-foreground">{row.exam_count}</span></div>
                   </div>
                 </div>
               ))}
@@ -245,9 +245,9 @@ export function PerformanceDashboard() {
         {!marksRows.length ? (
           <EmptyState title="No marks table rows" message="No detailed marks match the current filters." />
         ) : (
-          <div className="overflow-hidden rounded-xl border border-white/10">
+          <div className="overflow-hidden rounded-[24px] border border-secondary/10">
             <Table>
-              <TableHeader className="bg-slate-950/35">
+              <TableHeader className="bg-primary/8 dark:bg-white/[0.03]">
                 <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Exam</TableHead>
@@ -260,7 +260,7 @@ export function PerformanceDashboard() {
               </TableHeader>
               <TableBody>
                 {marksRows.map((row) => (
-                  <TableRow key={`${row.exam_id}-${row.student_id}`} className="hover:bg-white/5">
+                  <TableRow key={`${row.exam_id}-${row.student_id}`} className="hover:bg-primary/8 dark:hover:bg-white/[0.03]">
                     <TableCell>{row.exam_date}</TableCell>
                     <TableCell>{row.exam_name}</TableCell>
                     <TableCell>{row.subject ?? '-'}</TableCell>
@@ -270,7 +270,7 @@ export function PerformanceDashboard() {
                       <div className="font-mono text-xs text-muted-foreground">{row.student_code || '-'}</div>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{row.is_absent ? 'Absent' : `${row.marks_obtained}/${row.total_marks}`}</TableCell>
-                    <TableCell className="text-right"><Badge variant="outline" className="border-sky-400/20 bg-sky-400/10 text-sky-300">{fmt(row.percentage)}</Badge></TableCell>
+                    <TableCell className="text-right"><Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">{fmt(row.percentage)}</Badge></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

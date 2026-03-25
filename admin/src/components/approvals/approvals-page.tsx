@@ -128,13 +128,13 @@ export function ApprovalsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[28px] border border-white/10 bg-slate-900/45 p-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+      <section className="glass-panel soft-ring rounded-[32px] p-8">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="max-w-3xl space-y-3">
-            <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Approvals</Badge>
+            <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Approvals</Badge>
             <div>
-              <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Access Request Review</h1>
-              <p className="mt-3 text-base text-slate-300">Review pending, approved, and rejected role requests with centre-aware scoping and fast decision actions.</p>
+              <h1 className="font-serif text-4xl tracking-tight text-secondary dark:text-primary sm:text-5xl">Access Request Review</h1>
+              <p className="mt-3 text-base text-muted-foreground">Review pending, approved, and rejected role requests with clear centre context and auditable decisions.</p>
             </div>
           </div>
 
@@ -143,12 +143,12 @@ export function ApprovalsPage() {
               const meta = TAB_META[key]
               const Icon = meta.icon
               return (
-                <div key={key} className="rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-4">
+                <div key={key} className="rounded-[24px] border border-secondary/10 bg-white/55 px-4 py-4 dark:bg-white/[0.04]">
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">{meta.label}</div>
-                    <Icon className="h-4 w-4 text-sky-300" />
+                    <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">{meta.label}</div>
+                    <Icon className="h-4 w-4 text-secondary dark:text-primary" />
                   </div>
-                  <div className="mt-3 text-2xl font-semibold text-white">{summary[key]}</div>
+                  <div className="mt-3 text-2xl font-semibold text-secondary dark:text-foreground">{summary[key]}</div>
                 </div>
               )
             })}
@@ -164,14 +164,14 @@ export function ApprovalsPage() {
         </TabsList>
       </Tabs>
 
-      <Card className="gap-0 overflow-hidden border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-        <CardHeader className="border-b bg-slate-950/35">
+      <Card className="gap-0 overflow-hidden">
+        <CardHeader className="border-b border-secondary/10 bg-primary/8 dark:bg-white/[0.03]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <CardTitle className="flex items-center gap-2 text-white">
-                <activeMeta.icon className="h-4 w-4 text-sky-300" />{activeMeta.label} Requests
+              <CardTitle className="flex items-center gap-2 text-secondary dark:text-primary">
+                <activeMeta.icon className="h-4 w-4 text-secondary dark:text-primary" />{activeMeta.label} Requests
               </CardTitle>
-              <CardDescription className="text-slate-400">{activeMeta.description}</CardDescription>
+              <CardDescription>{activeMeta.description}</CardDescription>
             </div>
             <Badge variant="outline" className={activeMeta.color}>{items.length} request{items.length === 1 ? '' : 's'}</Badge>
           </div>
@@ -186,20 +186,20 @@ export function ApprovalsPage() {
               No {tab} requests found.
             </div>
           ) : (
-            <div className="divide-y divide-white/5">
+            <div className="divide-y divide-secondary/10">
               {items.map((item) => (
-                <div key={item.id} className="space-y-4 p-5 transition-colors hover:bg-white/5">
+                <div key={item.id} className="space-y-4 p-5 transition-colors hover:bg-primary/6 dark:hover:bg-white/[0.03]">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="min-w-0 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-semibold text-white">{item.applicant?.full_name ?? 'Unknown user'}</p>
-                        <Badge variant="outline" className="uppercase tracking-wide text-[10px] bg-slate-950/60 border-white/10 text-slate-200">
+                        <p className="font-semibold text-secondary dark:text-foreground">{item.applicant?.full_name ?? 'Unknown user'}</p>
+                        <Badge variant="outline" className="border-secondary/10 bg-white/70 uppercase tracking-wide text-[10px] text-muted-foreground dark:bg-white/[0.05]">
                           {item.requested_role.replace('_', ' ')}
                         </Badge>
                         <Badge variant="outline" className={TAB_META[item.status].color}>{item.status}</Badge>
                       </div>
-                      <p className="text-sm text-slate-400">{item.applicant?.email ?? '-'}</p>
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
+                      <p className="text-sm text-muted-foreground">{item.applicant?.email ?? '-'}</p>
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                         <span>Requested: {item.created_at.slice(0, 10)}</span>
                         {item.reviewed_at && <span>Reviewed: {item.reviewed_at.slice(0, 10)}</span>}
                         {item.centre?.centre_name && <span>Centre: {item.centre.centre_name}</span>}
@@ -208,13 +208,13 @@ export function ApprovalsPage() {
 
                     {tab === 'pending' && (
                       <div className="flex items-center gap-2">
-                        <Button size="sm" className="bg-emerald-600 text-white hover:bg-emerald-700" onClick={() => handleAction(item.id, 'approve')} disabled={actingId === item.id}>
+                        <Button size="sm" onClick={() => handleAction(item.id, 'approve')} disabled={actingId === item.id}>
                           Approve
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="border-white/10 bg-transparent text-slate-200 hover:bg-red-500/10 hover:text-red-400"
+                          className="hover:text-red-600 dark:hover:text-red-300"
                           onClick={() => {
                             setRejectingId(item.id)
                             setRejectionReason('')
@@ -229,13 +229,13 @@ export function ApprovalsPage() {
                   </div>
 
                   {item.applicant_note && (
-                    <div className="rounded-xl border border-white/10 bg-slate-950/35 p-4 text-sm text-slate-300">
-                      <span className="font-medium text-white">Applicant note:</span> {item.applicant_note}
+                    <div className="rounded-[24px] border border-secondary/10 bg-white/60 p-4 text-sm text-foreground/85 dark:bg-white/[0.04]">
+                      <span className="font-medium text-secondary dark:text-foreground">Applicant note:</span> {item.applicant_note}
                     </div>
                   )}
 
                   {item.rejection_reason && (
-                    <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-300">
+                    <div className="rounded-[24px] border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-700 dark:text-red-300">
                       <span className="font-medium text-red-200">Rejection reason:</span> {item.rejection_reason}
                     </div>
                   )}

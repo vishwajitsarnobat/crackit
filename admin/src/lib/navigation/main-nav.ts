@@ -52,7 +52,7 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
                 allowedRoles: ["ceo", "centre_head", "teacher"],
             },
             {
-                label: "Financials",
+                label: "Fee Analysis",
                 href: "/analytics/financial",
                 icon: "Wallet",
                 allowedRoles: ["ceo", "centre_head", "accountant"],
@@ -96,7 +96,7 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
         allowedRoles: ["centre_head", "teacher", "accountant"],
         subItems: [
             {
-                label: "Attendance",
+                label: "Student Attendance",
                 href: "/tasks/attendance",
                 icon: "CalendarCheck",
                 allowedRoles: ["teacher"],
@@ -120,13 +120,13 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
                 allowedRoles: ["centre_head", "accountant"],
             },
             {
-                label: "Salaries",
+                label: "Salary Records",
                 href: "/tasks/salaries",
                 icon: "Banknote",
                 allowedRoles: ["centre_head", "accountant"],
             },
             {
-                label: "Fee Management",
+                label: "Fee Collection",
                 href: "/tasks/fees",
                 icon: "Wallet",
                 allowedRoles: ["centre_head", "accountant"],

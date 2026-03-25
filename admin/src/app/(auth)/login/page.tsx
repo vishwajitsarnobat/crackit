@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -72,24 +73,25 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="w-full max-w-[460px]">
+    <div className="w-full max-w-[460px] px-1">
       <div className="mb-8">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-400/15 bg-sky-500/12 text-sky-300">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Sign In</Badge>
+        <div className="mb-4 mt-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-secondary/10 bg-white/60 text-secondary dark:bg-white/[0.05] dark:text-primary">
           <LogIn className="h-6 w-6" />
         </div>
-        <h1 className="font-serif text-3xl tracking-tight text-white">
+        <h1 className="max-w-[12ch] font-serif text-4xl leading-[1.04] tracking-[-0.03em] text-secondary dark:text-primary">
           Welcome back
         </h1>
-        <p className="mt-2 text-sm text-slate-400">
-          Sign in to continue into the CrackIt management workspace.
+        <p className="mt-2 max-w-[44ch] text-sm leading-6 text-muted-foreground">
+          Sign in to continue into the CrackIt institute workspace for attendance, analytics, batches, and finance.
         </p>
       </div>
 
-      <div className="rounded-[28px] border border-white/10 bg-slate-900/45 p-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl transition-colors hover:bg-white/5">
+      <div className="glass-panel soft-ring rounded-[32px] p-6 transition-colors sm:p-8">
         <div className="space-y-5">
 
           <div className="space-y-2">
-            <Label htmlFor="email" className="text-sm font-medium text-slate-200">
+            <Label htmlFor="email" className="text-sm font-medium text-secondary dark:text-foreground">
               Email address
             </Label>
             <Input
@@ -105,7 +107,7 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="password" className="text-sm font-medium text-slate-200">
+            <Label htmlFor="password" className="text-sm font-medium text-secondary dark:text-foreground">
               Password
             </Label>
             <div className="relative">
@@ -124,7 +126,7 @@ export default function LoginPage() {
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-secondary dark:hover:text-foreground"
               >
                 {showPassword
                   ? <EyeOff className="h-4 w-4" />
@@ -151,13 +153,13 @@ export default function LoginPage() {
 
         </div>
 
-        <Separator className="my-6 bg-white/10" />
+        <Separator className="my-6 bg-secondary/10" />
 
-        <p className="text-center text-sm text-slate-400">
+        <p className="text-center text-sm text-muted-foreground">
           Need access?{' '}
           <Link
             href="/signup"
-            className="font-medium text-sky-300 underline underline-offset-4 transition-colors hover:text-sky-200"
+            className="font-medium text-secondary underline underline-offset-4 transition-colors hover:text-secondary/80 dark:text-primary dark:hover:text-primary/80"
           >
             Request an account
           </Link>

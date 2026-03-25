@@ -44,11 +44,11 @@ export function TaskBatchSelector({
 
   return (
     <Card className="gap-0 overflow-hidden py-0">
-      <div className="border-b bg-muted/30 px-5 py-3.5">
-        <CardTitle className="text-base tracking-tight">{title}</CardTitle>
+      <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+        <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">{title}</CardTitle>
         <CardDescription className="mt-0.5">{description}</CardDescription>
       </div>
-      <div className="border-b px-5 py-4">
+      <div className="border-b border-secondary/10 px-5 py-4">
         <Label htmlFor="task-batch-search" className="sr-only">Search batches</Label>
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -63,24 +63,24 @@ export function TaskBatchSelector({
       </div>
       <div className="max-h-[620px] overflow-y-auto">
         {loading ? (
-          <div className="h-56 animate-pulse bg-muted/20" />
+           <div className="h-56 animate-pulse bg-primary/10 dark:bg-white/[0.04]" />
         ) : filteredBatches.length === 0 ? (
           <div className="flex flex-col items-center justify-center p-10 text-center text-sm text-muted-foreground">
             <Users className="mb-3 h-8 w-8 opacity-20" />
             {emptyMessage}
           </div>
         ) : (
-          <div className="divide-y">
-            {filteredBatches.map((batch) => (
-              <button
+           <div className="divide-y divide-secondary/10">
+             {filteredBatches.map((batch) => (
+               <button
                 key={batch.id}
                 type="button"
                 onClick={() => onSelect(batch.id)}
-                className={`w-full px-5 py-4 text-left transition-colors hover:bg-muted/30 ${selectedBatchId === batch.id ? 'bg-muted/40' : ''}`}
-              >
-                <div className="font-medium">{batch.batch_name}</div>
-                <div className="mt-1 font-mono text-xs text-muted-foreground">{batch.batch_code}</div>
-                <div className="mt-2 text-xs text-muted-foreground">{batch.centre_name}</div>
+                 className={`w-full px-5 py-4 text-left transition-colors hover:bg-primary/10 dark:hover:bg-white/[0.04] ${selectedBatchId === batch.id ? 'bg-primary/14 dark:bg-white/[0.06]' : ''}`}
+               >
+                 <div className="font-medium text-secondary dark:text-foreground">{batch.batch_name}</div>
+                 <div className="mt-1 font-mono text-xs text-muted-foreground">{batch.batch_code}</div>
+                 <div className="mt-2 text-xs text-muted-foreground">{batch.centre_name}</div>
               </button>
             ))}
           </div>

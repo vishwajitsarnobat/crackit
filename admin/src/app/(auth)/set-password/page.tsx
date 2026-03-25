@@ -8,6 +8,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -55,18 +56,19 @@ export default function SetPasswordPage() {
   return (
     <div className="w-full max-w-[420px]">
       <div className="mb-8">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Account Setup</Badge>
+        <div className="mb-4 mt-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-secondary/10 bg-white/60 text-secondary dark:bg-white/[0.05] dark:text-primary">
           <KeyRound className="h-6 w-6" />
         </div>
-        <h1 className="font-serif text-3xl tracking-tight text-foreground">
+        <h1 className="font-serif text-4xl tracking-tight text-secondary dark:text-primary">
           Set your password
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Choose a password to activate your account
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          Create a secure password to activate your account and enter the institute workspace.
         </p>
       </div>
 
-      <div className="rounded-2xl border bg-card p-8 shadow-sm transition-shadow hover:shadow-md">
+      <div className="glass-panel soft-ring rounded-[32px] p-8">
         <div className="space-y-5">
 
           <div className="space-y-2">

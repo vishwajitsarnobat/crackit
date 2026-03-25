@@ -26,12 +26,12 @@ export function DatePickerField({ id, label, value, onChange, placeholder = 'Pic
       <Label htmlFor={id}>{label}</Label>
       <Popover>
         <PopoverTrigger asChild>
-          <Button id={id} variant="outline" className="h-10 w-full justify-start rounded-xl border-white/10 bg-slate-950/35 text-left font-normal text-slate-200 hover:bg-white/5 hover:text-white">
-            <CalendarIcon className="mr-2 h-4 w-4 text-sky-300" />
+          <Button id={id} variant="outline" className="h-10 w-full justify-start rounded-2xl text-left font-normal">
+            <CalendarIcon className="mr-2 h-4 w-4 text-secondary dark:text-primary" />
             {selectedDate ? format(selectedDate, 'dd MMM yyyy') : placeholder}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto border-white/10 bg-slate-950/95 p-0 text-slate-100 backdrop-blur-xl" align="start">
+        <PopoverContent className="w-auto p-0" align="start">
           <Calendar
             mode="single"
             selected={selectedDate}

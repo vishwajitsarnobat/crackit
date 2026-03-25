@@ -374,10 +374,11 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="glass-panel soft-ring rounded-[32px] px-8 py-8">
         <div>
-          <h1 className="font-serif text-3xl tracking-tight">Enrollment Management</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Manage student and teacher profiles, assignments, and recurring financial values from one place.</p>
+          <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Management</Badge>
+          <h1 className="mt-3 font-serif text-4xl tracking-tight text-secondary dark:text-primary">Enrollment Management</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Manage student and teacher profiles, assignments, and recurring financial values from one place.</p>
         </div>
       </div>
 
@@ -387,7 +388,7 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
           <TabsTrigger value="teachers">Teachers</TabsTrigger>
         </TabsList>
 
-        <div className="grid gap-4 md:grid-cols-[1fr_220px_240px]">
+        <div className="grid gap-4 rounded-[28px] border border-secondary/10 bg-white/45 p-5 dark:bg-white/[0.03] md:grid-cols-[1fr_220px_240px]">
           <div className="space-y-2">
             <Label htmlFor="entity-search">Search</Label>
             <Input id="entity-search" value={search} onChange={(event) => handleSearch(event.target.value)} placeholder="Search by name, code, batch, or subject" />
@@ -403,25 +404,25 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
 
           <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
             <Card className="gap-0 overflow-hidden py-0">
-              <div className="border-b bg-muted/30 px-5 py-3.5">
-                <CardTitle className="text-base tracking-tight">Students</CardTitle>
+              <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+                <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Students</CardTitle>
                 <CardDescription className="mt-0.5">{students.length} student profile(s)</CardDescription>
               </div>
               <div className="max-h-[680px] overflow-y-auto">
-                {studentDataState.loading ? <div className="h-56 animate-pulse bg-muted/20" /> : students.length === 0 ? (
+                {studentDataState.loading ? <div className="h-56 animate-pulse bg-primary/10 dark:bg-white/[0.04]" /> : students.length === 0 ? (
                   <div className="flex flex-col items-center justify-center p-10 text-center text-sm text-muted-foreground"><UserRoundSearch className="mb-3 h-8 w-8 opacity-20" />No student profiles match the current filters.</div>
                 ) : (
-                  <div className="divide-y">
+                  <div className="divide-y divide-secondary/10">
                     {students.map((student) => (
-                      <button key={student.student_id} type="button" onClick={() => setSelectedStudentId(student.student_id)} className={`w-full px-5 py-4 text-left transition-colors hover:bg-muted/30 ${selectedStudent?.student_id === student.student_id ? 'bg-muted/40' : ''}`}>
+                      <button key={student.student_id} type="button" onClick={() => setSelectedStudentId(student.student_id)} className={`w-full px-5 py-4 text-left transition-colors hover:bg-primary/10 dark:hover:bg-white/[0.04] ${selectedStudent?.student_id === student.student_id ? 'bg-primary/14 dark:bg-white/[0.06]' : ''}`}>
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="font-medium">{student.student_name}</div>
+                            <div className="font-medium text-secondary dark:text-foreground">{student.student_name}</div>
                             <div className="font-mono text-xs text-muted-foreground">{student.student_code || '-'}</div>
                           </div>
-                          <Badge variant="outline" className={student.status === 'assigned' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-muted/50 text-muted-foreground'}>{student.status === 'assigned' ? `${student.assignment_count} batch${student.assignment_count === 1 ? '' : 'es'}` : 'Unassigned'}</Badge>
+                          <Badge variant="outline" className={student.status === 'assigned' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-white/60 text-muted-foreground border-secondary/10 dark:bg-white/[0.04]'}>{student.status === 'assigned' ? `${student.assignment_count} batch${student.assignment_count === 1 ? '' : 'es'}` : 'Unassigned'}</Badge>
                         </div>
-                        <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground"><span>Total monthly fee</span><span className="font-medium text-foreground">Rs {student.total_monthly_fee.toLocaleString('en-IN')}</span></div>
+                        <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground"><span>Total monthly fee</span><span className="font-medium text-secondary dark:text-foreground">Rs {student.total_monthly_fee.toLocaleString('en-IN')}</span></div>
                       </button>
                     ))}
                   </div>
@@ -430,28 +431,28 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
             </Card>
 
             <Card className="gap-0 overflow-hidden py-0">
-              <div className="border-b bg-muted/30 px-5 py-3.5">
-                <CardTitle className="text-base tracking-tight">Student Profile</CardTitle>
+              <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+                <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Student Profile</CardTitle>
                 <CardDescription className="mt-0.5">Assignments, fees, and invoice impact</CardDescription>
               </div>
               {!selectedStudent ? (
                 <div className="flex min-h-[320px] flex-col items-center justify-center p-10 text-center text-sm text-muted-foreground"><Users className="mb-3 h-8 w-8 opacity-20" />Select a student profile to view assignments.</div>
               ) : (
                 <div className="space-y-5 px-5 py-5">
-                  <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border bg-muted/20 p-4">
-                    <div><div className="text-xl font-semibold">{selectedStudent.student_name}</div><div className="mt-1 font-mono text-sm text-muted-foreground">{selectedStudent.student_code || '-'}</div><div className="mt-1 text-sm text-muted-foreground">Phone: {selectedStudent.phone || '-'} · Parent: {selectedStudent.parent_name || '-'} · Parent phone: {selectedStudent.parent_phone || '-'} · Class: {selectedStudent.class_level ?? '-'}</div></div>
+                  <div className="flex flex-wrap items-start justify-between gap-4 rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
+                    <div><div className="text-xl font-semibold text-secondary dark:text-foreground">{selectedStudent.student_name}</div><div className="mt-1 font-mono text-sm text-muted-foreground">{selectedStudent.student_code || '-'}</div><div className="mt-1 text-sm text-muted-foreground">Phone: {selectedStudent.phone || '-'} · Parent: {selectedStudent.parent_name || '-'} · Parent phone: {selectedStudent.parent_phone || '-'} · Class: {selectedStudent.class_level ?? '-'}</div></div>
                     <div className="grid gap-2 text-sm sm:grid-cols-2">
-                      <div className="rounded-lg border bg-background px-3 py-2"><div className="text-muted-foreground">Assigned batches</div><div className="font-medium">{selectedStudent.assignment_count}</div></div>
-                      <div className="rounded-lg border bg-background px-3 py-2"><div className="text-muted-foreground">Recurring monthly fee</div><div className="font-medium">Rs {selectedStudent.total_monthly_fee.toLocaleString('en-IN')}</div></div>
+                      <div className="rounded-2xl border border-secondary/10 bg-white/70 px-3 py-2 dark:bg-white/[0.05]"><div className="text-muted-foreground">Assigned batches</div><div className="font-medium text-secondary dark:text-foreground">{selectedStudent.assignment_count}</div></div>
+                      <div className="rounded-2xl border border-secondary/10 bg-white/70 px-3 py-2 dark:bg-white/[0.05]"><div className="text-muted-foreground">Recurring monthly fee</div><div className="font-medium text-secondary dark:text-foreground">Rs {selectedStudent.total_monthly_fee.toLocaleString('en-IN')}</div></div>
                     </div>
                   </div>
                   {role === 'centre_head' && <div className="flex justify-end"><Button variant="outline" size="sm" onClick={openStudentProfileDialog}>Edit Student Profile</Button></div>}
                   {selectedStudent.assignments.length === 0 ? (
-                    <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">This student has no active batch assignment yet. Add a batch assignment to begin monthly fee tracking and invoice generation.</div>
+                    <div className="rounded-[24px] border border-dashed border-secondary/20 bg-white/40 dark:bg-white/[0.02] p-6 text-sm text-muted-foreground">This student has no active batch assignment yet. Add a batch assignment to begin monthly fee tracking and invoice generation.</div>
                   ) : (
                     <div className="space-y-3">
                       {selectedStudent.assignments.map((assignment) => (
-                        <div key={assignment.enrollment_id} className="rounded-xl border bg-background p-4">
+                        <div key={assignment.enrollment_id} className="rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
                           <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-medium">{assignment.batch_name}</div><div className="mt-1 text-sm text-muted-foreground">{assignment.centre_name || 'Unknown centre'}</div></div><Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-200">Active</Badge></div>
                           <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><div><div className="text-muted-foreground">Enrolled on</div><div className="font-medium">{assignment.enrollment_date}</div></div><div><div className="text-muted-foreground">Monthly fee</div><div className="font-medium">Rs {assignment.monthly_fee.toLocaleString('en-IN')}</div></div><div><div className="text-muted-foreground">Billing rule</div><div className="font-medium">Monthly invoices follow this assigned fee</div></div></div>
                           {role === 'centre_head' && (
@@ -477,16 +478,16 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
 
           <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
             <Card className="gap-0 overflow-hidden py-0">
-              <div className="border-b bg-muted/30 px-5 py-3.5"><CardTitle className="text-base tracking-tight">Teachers</CardTitle><CardDescription className="mt-0.5">{teachers.length} teacher profile(s)</CardDescription></div>
+              <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]"><CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Teachers</CardTitle><CardDescription className="mt-0.5">{teachers.length} teacher profile(s)</CardDescription></div>
               <div className="max-h-[680px] overflow-y-auto">
-                {teacherDataState.loading ? <div className="h-56 animate-pulse bg-muted/20" /> : teachers.length === 0 ? (
+                {teacherDataState.loading ? <div className="h-56 animate-pulse bg-primary/10 dark:bg-white/[0.04]" /> : teachers.length === 0 ? (
                   <div className="flex flex-col items-center justify-center p-10 text-center text-sm text-muted-foreground"><UserRoundSearch className="mb-3 h-8 w-8 opacity-20" />No teacher profiles match the current filters.</div>
                 ) : (
-                  <div className="divide-y">
+                  <div className="divide-y divide-secondary/10">
                     {teachers.map((teacher) => (
-                      <button key={teacher.teacher_id} type="button" onClick={() => setSelectedTeacherId(teacher.teacher_id)} className={`w-full px-5 py-4 text-left transition-colors hover:bg-muted/30 ${selectedTeacher?.teacher_id === teacher.teacher_id ? 'bg-muted/40' : ''}`}>
-                        <div className="flex items-start justify-between gap-3"><div><div className="font-medium">{teacher.teacher_name}</div></div><Badge variant="outline" className={teacher.status === 'assigned' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-muted/50 text-muted-foreground'}>{teacher.status === 'assigned' ? `${teacher.assignment_count} assignment${teacher.assignment_count === 1 ? '' : 's'}` : 'Unassigned'}</Badge></div>
-                        <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground"><span>Total monthly salary</span><span className="font-medium text-foreground">Rs {teacher.total_monthly_salary.toLocaleString('en-IN')}</span></div>
+                      <button key={teacher.teacher_id} type="button" onClick={() => setSelectedTeacherId(teacher.teacher_id)} className={`w-full px-5 py-4 text-left transition-colors hover:bg-primary/10 dark:hover:bg-white/[0.04] ${selectedTeacher?.teacher_id === teacher.teacher_id ? 'bg-primary/14 dark:bg-white/[0.06]' : ''}`}>
+                        <div className="flex items-start justify-between gap-3"><div><div className="font-medium text-secondary dark:text-foreground">{teacher.teacher_name}</div></div><Badge variant="outline" className={teacher.status === 'assigned' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-white/60 text-muted-foreground border-secondary/10 dark:bg-white/[0.04]'}>{teacher.status === 'assigned' ? `${teacher.assignment_count} assignment${teacher.assignment_count === 1 ? '' : 's'}` : 'Unassigned'}</Badge></div>
+                        <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground"><span>Total monthly salary</span><span className="font-medium text-secondary dark:text-foreground">Rs {teacher.total_monthly_salary.toLocaleString('en-IN')}</span></div>
                       </button>
                     ))}
                   </div>
@@ -495,22 +496,22 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
             </Card>
 
             <Card className="gap-0 overflow-hidden py-0">
-              <div className="border-b bg-muted/30 px-5 py-3.5"><CardTitle className="text-base tracking-tight">Teacher Profile</CardTitle><CardDescription className="mt-0.5">Assignment breakdown and salary source details</CardDescription></div>
+              <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]"><CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Teacher Profile</CardTitle><CardDescription className="mt-0.5">Assignment breakdown and salary source details</CardDescription></div>
               {!selectedTeacher ? (
                 <div className="flex min-h-[320px] flex-col items-center justify-center p-10 text-center text-sm text-muted-foreground"><Users className="mb-3 h-8 w-8 opacity-20" />Select a teacher profile to view assignments.</div>
               ) : (
                 <div className="space-y-5 px-5 py-5">
-                  <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border bg-muted/20 p-4">
-                    <div><div className="text-xl font-semibold">{selectedTeacher.teacher_name}</div><div className="mt-1 text-sm text-muted-foreground">Phone: {selectedTeacher.phone || '-'}</div></div>
-                    <div className="grid gap-2 text-sm sm:grid-cols-2"><div className="rounded-lg border bg-background px-3 py-2"><div className="text-muted-foreground">Assignments</div><div className="font-medium">{selectedTeacher.assignment_count}</div></div><div className="rounded-lg border bg-background px-3 py-2"><div className="text-muted-foreground">Recurring monthly salary</div><div className="font-medium">Rs {selectedTeacher.total_monthly_salary.toLocaleString('en-IN')}</div></div></div>
+                  <div className="flex flex-wrap items-start justify-between gap-4 rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
+                    <div><div className="text-xl font-semibold text-secondary dark:text-foreground">{selectedTeacher.teacher_name}</div><div className="mt-1 text-sm text-muted-foreground">Phone: {selectedTeacher.phone || '-'}</div></div>
+                    <div className="grid gap-2 text-sm sm:grid-cols-2"><div className="rounded-2xl border border-secondary/10 bg-white/70 px-3 py-2 dark:bg-white/[0.05]"><div className="text-muted-foreground">Assignments</div><div className="font-medium text-secondary dark:text-foreground">{selectedTeacher.assignment_count}</div></div><div className="rounded-2xl border border-secondary/10 bg-white/70 px-3 py-2 dark:bg-white/[0.05]"><div className="text-muted-foreground">Recurring monthly salary</div><div className="font-medium text-secondary dark:text-foreground">Rs {selectedTeacher.total_monthly_salary.toLocaleString('en-IN')}</div></div></div>
                   </div>
                   {role === 'centre_head' && <div className="flex justify-end"><Button variant="outline" size="sm" onClick={openTeacherProfileDialog}>Edit Teacher Profile</Button></div>}
                   {selectedTeacher.assignments.length === 0 ? (
-                    <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">This teacher has no active assignments yet. Add a batch and optional subject assignment to include them in salary tracking.</div>
+                    <div className="rounded-[24px] border border-dashed border-secondary/20 bg-white/40 dark:bg-white/[0.02] p-6 text-sm text-muted-foreground">This teacher has no active assignments yet. Add a batch and optional subject assignment to include them in salary tracking.</div>
                   ) : (
                     <div className="space-y-3">
                       {selectedTeacher.assignments.map((assignment) => (
-                        <div key={assignment.assignment_id ?? `${assignment.teacher_id}-unassigned`} className="rounded-xl border bg-background p-4">
+                        <div key={assignment.assignment_id ?? `${assignment.teacher_id}-unassigned`} className="rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
                           <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="font-medium">{assignment.batch_name}</div><div className="mt-1 text-sm text-muted-foreground">{assignment.centre_name || 'Unknown centre'}{assignment.subject ? ` · ${assignment.subject}` : ''}</div></div><Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 border-emerald-200">Active</Badge></div>
                           <div className="mt-4 grid gap-3 text-sm sm:grid-cols-3"><div><div className="text-muted-foreground">Assignment start</div><div className="font-medium">{assignment.assignment_start_date || '-'}</div></div><div><div className="text-muted-foreground">Monthly salary</div><div className="font-medium">Rs {Number(assignment.monthly_salary ?? 0).toLocaleString('en-IN')}</div></div><div><div className="text-muted-foreground">Salary rule</div><div className="font-medium">This assignment amount is included in monthly salary records</div></div></div>
                           {role === 'centre_head' && assignment.assignment_id && (
@@ -532,10 +533,10 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
 
       <ManageDialog open={studentDialogOpen} onOpenChange={(open) => { setStudentDialogOpen(open); if (!open) setEditingEnrollmentId(null) }} title={editingEnrollmentId ? 'Edit Student Enrollment' : 'Assign Student to Batch'} description={editingEnrollmentId ? 'Update the recurring monthly fee and, if needed, adjust the enrollment date within the same month.' : 'Set the batch and monthly fee. The first invoice is prorated for the remaining days in the selected month.'} onSubmit={handleStudentAssign} saving={saving} submitLabel={editingEnrollmentId ? 'Update Enrollment' : 'Assign & Create Invoice'}>
         <div className="space-y-4">
-          <div className="space-y-2"><Label>Student</Label><div className="rounded-md border bg-muted/20 p-3"><div className="font-medium">{selectedStudent?.student_name}</div><div className="font-mono text-sm text-muted-foreground">{selectedStudent?.student_code || '-'}</div></div></div>
+          <div className="space-y-2"><Label>Student</Label><div className="rounded-2xl border border-secondary/10 bg-white/60 p-3 dark:bg-white/[0.04]"><div className="font-medium text-secondary dark:text-foreground">{selectedStudent?.student_name}</div><div className="font-mono text-sm text-muted-foreground">{selectedStudent?.student_code || '-'}</div></div></div>
           {!editingEnrollmentId && <SelectField id="student-batch-assign" label="Select Batch *" value={studentBatchId} onChange={setStudentBatchId} options={availableStudentBatches.map((batch) => ({ value: batch.id, label: batch.batch_name }))} placeholder="Choose batch" />}
           <div className="grid gap-4 md:grid-cols-2"><DatePickerField id="enroll-date" label="Enrollment Date *" value={enrollDate} onChange={setEnrollDate} max={format(new Date(), 'yyyy-MM-dd')} /><div className="space-y-2"><Label htmlFor="monthly-fee">Monthly Fee (Rs) *</Label><Input id="monthly-fee" type="number" min="0" step="0.01" value={monthlyFee} onChange={(event) => setMonthlyFee(event.target.value)} placeholder="e.g. 5000" required /></div></div>
-          {parseFloat(monthlyFee) >= 0 && monthlyFee !== '' && <div className="rounded-lg border bg-muted/40 p-4 text-sm"><div className="flex items-center justify-between text-muted-foreground"><span>First invoice</span><span>Prorated for remaining days in month</span></div><div className="mt-2 flex items-center justify-between"><span className="font-medium">Estimated amount due</span><span className="text-lg font-semibold text-emerald-600">Rs {proratedEstimate.toFixed(2)}</span></div><p className="mt-2 text-muted-foreground">Subsequent monthly invoices use the assigned monthly fee until the enrollment is updated or withdrawn.</p></div>}
+          {parseFloat(monthlyFee) >= 0 && monthlyFee !== '' && <div className="rounded-2xl border border-secondary/10 bg-white/60 p-4 text-sm dark:bg-white/[0.04]"><div className="flex items-center justify-between text-muted-foreground"><span>First invoice</span><span>Prorated for remaining days in month</span></div><div className="mt-2 flex items-center justify-between"><span className="font-medium">Estimated amount due</span><span className="text-lg font-semibold text-emerald-600">Rs {proratedEstimate.toFixed(2)}</span></div><p className="mt-2 text-muted-foreground">Subsequent monthly invoices use the assigned monthly fee until the enrollment is updated or withdrawn.</p></div>}
         </div>
       </ManageDialog>
 
@@ -545,7 +546,7 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
           {!editingAssignmentId && <SelectField id="teacher-batch-assign" label="Batch *" value={teacherBatchId} onChange={setTeacherBatchId} options={availableTeacherBatches.map((batch) => ({ value: batch.id, label: batch.batch_name }))} placeholder="Choose batch" />}
           <div className="grid gap-4 md:grid-cols-2"><div className="space-y-2"><Label htmlFor="teacher-subject">Subject</Label><Input id="teacher-subject" value={teacherSubject} onChange={(event) => setTeacherSubject(event.target.value)} placeholder="e.g. Mathematics" /></div><div className="space-y-2"><Label htmlFor="teacher-salary">Monthly Salary (Rs) *</Label><Input id="teacher-salary" type="number" min="0" step="0.01" value={teacherSalary} onChange={(event) => setTeacherSalary(event.target.value)} placeholder="e.g. 12000" required /></div></div>
           <DatePickerField id="teacher-start-date" label="Assignment Start Date *" value={teacherStartDate} onChange={setTeacherStartDate} max={format(new Date(), 'yyyy-MM-dd')} />
-          {teacherSalary && <div className="rounded-lg border bg-muted/40 p-4 text-sm"><div className="flex items-center justify-between"><span className="text-muted-foreground">Salary contribution</span><span className="font-semibold text-foreground">Rs {Number(teacherSalary || 0).toLocaleString('en-IN')} / month</span></div><p className="mt-2 text-muted-foreground">This assignment amount is carried into generated monthly salary records until the assignment is withdrawn.</p></div>}
+          {teacherSalary && <div className="rounded-2xl border border-secondary/10 bg-white/60 p-4 text-sm dark:bg-white/[0.04]"><div className="flex items-center justify-between"><span className="text-muted-foreground">Salary contribution</span><span className="font-semibold text-secondary dark:text-foreground">Rs {Number(teacherSalary || 0).toLocaleString('en-IN')} / month</span></div><p className="mt-2 text-muted-foreground">This assignment amount is carried into generated monthly salary records until the assignment is withdrawn.</p></div>}
         </div>
       </ManageDialog>
 

@@ -34,7 +34,7 @@ export default function ErrorBoundary({
         
         <p className="mt-3 text-sm text-muted-foreground">
           We experienced an internal error while trying to process your request. 
-          The issue has been logged and we're looking into it.
+          The issue has been logged and we&apos;re looking into it.
         </p>
         
         <div className="mt-8 flex gap-4">

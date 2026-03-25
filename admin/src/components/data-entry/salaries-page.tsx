@@ -183,12 +183,13 @@ export function SalariesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-3xl tracking-tight">Task Salary</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Review teacher salary cards, inspect pending months and assignment breakdowns, and record immutable payment entries.</p>
+      <div className="glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Tasks</Badge>
+        <h1 className="mt-3 font-serif text-4xl tracking-tight text-secondary dark:text-primary">Salary Records</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Track teacher salary months, pending balances, assignment snapshots, and payment history from one workspace.</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[240px_220px_1fr]">
+      <div className="grid gap-4 rounded-[28px] border border-secondary/10 bg-white/45 p-5 dark:bg-white/[0.03] md:grid-cols-[240px_220px_1fr]">
         <SelectField id="salary-centre" label="Centre" value={effectiveSelectedCentre} onChange={(value) => { setSelectedCentre(value); setSelectedBatch('all'); setSelectedTeacherId(''); setSelectedSalaryId(''); setTargetPaidAmount('') }} options={centres.map((centre) => ({ value: centre.id, label: centre.centre_name }))} placeholder="Select centre" />
         <SelectField id="salary-batch" label="Batch" value={effectiveSelectedBatch} onChange={setSelectedBatch} options={[{ value: 'all', label: 'All batches' }, ...visibleBatches.map((batch) => ({ value: batch.id, label: batch.batch_name }))]} />
         <div className="space-y-2">
@@ -202,27 +203,27 @@ export function SalariesPage() {
 
       <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
         <Card className="gap-0 overflow-hidden py-0">
-          <div className="border-b bg-muted/30 px-5 py-3.5">
-            <CardTitle className="text-base tracking-tight">Teacher Salary Cards</CardTitle>
+          <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+            <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Teacher Salary Cards</CardTitle>
             <CardDescription className="mt-0.5">{teacherSummaries.length} teacher card(s)</CardDescription>
           </div>
           <div className="max-h-[700px] overflow-y-auto">
             {loading ? (
-              <div className="h-56 animate-pulse bg-muted/20" />
+              <div className="h-56 animate-pulse bg-primary/10 dark:bg-white/[0.04]" />
             ) : teacherSummaries.length === 0 ? (
               <div className="p-10 text-center text-sm text-muted-foreground">No generated salary records found for this scope.</div>
             ) : (
-              <div className="divide-y">
+              <div className="divide-y divide-secondary/10">
                 {teacherSummaries.map((teacher) => (
                   <button
                     key={teacher.user_id}
                     type="button"
                       onClick={() => { setSelectedTeacherId(teacher.user_id); setSelectedSalaryId(''); setTargetPaidAmount('') }}
-                      className={`w-full px-5 py-4 text-left transition-colors hover:bg-muted/30 ${effectiveSelectedTeacherId === teacher.user_id ? 'bg-muted/40' : ''}`}
+                      className={`w-full px-5 py-4 text-left transition-colors hover:bg-primary/8 dark:hover:bg-white/[0.03] ${effectiveSelectedTeacherId === teacher.user_id ? 'bg-primary/14 dark:bg-white/[0.06]' : ''}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="font-medium">{teacher.staff_name}</div>
+                        <div className="font-medium text-secondary dark:text-foreground">{teacher.staff_name}</div>
                         <div className="mt-1 text-xs text-muted-foreground">{teacher.batchNames.join(', ') || 'No batches linked'}</div>
                       </div>
                       <Badge variant="outline" className={teacher.pendingMonths.length > 0 ? 'bg-red-500/10 text-red-600 border-red-200' : 'bg-emerald-500/10 text-emerald-600 border-emerald-200'}>
@@ -230,8 +231,8 @@ export function SalariesPage() {
                       </Badge>
                     </div>
                     <div className="mt-4 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-                      <div>Paid till: <span className="font-medium text-foreground">{teacher.paidTill ? teacher.paidTill.slice(0, 7) : 'Not paid yet'}</span></div>
-                      <div>Pending amount: <span className="font-medium text-foreground">Rs {teacher.totalPendingAmount.toLocaleString('en-IN')}</span></div>
+                      <div>Paid till: <span className="font-medium text-secondary dark:text-foreground">{teacher.paidTill ? teacher.paidTill.slice(0, 7) : 'Not paid yet'}</span></div>
+                      <div>Pending amount: <span className="font-medium text-secondary dark:text-foreground">Rs {teacher.totalPendingAmount.toLocaleString('en-IN')}</span></div>
                     </div>
                   </button>
                 ))}
@@ -241,8 +242,8 @@ export function SalariesPage() {
         </Card>
 
         <Card className="gap-0 overflow-hidden py-0">
-          <div className="border-b bg-muted/30 px-5 py-3.5">
-            <CardTitle className="text-base tracking-tight">Teacher Salary Detail</CardTitle>
+          <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+            <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Teacher Salary Detail</CardTitle>
             <CardDescription className="mt-0.5">Pending salary months are shown first, followed by historical salary records and payment history.</CardDescription>
           </div>
 
@@ -250,14 +251,14 @@ export function SalariesPage() {
             <div className="p-10 text-center text-sm text-muted-foreground">Select a teacher card to inspect salary details.</div>
           ) : (
             <div className="space-y-5 px-5 py-5">
-              <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border bg-muted/20 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-4 rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
                 <div>
-                  <div className="text-xl font-semibold">{selectedTeacher.staff_name}</div>
+                  <div className="text-xl font-semibold text-secondary dark:text-foreground">{selectedTeacher.staff_name}</div>
                   <div className="mt-1 text-sm text-muted-foreground">Paid till {selectedTeacher.paidTill ? selectedTeacher.paidTill.slice(0, 7) : 'no completed salary month yet'}</div>
                 </div>
-                <div className="rounded-lg border bg-background px-4 py-3 text-right">
+                <div className="rounded-2xl border border-secondary/10 bg-white/70 px-4 py-3 text-right dark:bg-white/[0.05]">
                   <div className="text-xs uppercase tracking-wide text-muted-foreground">Total pending</div>
-                  <div className="text-2xl font-semibold text-sky-600">Rs {selectedTeacher.totalPendingAmount.toLocaleString('en-IN')}</div>
+                  <div className="text-2xl font-semibold text-secondary dark:text-primary">Rs {selectedTeacher.totalPendingAmount.toLocaleString('en-IN')}</div>
                 </div>
               </div>
 
@@ -268,7 +269,7 @@ export function SalariesPage() {
                     key={salary.id}
                     type="button"
                     onClick={() => setSelectedSalaryId(salary.id)}
-                    className={`w-full rounded-xl border p-4 text-left transition-colors hover:bg-muted/20 ${effectiveSelectedSalaryId === salary.id ? 'border-sky-400/50 bg-sky-500/5' : 'bg-background'}`}
+                    className={`w-full rounded-[24px] border border-secondary/10 p-4 text-left transition-colors hover:bg-primary/10 dark:hover:bg-white/[0.04] ${effectiveSelectedSalaryId === salary.id ? 'border-primary/35 bg-primary/12 dark:bg-primary/10' : 'bg-white/60 dark:bg-white/[0.04]'}`}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
@@ -287,12 +288,12 @@ export function SalariesPage() {
                     <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Assignment Breakdown</div>
                     <div className="space-y-3">
                       {selectedSalary.assignment_snapshot.map((assignment) => (
-                        <div key={assignment.assignment_id} className="rounded-xl border bg-background p-4">
-                          <div className="font-medium">{assignment.batch_name}{assignment.subject ? ` · ${assignment.subject}` : ''}</div>
+                        <div key={assignment.assignment_id} className="rounded-[24px] border border-secondary/10 bg-white/60 p-4 dark:bg-white/[0.04]">
+                          <div className="font-medium text-secondary dark:text-foreground">{assignment.batch_name}{assignment.subject ? ` · ${assignment.subject}` : ''}</div>
                           <div className="mt-2 grid gap-2 text-sm text-muted-foreground sm:grid-cols-3">
-                            <div>Salary: <span className="font-medium text-foreground">Rs {Number(assignment.monthly_salary).toLocaleString('en-IN')}</span></div>
-                            <div>Start: <span className="font-medium text-foreground">{assignment.assignment_start_date}</span></div>
-                            <div>End: <span className="font-medium text-foreground">{assignment.assignment_end_date || 'Active'}</span></div>
+                            <div>Salary: <span className="font-medium text-secondary dark:text-foreground">Rs {Number(assignment.monthly_salary).toLocaleString('en-IN')}</span></div>
+                            <div>Start: <span className="font-medium text-secondary dark:text-foreground">{assignment.assignment_start_date}</span></div>
+                            <div>End: <span className="font-medium text-secondary dark:text-foreground">{assignment.assignment_end_date || 'Active'}</span></div>
                           </div>
                         </div>
                       ))}
@@ -301,7 +302,7 @@ export function SalariesPage() {
 
                   <div className="space-y-3">
                     <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Record Payment</div>
-                    <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 md:grid-cols-[1fr_180px_1fr_auto]">
+                    <div className="grid gap-4 rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04] md:grid-cols-[1fr_180px_1fr_auto]">
                       <div className="space-y-2">
                         <Label htmlFor="target-paid">Paid Total Target (Rs)</Label>
                         <Input id="target-paid" type="number" min={selectedSalary.amount_paid} max={selectedSalary.amount_due} value={paymentAmountValue} onChange={(event) => setTargetPaidAmount(event.target.value)} />
@@ -322,11 +323,11 @@ export function SalariesPage() {
                   <div className="space-y-3">
                     <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Payment History</div>
                     {salaryPayments.length === 0 ? (
-                      <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No payment records exist for this month yet.</div>
+                      <div className="rounded-[24px] border border-dashed border-secondary/20 bg-white/40 dark:bg-white/[0.02] p-6 text-sm text-muted-foreground">No payment records exist for this month yet.</div>
                     ) : (
                       <div className="space-y-3">
                         {salaryPayments.map((payment) => (
-                          <div key={payment.id} className="rounded-xl border bg-background p-4">
+                          <div key={payment.id} className="rounded-[24px] border border-secondary/10 bg-white/60 p-4 dark:bg-white/[0.04]">
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div>
                                 <div className="font-medium">Payment of Rs {payment.amount.toLocaleString('en-IN')}</div>

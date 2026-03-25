@@ -152,12 +152,13 @@ export function StaffAttendancePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-3xl tracking-tight">Task Staff Attendance</h1>
+      <div className="glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Tasks</Badge>
+        <h1 className="mt-3 font-serif text-4xl tracking-tight text-secondary dark:text-primary">Staff Attendance</h1>
         <p className="mt-1 text-sm text-muted-foreground">Select a teacher card, choose a date, and mark present, absent, or partial attendance with mandatory timing for partial days.</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-[240px_220px_180px_1fr]">
+      <div className="grid gap-4 rounded-[28px] border border-secondary/10 bg-white/45 p-5 dark:bg-white/[0.03] md:grid-cols-[240px_220px_180px_1fr]">
         <SelectField
           id="staff-attendance-centre"
           label="Centre"
@@ -191,20 +192,20 @@ export function StaffAttendancePage() {
       {effectiveSelectedCentre && (
         <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
           <Card className="gap-0 overflow-hidden py-0">
-            <div className="border-b bg-muted/30 px-5 py-3.5">
-              <CardTitle className="text-base tracking-tight">Teacher Cards</CardTitle>
+            <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+              <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Teacher Cards</CardTitle>
               <CardDescription className="mt-0.5">Previous-day context is available by switching the date input above.</CardDescription>
             </div>
             <div className="max-h-[700px] overflow-y-auto">
               {loadingTeachers ? (
-                <div className="h-56 animate-pulse bg-muted/20" />
+                <div className="h-56 animate-pulse bg-primary/10 dark:bg-white/[0.04]" />
               ) : filteredTeachers.length === 0 ? (
                 <div className="flex flex-col items-center justify-center p-10 text-center text-sm text-muted-foreground">
                   <Users className="mb-3 h-8 w-8 opacity-20" />
                   No teachers found for this centre.
                 </div>
               ) : (
-                <div className="divide-y">
+                <div className="divide-y divide-secondary/10">
                   {filteredTeachers.map((teacher) => {
                     const statusConfig = STATUS_OPTIONS.find((option) => option.value === teacher.status)
 
@@ -213,18 +214,18 @@ export function StaffAttendancePage() {
                         key={teacher.user_id}
                         type="button"
                         onClick={() => setSelectedTeacherId(teacher.user_id)}
-                      className={`w-full px-5 py-4 text-left transition-colors hover:bg-muted/30 ${effectiveSelectedTeacherId === teacher.user_id ? 'bg-muted/40' : ''}`}
+                      className={`w-full px-5 py-4 text-left transition-colors hover:bg-primary/8 dark:hover:bg-white/[0.03] ${effectiveSelectedTeacherId === teacher.user_id ? 'bg-primary/14 dark:bg-white/[0.06]' : ''}`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="font-medium">{teacher.staff_name}</div>
+                            <div className="font-medium text-secondary dark:text-foreground">{teacher.staff_name}</div>
                             <div className="mt-1 text-xs text-muted-foreground">
                               {teacher.previous_day_status
                                 ? `Previous day: ${teacher.previous_day_status}${teacher.previous_day_status === 'partial' && teacher.previous_day_in_time && teacher.previous_day_out_time ? ` (${teacher.previous_day_in_time}-${teacher.previous_day_out_time})` : ''}`
                                 : 'Previous day: no record saved'}
                             </div>
                           </div>
-                          <Badge variant="outline" className={statusConfig?.color ?? 'bg-muted/50 text-muted-foreground'}>
+                          <Badge variant="outline" className={statusConfig?.color ?? 'bg-white/40 dark:bg-white/[0.03] text-muted-foreground'}>
                             {teacher.status ?? 'Not marked'}
                           </Badge>
                         </div>
@@ -237,8 +238,8 @@ export function StaffAttendancePage() {
           </Card>
 
           <Card className="gap-0 overflow-hidden py-0">
-            <div className="border-b bg-muted/30 px-5 py-3.5">
-              <CardTitle className="flex items-center gap-2 text-base tracking-tight">
+            <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+              <CardTitle className="flex items-center gap-2 text-base tracking-tight text-secondary dark:text-primary">
                 <Clock className="h-4 w-4" />Teacher Attendance Detail
               </CardTitle>
               <CardDescription className="mt-0.5">{previousDaySummary}</CardDescription>
@@ -248,8 +249,8 @@ export function StaffAttendancePage() {
               <div className="p-10 text-center text-sm text-muted-foreground">Select a teacher card to mark attendance for the chosen date.</div>
             ) : (
               <div className="space-y-5 px-5 py-5">
-                <div className="rounded-xl border bg-muted/20 p-4">
-                  <div className="text-xl font-semibold">{selectedTeacher.staff_name}</div>
+                <div className="rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
+                  <div className="text-xl font-semibold text-secondary dark:text-foreground">{selectedTeacher.staff_name}</div>
                   <div className="mt-1 text-sm text-muted-foreground">Date: {selectedDate}</div>
                 </div>
 
@@ -278,7 +279,7 @@ export function StaffAttendancePage() {
                 )}
 
                 {selectedTeacher.status && (
-                  <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+                  <div className="rounded-2xl border border-secondary/10 bg-white/60 p-3 text-sm text-muted-foreground dark:bg-white/[0.04]">
                     {selectedTeacher.status === 'partial'
                       ? 'Partial attendance requires both entry and exit times.'
                       : 'If this date was marked earlier, the form opens with the last saved status so it can be updated safely.'}

@@ -200,13 +200,13 @@ export function StaffAttendanceDashboard({ role }: { role: string }) {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_30%),radial-gradient(circle_at_right,rgba(245,158,11,0.11),transparent_26%),linear-gradient(180deg,rgba(15,23,42,0.52),rgba(2,6,23,0.86))]" />
+      <section className="relative overflow-hidden glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(148,198,145,0.34),transparent_30%),radial-gradient(circle_at_right,rgba(4,231,254,0.12),transparent_24%),linear-gradient(180deg,rgba(255,255,255,0.42),rgba(255,255,255,0.16))] dark:bg-[radial-gradient(circle_at_top_left,rgba(148,198,145,0.18),transparent_28%),radial-gradient(circle_at_right,rgba(4,231,254,0.08),transparent_22%),linear-gradient(180deg,rgba(24,35,28,0.34),rgba(10,16,12,0.16))]" />
         <div className="relative space-y-4">
-          <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Analytics</Badge>
+          <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Analytics</Badge>
           <div className="max-w-3xl">
-            <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Staff Attendance Intelligence</h1>
-            <p className="mt-3 text-base text-slate-300">Track teacher attendance with present, absent, and partial categories, then compare daily, monthly, yearly, and individual teacher patterns.</p>
+            <h1 className="font-serif text-4xl tracking-tight text-secondary dark:text-foreground sm:text-5xl">Staff Attendance Analysis</h1>
+            <p className="mt-3 text-base text-muted-foreground">Track teacher attendance with present, absent, and partial categories, then compare daily, monthly, yearly, and individual teacher patterns.</p>
           </div>
         </div>
       </section>
@@ -243,7 +243,7 @@ export function StaffAttendanceDashboard({ role }: { role: string }) {
         </SectionCard>
         <SectionCard title="Yearly Attendance View" description="Month-wise bars with an attendance-percentage line and mode filter for present, absent, partial, or all.">
           <div className="mb-4 flex justify-end">
-            <div className="w-[220px]">
+            <div className="w-full max-w-[220px]">
                <SelectField id="staff-year-mode" label="Bar mode" value={yearMode} onChange={(value) => setFilter('yearMode', value as 'present' | 'absent' | 'partial' | 'all')} options={[{ value: 'all', label: 'All statuses' }, { value: 'present', label: 'Present only' }, { value: 'partial', label: 'Partial only' }, { value: 'absent', label: 'Absent only' }]} />
             </div>
           </div>
@@ -252,8 +252,8 @@ export function StaffAttendanceDashboard({ role }: { role: string }) {
       </div>
 
       <SectionCard title="Teacher Stats Table" description="Useful when centre or batch scope is selected and individual teacher attendance needs detailed review.">
-        <div className="mb-4 flex justify-end">
-          <div className="w-[180px]">
+          <div className="mb-4 flex justify-end">
+          <div className="w-full max-w-[180px]">
              <SelectField id="teacher-table-filter" label="Table filter" value={tableFilter} onChange={(value) => setFilter('tableFilter', value as 'all' | 'present' | 'absent' | 'partial')} options={[{ value: 'all', label: 'All' }, { value: 'present', label: 'Present' }, { value: 'partial', label: 'Partial' }, { value: 'absent', label: 'Absent' }]} />
            </div>
          </div>
@@ -261,9 +261,9 @@ export function StaffAttendanceDashboard({ role }: { role: string }) {
         {!breakdownRows.length ? (
           <EmptyState title="No teacher breakdown" message="No teacher attendance rows match the current filters." />
         ) : (
-          <div className="overflow-hidden rounded-xl border border-white/10">
+          <div className="overflow-hidden rounded-[24px] border border-secondary/10">
             <Table>
-              <TableHeader className="bg-slate-950/35">
+              <TableHeader className="bg-primary/8 dark:bg-white/[0.03]">
                 <TableRow>
                   <TableHead>#</TableHead>
                   <TableHead>Teacher</TableHead>
@@ -276,14 +276,14 @@ export function StaffAttendanceDashboard({ role }: { role: string }) {
               </TableHeader>
               <TableBody>
                 {breakdownRows.map((row, index) => (
-                  <TableRow key={row.user_id} className="hover:bg-white/5">
+                  <TableRow key={row.user_id} className="hover:bg-primary/8 dark:hover:bg-white/[0.03]">
                     <TableCell className="text-muted-foreground">{index + 1}</TableCell>
                     <TableCell className="font-medium">{row.teacher_name}</TableCell>
-                    <TableCell className="text-center tabular-nums text-sky-400">{row.present}</TableCell>
+                    <TableCell className="text-center tabular-nums text-emerald-600 dark:text-emerald-300">{row.present}</TableCell>
                     <TableCell className="text-center tabular-nums text-amber-400">{row.partial}</TableCell>
                     <TableCell className="text-center tabular-nums text-rose-400">{row.absent}</TableCell>
                     <TableCell className="text-center tabular-nums">{row.total}</TableCell>
-                    <TableCell className="text-right"><Badge variant="outline" className="border-sky-400/20 bg-sky-400/10 text-sky-300">{fmtPercent(row.percent)}</Badge></TableCell>
+                    <TableCell className="text-right"><Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">{fmtPercent(row.percent)}</Badge></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

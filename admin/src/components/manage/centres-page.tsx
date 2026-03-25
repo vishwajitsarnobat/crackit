@@ -114,17 +114,18 @@ export function CentresPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="glass-panel soft-ring flex items-center justify-between rounded-[32px] px-8 py-8">
                 <div>
-                    <h1 className="font-serif text-3xl tracking-tight">Centre Management</h1>
+                    <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Management</Badge>
+                    <h1 className="mt-3 font-serif text-4xl tracking-tight text-secondary dark:text-primary">Centre Management</h1>
                     <p className="mt-1 text-sm text-muted-foreground">Search centres, review their current status, and manage add, edit, or deactivate actions from one place.</p>
                 </div>
                 <Button onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Add Centre</Button>
             </div>
 
             <Card className="gap-0 py-0 overflow-hidden">
-                <div className="border-b bg-muted/30 px-5 py-3.5">
-                    <CardTitle className="text-base tracking-tight">Centre Filters</CardTitle>
+                <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+                    <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Centre Filters</CardTitle>
                     <CardDescription className="mt-0.5">Search by code, name, city, or phone and filter by status.</CardDescription>
                 </div>
                 <div className="grid gap-4 px-5 py-4 md:grid-cols-[1fr_220px]">
@@ -148,17 +149,17 @@ export function CentresPage() {
             </Card>
 
             <Card className="gap-0 py-0 overflow-hidden">
-                <div className="border-b bg-muted/30 px-5 py-3.5">
-                    <CardTitle className="text-base tracking-tight">All Centres</CardTitle>
+                <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+                    <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">All Centres</CardTitle>
                     <CardDescription className="mt-0.5">{filteredCentres.length} centre(s) found</CardDescription>
                 </div>
                 {loading ? (
-                    <div className="animate-pulse h-40 bg-muted/20" />
+                    <div className="animate-pulse h-40 bg-primary/10 dark:bg-white/[0.04]" />
                 ) : filteredCentres.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground text-sm">No centres found.</div>
                 ) : (
                     <Table>
-                        <TableHeader className="bg-muted/50">
+                        <TableHeader className="bg-primary/10 dark:bg-white/[0.04]">
                             <TableRow>
                                 <TableHead className="w-12">#</TableHead>
                                 <TableHead>Code</TableHead>
@@ -171,7 +172,7 @@ export function CentresPage() {
                         </TableHeader>
                         <TableBody>
                             {filteredCentres.map((c, i) => (
-                                <TableRow key={c.id} className="transition-colors hover:bg-muted/30">
+                                <TableRow key={c.id} className="transition-colors hover:bg-primary/8 dark:hover:bg-white/[0.03]">
                                     <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                                     <TableCell className="font-mono text-xs">{c.centre_code}</TableCell>
                                     <TableCell className="font-medium">{c.centre_name}</TableCell>

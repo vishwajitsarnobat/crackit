@@ -249,27 +249,27 @@ export function AttendanceDashboard() {
 
   return (
     <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.20),transparent_32%),radial-gradient(circle_at_right,rgba(34,197,94,0.12),transparent_28%),linear-gradient(180deg,rgba(15,23,42,0.52),rgba(2,6,23,0.86))]" />
+      <section className="relative overflow-hidden glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(148,198,145,0.34),transparent_32%),radial-gradient(circle_at_right,rgba(4,231,254,0.12),transparent_22%),linear-gradient(180deg,rgba(255,255,255,0.42),rgba(255,255,255,0.16))] dark:bg-[radial-gradient(circle_at_top_left,rgba(148,198,145,0.18),transparent_28%),radial-gradient(circle_at_right,rgba(4,231,254,0.08),transparent_22%),linear-gradient(180deg,rgba(24,35,28,0.34),rgba(10,16,12,0.16))]" />
         <div className="relative space-y-4">
-          <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Analytics</Badge>
+          <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Analytics</Badge>
           <div className="flex flex-wrap items-start justify-between gap-6">
-            <div className="max-w-3xl">
-              <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Attendance Intelligence</h1>
-              <p className="mt-3 text-base text-slate-300">Explore student, batch, or centre attendance with day-wise, month-wise, and year-wise views plus a detailed student breakdown.</p>
+            <div className="max-w-2xl">
+              <h1 className="max-w-[13ch] font-serif text-4xl leading-[1.03] tracking-[-0.03em] text-secondary dark:text-primary sm:text-5xl">Attendance Analysis</h1>
+              <p className="mt-3 max-w-[58ch] text-[15px] leading-7 text-muted-foreground">Explore student, batch, or centre attendance with day-wise, month-wise, and year-wise views plus a detailed student breakdown.</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-4">
-                <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Date range</div>
-                <div className="mt-2 text-lg font-semibold text-white">{fromDate} {'->'} {toDate}</div>
+              <div className="flex min-h-[96px] flex-col justify-between rounded-[24px] border border-secondary/10 bg-white/55 px-4 py-4 dark:bg-white/[0.04]">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Date range</div>
+                <div className="mt-3 text-lg font-semibold leading-6 text-secondary dark:text-foreground">{fromDate} {'->'} {toDate}</div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-4">
-                <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Year focus</div>
-                <div className="mt-2 text-lg font-semibold text-white">{year}</div>
+              <div className="flex min-h-[96px] flex-col justify-between rounded-[24px] border border-secondary/10 bg-white/55 px-4 py-4 dark:bg-white/[0.04]">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Year focus</div>
+                <div className="mt-3 text-lg font-semibold leading-6 text-secondary dark:text-foreground">{year}</div>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-4">
-                <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Student scope</div>
-                <div className="mt-2 text-lg font-semibold text-white">{studentId ? 'Selected student' : 'Batch / centre view'}</div>
+              <div className="flex min-h-[96px] flex-col justify-between rounded-[24px] border border-secondary/10 bg-white/55 px-4 py-4 dark:bg-white/[0.04]">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Student scope</div>
+                <div className="mt-3 text-lg font-semibold leading-6 text-secondary dark:text-foreground">{studentId ? 'Selected student' : 'Batch / centre view'}</div>
               </div>
             </div>
           </div>
@@ -353,7 +353,7 @@ export function AttendanceDashboard() {
           description="Month-wise bars with an attendance-percentage line. Use the mode filter to focus on present, absent, or both."
         >
           <div className="mb-4 flex justify-end">
-            <div className="w-[220px]">
+            <div className="w-full max-w-[220px]">
               <SelectField
                 id="attendance-year-mode"
                 label="Bar mode"
@@ -372,7 +372,7 @@ export function AttendanceDashboard() {
       </div>
 
       <SectionCard title="Student Stats Table" description="Useful when a batch or centre is selected and you need an individual student attendance breakdown.">
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
           <div className="max-w-sm space-y-2">
             <Label htmlFor="attendance-student-search">Search students</Label>
             <div className="relative">
@@ -398,9 +398,9 @@ export function AttendanceDashboard() {
         {breakdownRows.length === 0 ? (
           <EmptyState title="No student breakdown" message="No student attendance rows match the current filters." />
         ) : (
-          <div className="overflow-hidden rounded-xl border border-white/10">
+          <div className="overflow-hidden rounded-[24px] border border-secondary/10">
             <Table>
-              <TableHeader className="bg-slate-950/35">
+              <TableHeader className="bg-primary/8 dark:bg-white/[0.03]">
                 <TableRow>
                   <TableHead>#</TableHead>
                   <TableHead>Student</TableHead>
@@ -412,17 +412,17 @@ export function AttendanceDashboard() {
               </TableHeader>
               <TableBody>
                 {breakdownRows.map((row, index) => (
-                  <TableRow key={row.student_id} className="hover:bg-white/5">
+                  <TableRow key={row.student_id} className="hover:bg-primary/8 dark:hover:bg-white/[0.03]">
                     <TableCell className="text-muted-foreground">{index + 1}</TableCell>
                     <TableCell>
                       <div className="font-medium">{row.student_name}</div>
                       <div className="font-mono text-xs text-muted-foreground">{row.student_code || '-'}</div>
                     </TableCell>
-                    <TableCell className="text-center tabular-nums text-sky-400">{row.present}</TableCell>
+                    <TableCell className="text-center tabular-nums text-emerald-600 dark:text-emerald-300">{row.present}</TableCell>
                     <TableCell className="text-center tabular-nums text-rose-400">{row.absent}</TableCell>
                     <TableCell className="text-center tabular-nums">{row.total}</TableCell>
                     <TableCell className="text-right">
-                      <Badge variant="outline" className="border-sky-400/20 bg-sky-400/10 text-sky-300">{fmtPercent(row.percent)}</Badge>
+                      <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">{fmtPercent(row.percent)}</Badge>
                     </TableCell>
                   </TableRow>
                 ))}

@@ -7,6 +7,7 @@ import { Plus, Receipt, Save } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { SelectField } from '@/components/shared/form/select-field'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -150,8 +151,9 @@ export function ExpensesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-3xl tracking-tight">Task Expenses</h1>
+      <div className="glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Tasks</Badge>
+        <h1 className="mt-3 font-serif text-4xl tracking-tight text-secondary dark:text-primary">Expenses</h1>
         <p className="mt-1 text-sm text-muted-foreground">Each month is represented as a summary card. Open a month to review immutable entries and append new ones.</p>
       </div>
 
@@ -164,12 +166,12 @@ export function ExpensesPage() {
       {effectiveSelectedCentre && (
         <>
           <Card className="gap-0 overflow-hidden py-0">
-            <div className="border-b bg-muted/30 px-5 py-3.5">
-              <CardTitle className="text-base tracking-tight">Month Cards</CardTitle>
+            <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+              <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Month Cards</CardTitle>
               <CardDescription className="mt-0.5">Current and recent months appear here with summary totals even before opening the detail view.</CardDescription>
             </div>
             {loadingMonths ? (
-              <div className="h-40 animate-pulse bg-muted/20" />
+              <div className="h-40 animate-pulse bg-primary/10 dark:bg-white/[0.04]" />
             ) : (
               <div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
                 {months.map((month) => (
@@ -177,16 +179,16 @@ export function ExpensesPage() {
                     key={month.month_year}
                     type="button"
                     onClick={() => setSelectedMonth(month.month_year)}
-                    className={`rounded-2xl border p-4 text-left transition-colors hover:bg-muted/20 ${selectedMonth === month.month_year ? 'border-sky-400/50 bg-sky-500/5' : 'bg-background'}`}
+                    className={`rounded-2xl border p-4 text-left transition-colors hover:bg-primary/10 dark:hover:bg-white/[0.04] ${selectedMonth === month.month_year ? 'border-primary/35 bg-primary/12 dark:bg-primary/10' : 'bg-white/60 dark:bg-white/[0.04]'}`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="font-medium">{format(new Date(month.month_year), 'MMMM yyyy')}</div>
+                        <div className="font-medium text-secondary dark:text-foreground">{format(new Date(month.month_year), 'MMMM yyyy')}</div>
                         <div className="mt-1 text-sm text-muted-foreground">{month.count} entr{month.count === 1 ? 'y' : 'ies'}</div>
                       </div>
                       <Receipt className="h-4 w-4 text-muted-foreground" />
                     </div>
-                    <div className="mt-4 text-2xl font-semibold">Rs {Number(month.total).toLocaleString('en-IN')}</div>
+                    <div className="mt-4 text-2xl font-semibold text-secondary dark:text-foreground">Rs {Number(month.total).toLocaleString('en-IN')}</div>
                     <div className="mt-3 text-xs text-muted-foreground">
                       {Object.entries(month.categories).length === 0
                         ? 'No expenses added yet.'
@@ -204,9 +206,9 @@ export function ExpensesPage() {
 
           <div className="grid gap-4 xl:grid-cols-[1.05fr_1fr]">
             <Card className="overflow-hidden py-0">
-              <div className="flex items-center justify-between border-b bg-muted/30 px-5 py-3.5">
+              <div className="flex items-center justify-between border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
                 <div>
-                  <CardTitle className="text-base tracking-tight">Add Expense Entries</CardTitle>
+                  <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Add Expense Entries</CardTitle>
                   <CardDescription className="mt-0.5">Appending to {selectedMonthSummary ? format(new Date(selectedMonthSummary.month_year), 'MMMM yyyy') : 'selected month'}. Use negative miscellaneous entries to compensate mistakes.</CardDescription>
                 </div>
                 <Button size="sm" onClick={handleSave} disabled={saving}>
@@ -214,7 +216,7 @@ export function ExpensesPage() {
                 </Button>
               </div>
 
-              <div className="divide-y">
+              <div className="divide-y divide-secondary/10">
                 {drafts.map((draft, index) => (
                   <div key={`${draft.category}-${index}`} className="grid gap-4 px-5 py-4 md:grid-cols-[220px_180px_1fr]">
                     <SelectField id={`expense-category-${index}`} label="Category" value={draft.category} onChange={(value) => updateDraft(index, 'category', value)} options={CATEGORIES.map((category) => ({ value: category.value, label: category.label }))} />
@@ -236,18 +238,18 @@ export function ExpensesPage() {
             </Card>
 
             <Card className="overflow-hidden py-0">
-              <div className="border-b bg-muted/30 px-5 py-3.5">
-                <CardTitle className="text-base tracking-tight">Month Detail</CardTitle>
+              <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+                <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Month Detail</CardTitle>
                 <CardDescription className="mt-0.5">{selectedMonthSummary ? `${format(new Date(selectedMonthSummary.month_year), 'MMMM yyyy')} · Rs ${Number(selectedMonthSummary.total).toLocaleString('en-IN')}` : 'Select a month card to review entries'}</CardDescription>
               </div>
 
               {loadingEntries ? (
-                <div className="h-60 animate-pulse bg-muted/20" />
+                <div className="h-60 animate-pulse bg-primary/10 dark:bg-white/[0.04]" />
               ) : entries.length === 0 ? (
                 <div className="p-8 text-center text-sm text-muted-foreground">No expense entries found for this month.</div>
               ) : (
                 <Table>
-                  <TableHeader className="bg-muted/50">
+                  <TableHeader className="bg-primary/10 dark:bg-white/[0.04]">
                      <TableRow>
                        <TableHead>#</TableHead>
                        <TableHead>Category</TableHead>

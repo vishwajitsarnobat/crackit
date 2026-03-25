@@ -133,8 +133,9 @@ export function AttendancePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-serif text-3xl tracking-tight">Task Attendance</h1>
+      <div className="glass-panel soft-ring rounded-[32px] px-8 py-8">
+        <Badge variant="outline" className="border-primary/30 bg-primary/15 text-secondary dark:text-primary">Tasks</Badge>
+        <h1 className="mt-3 font-serif text-4xl tracking-tight text-secondary dark:text-primary">Student Attendance</h1>
         <p className="mt-1 text-sm text-muted-foreground">Choose an assigned batch, pick a date, and mark present students. Everyone else is treated as absent automatically.</p>
       </div>
 
@@ -151,10 +152,10 @@ export function AttendancePage() {
         />
 
         <Card className="gap-0 overflow-hidden py-0">
-          <div className="border-b bg-muted/30 px-5 py-3.5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <CardTitle className="flex items-center gap-2 text-base tracking-tight">
+            <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-base tracking-tight text-secondary dark:text-primary">
                   <CalendarCheck className="h-4 w-4" />Attendance Roster
                 </CardTitle>
                 <CardDescription className="mt-0.5">
@@ -179,7 +180,7 @@ export function AttendancePage() {
             </div>
           ) : (
             <div className="space-y-4 px-5 py-5">
-              <div className="flex flex-wrap items-end justify-between gap-4 rounded-xl border bg-muted/20 p-4">
+              <div className="flex flex-wrap items-end justify-between gap-4 rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
                 <div>
                   <div className="font-medium">{selectedBatch?.batch_name}</div>
                   <div className="mt-1 text-sm text-muted-foreground">Selected date: {selectedDate}</div>
@@ -200,9 +201,9 @@ export function AttendancePage() {
               </div>
 
               {loadingStudents ? (
-                <div className="h-56 animate-pulse rounded-xl bg-muted/20" />
+                <div className="h-56 animate-pulse rounded-[24px] bg-primary/10 dark:bg-white/[0.04]" />
               ) : filteredStudents.length === 0 ? (
-                <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">
+                <div className="rounded-[24px] border border-dashed border-secondary/20 bg-white/40 p-10 text-center text-sm text-muted-foreground dark:bg-white/[0.02]">
                   No students found for this batch and search filter.
                 </div>
               ) : (
@@ -213,7 +214,7 @@ export function AttendancePage() {
                     return (
                       <label
                         key={student.student_id}
-                        className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border bg-background px-4 py-3 transition-colors hover:bg-muted/20"
+                        className="flex cursor-pointer items-center justify-between gap-4 rounded-[24px] border border-secondary/10 bg-white/60 px-4 py-3 transition-colors hover:bg-primary/10 dark:hover:bg-white/[0.04]"
                       >
                         <div className="flex items-center gap-4">
                           <span className="w-6 text-sm text-muted-foreground">{index + 1}</span>

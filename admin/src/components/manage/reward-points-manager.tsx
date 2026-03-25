@@ -135,8 +135,8 @@ export function RewardPointsManager({ role }: { role: AppRole }) {
 
       <TabsContent value="students" className="space-y-4">
         <Card className="gap-0 overflow-hidden py-0">
-          <div className="border-b bg-muted/30 px-5 py-3.5">
-            <CardTitle className="text-base tracking-tight">Student Reward Filters</CardTitle>
+          <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+            <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Student Reward Filters</CardTitle>
             <CardDescription className="mt-0.5">Search and filter students before reviewing ledgers or making manual adjustments.</CardDescription>
           </div>
           <div className={`grid gap-4 px-5 py-4 ${role === 'ceo' ? 'md:grid-cols-[1fr_220px_240px]' : 'md:grid-cols-[1fr_240px]'}`}>
@@ -160,33 +160,33 @@ export function RewardPointsManager({ role }: { role: AppRole }) {
 
         <div className="grid gap-4 lg:grid-cols-[360px_1fr]">
           <Card className="gap-0 overflow-hidden py-0">
-            <div className="border-b bg-muted/30 px-5 py-3.5">
-              <CardTitle className="text-base tracking-tight">Students</CardTitle>
+            <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
+              <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Students</CardTitle>
               <CardDescription className="mt-0.5">{students.length} student card(s)</CardDescription>
             </div>
             <div className="max-h-[700px] overflow-y-auto">
               {loading ? (
-                <div className="h-56 animate-pulse bg-muted/20" />
+                <div className="h-56 animate-pulse bg-primary/10 dark:bg-white/[0.04]" />
               ) : students.length === 0 ? (
                 <div className="flex flex-col items-center justify-center p-10 text-center text-sm text-muted-foreground">
                   <Gift className="mb-3 h-8 w-8 opacity-20" />
                   No students match the current filters.
                 </div>
               ) : (
-                <div className="divide-y">
+                <div className="divide-y divide-secondary/10">
                   {students.map((student) => (
                     <button
                       key={student.student_id}
                       type="button"
                        onClick={() => setFilter('selectedStudentId', student.student_id)}
-                       className={`w-full px-5 py-4 text-left transition-colors hover:bg-muted/30 ${effectiveSelectedStudentId === student.student_id ? 'bg-muted/40' : ''}`}
-                    >
+                       className={`w-full px-5 py-4 text-left transition-colors hover:bg-primary/10 dark:hover:bg-white/[0.04] ${effectiveSelectedStudentId === student.student_id ? 'bg-primary/14 dark:bg-white/[0.06]' : ''}`}
+                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <div className="font-medium">{student.student_name}</div>
+                          <div className="font-medium text-secondary dark:text-foreground">{student.student_name}</div>
                           <div className="font-mono text-xs text-muted-foreground">{student.student_code || '-'}</div>
                         </div>
-                        <Badge variant="outline" className="bg-sky-500/10 text-sky-600 border-sky-200">
+                        <Badge variant="outline" className="bg-primary/14 text-secondary border-primary/30 dark:text-primary">
                           {student.current_points} pts
                         </Badge>
                       </div>
@@ -201,10 +201,10 @@ export function RewardPointsManager({ role }: { role: AppRole }) {
           </Card>
 
           <Card className="gap-0 overflow-hidden py-0">
-            <div className="border-b bg-muted/30 px-5 py-3.5">
+            <div className="border-b border-secondary/10 bg-primary/8 px-5 py-4 dark:bg-white/[0.03]">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <CardTitle className="text-base tracking-tight">Reward Ledger</CardTitle>
+                  <CardTitle className="text-base tracking-tight text-secondary dark:text-primary">Reward Ledger</CardTitle>
                   <CardDescription className="mt-0.5">View automatic awards and manual point changes for the selected student.</CardDescription>
                 </div>
                 {selectedStudent && (
@@ -221,33 +221,33 @@ export function RewardPointsManager({ role }: { role: AppRole }) {
                 Select a student to inspect reward history.
               </div>
             ) : detailsLoading ? (
-              <div className="h-56 animate-pulse bg-muted/20" />
+              <div className="h-56 animate-pulse bg-primary/10 dark:bg-white/[0.04]" />
             ) : !selectedStudent ? (
               <div className="flex min-h-[320px] items-center justify-center p-10 text-sm text-muted-foreground">Student details are unavailable for the current scope.</div>
             ) : (
               <div className="space-y-5 px-5 py-5">
-                <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border bg-muted/20 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-4 rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
                   <div>
-                    <div className="text-xl font-semibold">{selectedStudent.student_name}</div>
+                    <div className="text-xl font-semibold text-secondary dark:text-foreground">{selectedStudent.student_name}</div>
                     <div className="mt-1 font-mono text-sm text-muted-foreground">{selectedStudent.student_code || '-'}</div>
                   </div>
-                  <div className="rounded-lg border bg-background px-4 py-3 text-right">
+                  <div className="rounded-2xl border border-secondary/10 bg-white/70 px-4 py-3 text-right dark:bg-white/[0.05]">
                     <div className="text-xs uppercase tracking-wide text-muted-foreground">Current Points</div>
-                    <div className="text-2xl font-semibold text-sky-600">{selectedStudent.current_points}</div>
+                    <div className="text-2xl font-semibold text-secondary dark:text-primary">{selectedStudent.current_points}</div>
                   </div>
                 </div>
 
                 {transactions.length === 0 ? (
-                  <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">
+                  <div className="rounded-[24px] border border-dashed border-secondary/20 bg-white/40 p-6 text-sm text-muted-foreground dark:bg-white/[0.02]">
                     No reward transactions recorded yet for this student.
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {transactions.map((transaction) => (
-                      <div key={transaction.id} className="rounded-xl border bg-background p-4">
+                      <div key={transaction.id} className="rounded-[24px] border border-secondary/10 bg-white/55 p-4 dark:bg-white/[0.04]">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div>
-                            <div className="font-medium capitalize">{reasonLabel(transaction.reason)}</div>
+                            <div className="font-medium capitalize text-secondary dark:text-foreground">{reasonLabel(transaction.reason)}</div>
                             <div className="mt-1 text-sm text-muted-foreground">{transaction.description || 'No additional description provided.'}</div>
                           </div>
                           <Badge variant="outline" className={transaction.points >= 0 ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-red-500/10 text-red-600 border-red-200'}>
@@ -256,9 +256,9 @@ export function RewardPointsManager({ role }: { role: AppRole }) {
                           </Badge>
                         </div>
                         <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-3">
-                          <div>Date: <span className="font-medium text-foreground">{transaction.created_at.slice(0, 10)}</span></div>
-                          <div>Month: <span className="font-medium text-foreground">{transaction.month_year ? transaction.month_year.slice(0, 7) : 'N/A'}</span></div>
-                          <div>Rule: <span className="font-medium text-foreground">{transaction.reward_rule_id || 'Manual / N/A'}</span></div>
+                          <div>Date: <span className="font-medium text-secondary dark:text-foreground">{transaction.created_at.slice(0, 10)}</span></div>
+                          <div>Month: <span className="font-medium text-secondary dark:text-foreground">{transaction.month_year ? transaction.month_year.slice(0, 7) : 'N/A'}</span></div>
+                          <div>Rule: <span className="font-medium text-secondary dark:text-foreground">{transaction.reward_rule_id || 'Manual / N/A'}</span></div>
                         </div>
                       </div>
                     ))}
@@ -282,8 +282,8 @@ export function RewardPointsManager({ role }: { role: AppRole }) {
         <div className="space-y-4">
           <div className="space-y-2">
             <Label>Student</Label>
-            <div className="rounded-md border bg-muted/20 p-3">
-              <div className="font-medium">{selectedStudent?.student_name}</div>
+            <div className="rounded-2xl border border-secondary/10 bg-white/60 p-3 dark:bg-white/[0.04]">
+              <div className="font-medium text-secondary dark:text-foreground">{selectedStudent?.student_name}</div>
               <div className="font-mono text-sm text-muted-foreground">{selectedStudent?.student_code || '-'}</div>
             </div>
           </div>
