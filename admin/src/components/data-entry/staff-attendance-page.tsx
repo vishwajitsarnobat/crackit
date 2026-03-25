@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, subDays } from 'date-fns'
 import { Clock, Search, Users } from 'lucide-react'
@@ -45,7 +45,10 @@ export function StaffAttendancePage() {
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [teacherSearch, setTeacherSearch] = useState('')
   const [selectedTeacherId, setSelectedTeacherId] = useState('')
-  const [draftTeacherEdits, setDraftTeacherEdits] = useState<Record<string, Pick<StaffRow, 'status' | 'in_time' | 'out_time'>>>({})
+  const [draftTeacherEdits, setDraftTeacherEdits] = useState<{
+    scopeKey: string
+    edits: Record<string, Pick<StaffRow, 'status' | 'in_time' | 'out_time'>>
+  }>({ scopeKey: '', edits: {} })
   const scopedFiltersQuery = useScopedFilters()
 
   const centresQuery = useTaskCentres('/api/data-entry/staff-attendance', 'staff-attendance')
@@ -53,6 +56,7 @@ export function StaffAttendancePage() {
   const centres = useMemo(() => centresQuery.data?.centres ?? [], [centresQuery.data?.centres])
   const batches = useMemo(() => (scopedFiltersQuery.data?.batches ?? []) as BatchOption[], [scopedFiltersQuery.data?.batches])
   const effectiveSelectedCentre = selectedCentre || centres[0]?.id || ''
+  const attendanceScopeKey = `${effectiveSelectedCentre}:${selectedBatch}:${selectedDate}`
 
   const teachersQuery = useQuery({
     queryKey: ['task-staff-attendance-teachers', effectiveSelectedCentre, selectedDate, selectedBatch],
@@ -96,9 +100,9 @@ export function StaffAttendancePage() {
   const teachers = useMemo(
     () => (teachersQuery.data?.staff ?? []).map((teacher) => ({
       ...teacher,
-      ...draftTeacherEdits[teacher.user_id],
+      ...(draftTeacherEdits.scopeKey === attendanceScopeKey ? draftTeacherEdits.edits[teacher.user_id] : undefined),
     })),
-    [draftTeacherEdits, teachersQuery.data?.staff],
+    [attendanceScopeKey, draftTeacherEdits, teachersQuery.data?.staff],
   )
   const loadingCentres = centresQuery.isPending || centresQuery.isFetching
   const loadingTeachers = teachersQuery.isPending || teachersQuery.isFetching
@@ -127,10 +131,6 @@ export function StaffAttendancePage() {
     [effectiveSelectedTeacherId, filteredTeachers],
   )
 
-  useEffect(() => {
-    setDraftTeacherEdits({})
-  }, [effectiveSelectedCentre, selectedBatch, selectedDate])
-
   const previousDaySummary = useMemo(() => {
     const previousDate = format(subDays(new Date(selectedDate), 1), 'yyyy-MM-dd')
     return `Previous-day reference: choose ${previousDate} to inspect or edit that day's saved status.`
@@ -140,7 +140,8 @@ export function StaffAttendancePage() {
     if (!selectedTeacher) return
 
     setDraftTeacherEdits((previous) => {
-      const current = previous[selectedTeacher.user_id] ?? {
+      const scopedEdits = previous.scopeKey === attendanceScopeKey ? previous.edits : {}
+      const current = scopedEdits[selectedTeacher.user_id] ?? {
         status: selectedTeacher.status,
         in_time: selectedTeacher.in_time,
         out_time: selectedTeacher.out_time,
@@ -149,21 +150,27 @@ export function StaffAttendancePage() {
       if (field === 'status') {
         const status = value as StaffRow['status']
         return {
-          ...previous,
-          [selectedTeacher.user_id]: {
-            ...current,
-            status,
-            in_time: status === 'partial' ? current.in_time : null,
-            out_time: status === 'partial' ? current.out_time : null,
+          scopeKey: attendanceScopeKey,
+          edits: {
+            ...scopedEdits,
+            [selectedTeacher.user_id]: {
+              ...current,
+              status,
+              in_time: status === 'partial' ? current.in_time : null,
+              out_time: status === 'partial' ? current.out_time : null,
+            },
           },
         }
       }
 
       return {
-        ...previous,
-        [selectedTeacher.user_id]: {
-          ...current,
-          [field]: value || null,
+        scopeKey: attendanceScopeKey,
+        edits: {
+          ...scopedEdits,
+          [selectedTeacher.user_id]: {
+            ...current,
+            [field]: value || null,
+          },
         },
       }
     })

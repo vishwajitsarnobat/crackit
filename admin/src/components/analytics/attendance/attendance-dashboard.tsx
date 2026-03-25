@@ -79,6 +79,22 @@ function prettyDate(value: string) {
   return format(new Date(`${value}T00:00:00`), 'dd MMM')
 }
 
+const MONTH_OPTIONS = [
+  { value: 'all', label: 'All months' },
+  { value: '01', label: 'January' },
+  { value: '02', label: 'February' },
+  { value: '03', label: 'March' },
+  { value: '04', label: 'April' },
+  { value: '05', label: 'May' },
+  { value: '06', label: 'June' },
+  { value: '07', label: 'July' },
+  { value: '08', label: 'August' },
+  { value: '09', label: 'September' },
+  { value: '10', label: 'October' },
+  { value: '11', label: 'November' },
+  { value: '12', label: 'December' },
+] as const
+
 function buildAttendanceQueryString(filters: AppliedAttendanceFilters) {
   const params = new URLSearchParams()
   for (const [key, value] of Object.entries(filters)) {
@@ -297,25 +313,23 @@ export function AttendanceDashboard() {
         )}
         <SelectFilter id="attendance-batch" label="Batch" value={batchId || 'all'} options={batchOptions} onChange={(value) => patchFilters({ batchId: value === 'all' ? '' : value, studentId: '' })} />
         <SelectFilter id="attendance-student" label="Student" value={studentId || 'all'} options={studentOptions} onChange={(value) => setFilter('studentId', value === 'all' ? '' : value)} />
-        <div className="space-y-2">
-          <Label htmlFor="attendance-month">Month</Label>
-          <Input
-            id="attendance-month"
-            type="month"
-            value={month}
-            onChange={(event) => {
-              const nextMonth = event.target.value
-              if (!nextMonth) {
-                setFilter('month', '')
-                return
-              }
-              const monthStart = format(startOfMonth(new Date(`${nextMonth}-01T00:00:00`)), 'yyyy-MM-dd')
-              const monthEnd = format(endOfMonth(new Date(`${nextMonth}-01T00:00:00`)), 'yyyy-MM-dd')
-              patchFilters({ month: nextMonth, fromDate: monthStart, toDate: monthEnd, year: nextMonth.slice(0, 4) })
-            }}
-            max={format(new Date(), 'yyyy-MM')}
-          />
-        </div>
+        <SelectField
+          id="attendance-month"
+          label="Month"
+          value={month ? month.slice(5, 7) : 'all'}
+          options={MONTH_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+          onChange={(value) => {
+            if (value === 'all') {
+              patchFilters({ month: '', fromDate: '', toDate: '' })
+              return
+            }
+
+            const nextMonth = `${year}-${value}`
+            const monthStart = format(startOfMonth(new Date(`${nextMonth}-01T00:00:00`)), 'yyyy-MM-dd')
+            const monthEnd = format(endOfMonth(new Date(`${nextMonth}-01T00:00:00`)), 'yyyy-MM-dd')
+            patchFilters({ month: nextMonth, fromDate: monthStart, toDate: monthEnd })
+          }}
+        />
         <DatePickerField id="attendance-from" label="From" value={fromDate} onChange={(value) => patchFilters({ fromDate: value, month: '' })} max={toDate || undefined} />
         <DatePickerField id="attendance-to" label="To" value={toDate} onChange={(value) => patchFilters({ toDate: value, month: '' })} min={fromDate || undefined} max={format(new Date(), 'yyyy-MM-dd')} />
         <div className="space-y-2">
