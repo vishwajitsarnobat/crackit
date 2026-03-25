@@ -94,7 +94,8 @@ export const GET = withAuth(async (request, ctx) => {
       .single()
 
     if (invoiceError || !invoice) return apiError('Invoice not found.', 404)
-    if (!ctx.profile.centreIds.includes((invoice.batches as { centre_id: string | null } | null)?.centre_id ?? '')) {
+    const invoiceBatch = Array.isArray(invoice.batches) ? invoice.batches[0] : invoice.batches
+    if (!ctx.profile.centreIds.includes((invoiceBatch as { centre_id: string | null } | null)?.centre_id ?? '')) {
       return apiError('You are not authorized to view this invoice.', 403)
     }
 

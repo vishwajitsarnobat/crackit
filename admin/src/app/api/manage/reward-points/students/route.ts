@@ -8,12 +8,19 @@ type StudentSummaryRow = {
   students: {
     student_code: string | null
     current_points: number | null
-    users: { full_name: string | null } | null
-  } | null
+    users: { full_name: string | null } | Array<{ full_name: string | null }> | null
+  } | Array<{
+    student_code: string | null
+    current_points: number | null
+    users: { full_name: string | null } | Array<{ full_name: string | null }> | null
+  }> | null
   batches: {
     batch_name: string | null
     centre_id: string | null
-  } | null
+  } | Array<{
+    batch_name: string | null
+    centre_id: string | null
+  }> | null
 }
 
 type RewardLedgerRow = {
@@ -76,26 +83,29 @@ export const GET = withAuth(async (request, ctx) => {
   }>()
 
   for (const row of (enrollmentRows ?? []) as StudentSummaryRow[]) {
-    const name = row.students?.users?.full_name ?? 'Unknown'
-    if (search && !name.toLowerCase().includes(search) && !(row.students?.student_code ?? '').toLowerCase().includes(search)) {
+    const studentInfo = Array.isArray(row.students) ? row.students[0] : row.students
+    const studentUser = Array.isArray(studentInfo?.users) ? studentInfo?.users[0] : studentInfo?.users
+    const batchInfo = Array.isArray(row.batches) ? row.batches[0] : row.batches
+    const name = studentUser?.full_name ?? 'Unknown'
+    if (search && !name.toLowerCase().includes(search) && !(studentInfo?.student_code ?? '').toLowerCase().includes(search)) {
       continue
     }
 
     const existing = summaries.get(row.student_id) ?? {
       student_id: row.student_id,
       student_name: name,
-      student_code: row.students?.student_code ?? null,
-      current_points: Number(row.students?.current_points ?? 0),
+      student_code: studentInfo?.student_code ?? null,
+      current_points: Number(studentInfo?.current_points ?? 0),
       batch_names: [],
       centre_ids: [],
     }
 
-    if (row.batches?.batch_name && !existing.batch_names.includes(row.batches.batch_name)) {
-      existing.batch_names.push(row.batches.batch_name)
+    if (batchInfo?.batch_name && !existing.batch_names.includes(batchInfo.batch_name)) {
+      existing.batch_names.push(batchInfo.batch_name)
     }
 
-    if (row.batches?.centre_id && !existing.centre_ids.includes(row.batches.centre_id)) {
-      existing.centre_ids.push(row.batches.centre_id)
+    if (batchInfo?.centre_id && !existing.centre_ids.includes(batchInfo.centre_id)) {
+      existing.centre_ids.push(batchInfo.centre_id)
     }
 
     summaries.set(row.student_id, existing)
@@ -140,7 +150,10 @@ export const POST = withAuth(async (request, ctx) => {
   if (enrollmentError) return apiError(enrollmentError.message, 500)
 
   if (ctx.profile.role === 'centre_head') {
-    const allowed = (studentEnrollment ?? []).some((row) => ctx.profile.centreIds.includes((row.batches as { centre_id: string | null } | null)?.centre_id ?? ''))
+    const allowed = (studentEnrollment ?? []).some((row) => {
+      const batch = Array.isArray(row.batches) ? row.batches[0] : row.batches
+      return ctx.profile.centreIds.includes((batch as { centre_id: string | null } | null)?.centre_id ?? '')
+    })
     if (!allowed) return apiError('You are not allowed to modify points for this student.', 403)
   }
 

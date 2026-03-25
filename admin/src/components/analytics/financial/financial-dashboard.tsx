@@ -1,11 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { Banknote, ReceiptText, Search, TrendingDown, Wallet } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts'
-import { toast } from 'sonner'
 
 import { SelectField } from '@/components/shared/form/select-field'
 import { fetchJson } from '@/lib/http/fetch-json'
@@ -18,6 +17,7 @@ import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartToo
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { useFinancialAnalyticsFilterStore } from '@/lib/stores/financial-analytics-filters'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
 type FinancialPayload = {
   filters: {
@@ -110,18 +110,13 @@ export function FinancialDashboard() {
 
   const loading = isPending || isFetching
 
-  useEffect(() => {
-    if (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to load financial analytics')
-    }
-  }, [error])
+  useQueryErrorToast(error, 'Failed to load financial analytics')
 
   function applyFilters(next?: Partial<AppliedFinancialFilters>) {
-    setAppliedFilters((current) => ({
+    setAppliedFilters(() => ({
       centreId,
       month,
       year,
-      ...current,
       ...next,
     }))
   }

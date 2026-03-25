@@ -14,7 +14,10 @@ type AssignmentRow = {
     users: {
         full_name: string | null
         roles: { role_name: string } | { role_name: string }[] | null
-    } | null
+    } | Array<{
+        full_name: string | null
+        roles: { role_name: string } | { role_name: string }[] | null
+    }> | null
 }
 type AttendanceRow = {
   id: string
@@ -24,13 +27,15 @@ type AttendanceRow = {
   out_time: string | null
 }
 
+type RoleRelation = { role_name: string } | Array<{ role_name: string }> | null
+
 function getPreviousDate(value: string) {
   const date = new Date(`${value}T00:00:00`)
   date.setDate(date.getDate() - 1)
   return date.toISOString().slice(0, 10)
 }
 
-function resolveRoleName(roles: AssignmentRow['users'] extends { roles: infer R } ? R : never) {
+function resolveRoleName(roles: RoleRelation) {
     if (Array.isArray(roles)) return roles[0]?.role_name ?? null
     return roles?.role_name ?? null
 }
@@ -99,12 +104,18 @@ export const GET = withAuth(async (request, ctx) => {
     if (assError) return apiError(assError.message, 500)
 
     const staff = ((assignments ?? []) as AssignmentRow[])
-        .filter((a) => resolveRoleName(a.users?.roles ?? null) === 'teacher')
-        .map((a) => ({
-            user_id: a.user_id,
-            staff_name: a.users?.full_name ?? 'Unknown',
-            role: 'teacher',
-        }))
+        .filter((a) => {
+            const user = Array.isArray(a.users) ? a.users[0] : a.users
+            return resolveRoleName(user?.roles ?? null) === 'teacher'
+        })
+        .map((a) => {
+            const user = Array.isArray(a.users) ? a.users[0] : a.users
+            return {
+                user_id: a.user_id,
+                staff_name: user?.full_name ?? 'Unknown',
+                role: 'teacher',
+            }
+        })
 
     let attendance: AttendanceRow[] = []
     let previousAttendance: AttendanceRow[] = []
@@ -175,7 +186,10 @@ export const POST = withAuth(async (request, ctx) => {
 
     const allowedTeacherIds = new Set(
         ((assignments ?? []) as AssignmentRow[])
-            .filter((assignment) => resolveRoleName(assignment.users?.roles ?? null) === 'teacher')
+            .filter((assignment) => {
+                const user = Array.isArray(assignment.users) ? assignment.users[0] : assignment.users
+                return resolveRoleName(user?.roles ?? null) === 'teacher'
+            })
             .map((assignment) => assignment.user_id),
     )
 

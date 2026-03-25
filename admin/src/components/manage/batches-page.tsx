@@ -9,7 +9,6 @@
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Plus, Pencil, Power } from 'lucide-react'
-import { fetchJson } from '@/lib/http/fetch-json'
 import { SelectField } from '@/components/shared/form/select-field'
 
 import { Button } from '@/components/ui/button'
@@ -20,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ManageDialog } from '@/components/manage/manage-dialog'
 import { useManageData } from '@/lib/hooks/use-manage-data'
+import { useManageMutation } from '@/lib/hooks/use-manage-mutation'
 import { type AppRole, type Batch, type Centre } from '@/lib/types/entities'
 
 type StatusFilter = 'all' | 'active' | 'inactive'
@@ -37,8 +37,23 @@ export function BatchesPage({ role }: { role: AppRole }) {
 
     const centres = data?.centres || []
     const [dialogOpen, setDialogOpen] = useState(false)
-    const [saving, setSaving] = useState(false)
     const [editing, setEditing] = useState<Batch | null>(null)
+
+    const createBatchMutation = useManageMutation<{ centre_id: string; batch_code: string; batch_name: string; academic_year: string }>({
+        endpoint: 'batches',
+        method: 'POST',
+        errorPrefix: 'Create batch',
+        buildBody: (variables) => variables,
+    })
+
+    const updateBatchMutation = useManageMutation<{ id: string; batch_name?: string; academic_year?: string; is_active?: boolean }>({
+        endpoint: 'batches',
+        method: 'PATCH',
+        errorPrefix: 'Update batch',
+        buildBody: (variables) => variables,
+    })
+
+    const saving = createBatchMutation.isPending || updateBatchMutation.isPending
 
     // Form state
     const [centreId, setCentreId] = useState('')
@@ -81,27 +96,17 @@ export function BatchesPage({ role }: { role: AppRole }) {
     }
 
     async function handleSave() {
-        setSaving(true)
         try {
             if (editing) {
-                await fetchJson('/api/manage/batches', {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: editing.id, batch_name: batchName, academic_year: academicYear })
-                })
+                await updateBatchMutation.mutateAsync({ id: editing.id, batch_name: batchName, academic_year: academicYear })
                 toast.success('Batch updated')
             } else {
-                await fetchJson('/api/manage/batches', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ centre_id: centreId, batch_code: batchCode, batch_name: batchName, academic_year: academicYear })
-                })
+                await createBatchMutation.mutateAsync({ centre_id: centreId, batch_code: batchCode, batch_name: batchName, academic_year: academicYear })
                 toast.success('Batch created')
             }
             setDialogOpen(false)
             await reload({ centreId: filterCentre })
         } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Failed to save batch changes') }
-        finally { setSaving(false) }
     }
 
     async function toggleActive(b: Batch) {
@@ -110,11 +115,7 @@ export function BatchesPage({ role }: { role: AppRole }) {
         if (!confirm(`Are you sure you want to ${actionLabel} ${b.batch_name}?`)) return
 
         try {
-            await fetchJson('/api/manage/batches', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: b.id, is_active: !b.is_active })
-            })
+            await updateBatchMutation.mutateAsync({ id: b.id, is_active: !b.is_active })
             toast.success(`Batch ${b.is_active ? 'deactivated' : 'activated'}`)
             await reload({ centreId: filterCentre })
         } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Failed to update batch status') }

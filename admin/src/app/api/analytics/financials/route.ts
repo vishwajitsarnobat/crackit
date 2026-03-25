@@ -144,10 +144,11 @@ export async function GET(request: NextRequest) {
     batch_names: string[]
   }>()
 
-  for (const row of (salaryRows ?? []) as Array<{ user_id: string; month_year: string; amount_due: number; amount_paid: number; status: string; assignment_snapshot: Array<{ batch_name: string }>; users: { full_name: string | null } | null }>) {
+  for (const row of (salaryRows ?? []) as Array<{ user_id: string; month_year: string; amount_due: number; amount_paid: number; status: string; assignment_snapshot: Array<{ batch_name: string }>; users: { full_name: string | null } | Array<{ full_name: string | null }> | null }>) {
+    const user = Array.isArray(row.users) ? row.users[0] : row.users
     const existing = salarySummaryMap.get(row.user_id) ?? {
       teacher_id: row.user_id,
-      teacher_name: row.users?.full_name ?? 'Unknown',
+      teacher_name: user?.full_name ?? 'Unknown',
       paid_till: null,
       pending_months: [],
       total_pending_amount: 0,
@@ -178,12 +179,13 @@ export async function GET(request: NextRequest) {
     batch_names: string[]
   }>()
 
-  for (const row of (invoiceRows ?? []) as Array<{ student_id: string; month_year: string; amount_due: number; amount_paid: number; amount_discount: number; payment_status: string; batches: { batch_name: string } | { batch_name: string }[] | null; students: { student_code: string | null; users: { full_name: string | null } | null } | { student_code: string | null; users: { full_name: string | null } | null }[] | null }>) {
+  for (const row of (invoiceRows ?? []) as Array<{ student_id: string; month_year: string; amount_due: number; amount_paid: number; amount_discount: number; payment_status: string; batches: { batch_name: string } | { batch_name: string }[] | null; students: { student_code: string | null; users: { full_name: string | null } | Array<{ full_name: string | null }> | null } | Array<{ student_code: string | null; users: { full_name: string | null } | Array<{ full_name: string | null }> | null }> | null }>) {
     const studentInfo = Array.isArray(row.students) ? row.students[0] : row.students
     const batchInfo = Array.isArray(row.batches) ? row.batches[0] : row.batches
+    const studentUser = Array.isArray(studentInfo?.users) ? studentInfo?.users[0] : studentInfo?.users
     const existing = feeSummaryMap.get(row.student_id) ?? {
       student_id: row.student_id,
-      student_name: studentInfo?.users?.full_name ?? 'Unknown',
+      student_name: studentUser?.full_name ?? 'Unknown',
       student_code: studentInfo?.student_code ?? null,
       paid_till: null,
       pending_months: [],

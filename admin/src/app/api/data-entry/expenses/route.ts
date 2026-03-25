@@ -23,7 +23,7 @@ type ExpenseRow = {
   description: string | null
   entered_by: string | null
   created_at: string
-  users: { full_name: string | null } | null
+  users: { full_name: string | null } | Array<{ full_name: string | null }> | null
 }
 
 export const GET = withAuth(async (request, ctx) => {
@@ -90,7 +90,7 @@ export const GET = withAuth(async (request, ctx) => {
   return apiSuccess({
     expenses: ((data ?? []) as unknown as ExpenseRow[]).map((expense) => ({
       ...expense,
-      entered_by_name: expense.users?.full_name ?? null,
+      entered_by_name: (Array.isArray(expense.users) ? expense.users[0] : expense.users)?.full_name ?? null,
     })),
   })
 }, ['centre_head', 'accountant'])

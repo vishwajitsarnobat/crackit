@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { format, getDate, getDaysInMonth } from 'date-fns'
 import { Plus, Power, UserRoundSearch, Users } from 'lucide-react'
 import { toast } from 'sonner'
@@ -23,6 +24,7 @@ import {
   type TeacherEnrollmentProfile,
 } from '@/lib/types/entities'
 import { useManageData } from '@/lib/hooks/use-manage-data'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
 type StudentPayload = {
   students: StudentEnrollmentProfile[]
@@ -39,6 +41,7 @@ type TeacherPayload = {
 }
 
 export function EnrollmentsPage({ role }: { role: AppRole }) {
+  const queryClient = useQueryClient()
   const [filterCentre, setFilterCentre] = useState('')
   const [filterBatch, setFilterBatch] = useState('')
   const [search, setSearch] = useState('')
@@ -63,7 +66,6 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
 
   const [studentDialogOpen, setStudentDialogOpen] = useState(false)
   const [teacherDialogOpen, setTeacherDialogOpen] = useState(false)
-  const [saving, setSaving] = useState(false)
 
   const [studentBatchId, setStudentBatchId] = useState('')
   const [enrollDate, setEnrollDate] = useState(format(new Date(), 'yyyy-MM-dd'))
@@ -86,28 +88,130 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
   const [teacherFullName, setTeacherFullName] = useState('')
   const [teacherPhone, setTeacherPhone] = useState('')
 
+  useQueryErrorToast(studentDataState.error, 'Failed to load student enrollments')
+  useQueryErrorToast(teacherDataState.error, 'Failed to load teacher enrollments')
+
+  const refreshEnrollments = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['manage-data', 'enrollments'] })
+    await queryClient.invalidateQueries({ queryKey: ['manage-data', 'teachers'] })
+  }
+
+  const studentAssignmentMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => fetchJson<{ amount_due?: number; first_invoice_amount_due?: number }>('/api/manage/enrollments', {
+      method: editingEnrollmentId ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: async (payload) => {
+      toast.success(
+        editingEnrollmentId
+          ? `Enrollment updated. First invoice: Rs ${Number(payload.first_invoice_amount_due ?? 0).toFixed(2)}`
+          : `Student assigned. First invoice: Rs ${Number(payload.amount_due).toFixed(2)}`,
+      )
+      setStudentDialogOpen(false)
+      setEditingEnrollmentId(null)
+      await refreshEnrollments()
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : editingEnrollmentId ? 'Failed to update enrollment' : 'Failed to assign student')
+    },
+  })
+
+  const teacherAssignmentMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => fetchJson('/api/manage/teachers', {
+      method: editingAssignmentId ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: async () => {
+      toast.success(editingAssignmentId ? 'Teacher assignment updated.' : 'Teacher assignment added.')
+      setTeacherDialogOpen(false)
+      setEditingAssignmentId(null)
+      await refreshEnrollments()
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : editingAssignmentId ? 'Failed to update teacher assignment' : 'Failed to assign teacher')
+    },
+  })
+
+  const studentProfileMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => fetchJson('/api/manage/enrollments', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: async () => {
+      toast.success('Student profile updated.')
+      setStudentProfileDialogOpen(false)
+      await refreshEnrollments()
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to update student profile')
+    },
+  })
+
+  const teacherProfileMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => fetchJson('/api/manage/teachers', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: async () => {
+      toast.success('Teacher profile updated.')
+      setTeacherProfileDialogOpen(false)
+      await refreshEnrollments()
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to update teacher profile')
+    },
+  })
+
+  const withdrawEnrollmentMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => fetchJson('/api/manage/enrollments', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: async () => {
+      toast.success('Enrollment withdrawn.')
+      await refreshEnrollments()
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to withdraw enrollment')
+    },
+  })
+
+  const withdrawTeacherMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => fetchJson('/api/manage/teachers', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: async () => {
+      toast.success('Teacher assignment withdrawn.')
+      await refreshEnrollments()
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to withdraw teacher assignment')
+    },
+  })
+
+  const saving = studentAssignmentMutation.isPending || teacherAssignmentMutation.isPending || studentProfileMutation.isPending || teacherProfileMutation.isPending || withdrawEnrollmentMutation.isPending || withdrawTeacherMutation.isPending
+
+  const effectiveSelectedStudentId = selectedStudentId && students.some((student) => student.student_id === selectedStudentId)
+    ? selectedStudentId
+    : (students[0]?.student_id ?? '')
   const selectedStudent = useMemo(
-    () => students.find((student) => student.student_id === selectedStudentId) ?? students[0] ?? null,
-    [students, selectedStudentId],
+    () => students.find((student) => student.student_id === effectiveSelectedStudentId) ?? students[0] ?? null,
+    [effectiveSelectedStudentId, students],
   )
+  const effectiveSelectedTeacherId = selectedTeacherId && teachers.some((teacher) => teacher.teacher_id === selectedTeacherId)
+    ? selectedTeacherId
+    : (teachers[0]?.teacher_id ?? '')
   const selectedTeacher = useMemo(
-    () => teachers.find((teacher) => teacher.teacher_id === selectedTeacherId) ?? teachers[0] ?? null,
-    [teachers, selectedTeacherId],
+    () => teachers.find((teacher) => teacher.teacher_id === effectiveSelectedTeacherId) ?? teachers[0] ?? null,
+    [effectiveSelectedTeacherId, teachers],
   )
-
-  useEffect(() => {
-    if (!students.length) return setSelectedStudentId('')
-    if (!selectedStudentId || !students.some((student) => student.student_id === selectedStudentId)) {
-      setSelectedStudentId(students[0].student_id)
-    }
-  }, [students, selectedStudentId])
-
-  useEffect(() => {
-    if (!teachers.length) return setSelectedTeacherId('')
-    if (!selectedTeacherId || !teachers.some((teacher) => teacher.teacher_id === selectedTeacherId)) {
-      setSelectedTeacherId(teachers[0].teacher_id)
-    }
-  }, [teachers, selectedTeacherId])
 
   const availableStudentBatches = useMemo(() => {
     const assignedIds = new Set(selectedStudent?.assignments.map((assignment) => assignment.batch_id) ?? [])
@@ -218,158 +322,76 @@ export function EnrollmentsPage({ role }: { role: AppRole }) {
 
   async function handleStudentAssign() {
     if (!selectedStudent) return
-    setSaving(true)
-    try {
-      const payload = await fetchJson<{ amount_due?: number; first_invoice_amount_due?: number }>('/api/manage/enrollments', {
-        method: editingEnrollmentId ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          editingEnrollmentId
-            ? {
-                id: editingEnrollmentId,
-                action: 'update',
-                enrollment_date: enrollDate,
-                monthly_fee: monthlyFee,
-              }
-            : {
-                student_id: selectedStudent.student_id,
-                batch_id: studentBatchId,
-                enrollment_date: enrollDate,
-                monthly_fee: monthlyFee,
-              },
-        ),
-      })
-      toast.success(
-        editingEnrollmentId
-          ? `Enrollment updated. First invoice: Rs ${Number(payload.first_invoice_amount_due ?? 0).toFixed(2)}`
-          : `Student assigned. First invoice: Rs ${Number(payload.amount_due).toFixed(2)}`,
-      )
-      setStudentDialogOpen(false)
-      setEditingEnrollmentId(null)
-      reloadAll()
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : editingEnrollmentId ? 'Failed to update enrollment' : 'Failed to assign student')
-    } finally {
-      setSaving(false)
-    }
+    await studentAssignmentMutation.mutateAsync(
+      editingEnrollmentId
+        ? {
+            id: editingEnrollmentId,
+            action: 'update',
+            enrollment_date: enrollDate,
+            monthly_fee: monthlyFee,
+          }
+        : {
+            student_id: selectedStudent.student_id,
+            batch_id: studentBatchId,
+            enrollment_date: enrollDate,
+            monthly_fee: monthlyFee,
+          },
+    )
   }
 
   async function handleTeacherAssign() {
-    setSaving(true)
-    try {
-      await fetchJson('/api/manage/teachers', {
-        method: editingAssignmentId ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(
-          editingAssignmentId
-            ? {
-                id: editingAssignmentId,
-                action: 'update',
-                subject: teacherSubject || null,
-                monthly_salary: teacherSalary,
-                assignment_start_date: teacherStartDate,
-              }
-            : {
-                user_id: teacherId,
-                batch_id: teacherBatchId,
-                subject: teacherSubject || null,
-                monthly_salary: teacherSalary,
-                assignment_start_date: teacherStartDate,
-              },
-        ),
-      })
-      toast.success(editingAssignmentId ? 'Teacher assignment updated.' : 'Teacher assignment added.')
-      setTeacherDialogOpen(false)
-      setEditingAssignmentId(null)
-      reloadAll()
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : editingAssignmentId ? 'Failed to update teacher assignment' : 'Failed to assign teacher')
-    } finally {
-      setSaving(false)
-    }
+    await teacherAssignmentMutation.mutateAsync(
+      editingAssignmentId
+        ? {
+            id: editingAssignmentId,
+            action: 'update',
+            subject: teacherSubject || null,
+            monthly_salary: teacherSalary,
+            assignment_start_date: teacherStartDate,
+          }
+        : {
+            user_id: teacherId,
+            batch_id: teacherBatchId,
+            subject: teacherSubject || null,
+            monthly_salary: teacherSalary,
+            assignment_start_date: teacherStartDate,
+          },
+    )
   }
 
   async function handleStudentProfileSave() {
     if (!selectedStudent) return
-    setSaving(true)
-    try {
-      await fetchJson('/api/manage/enrollments', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_id: selectedStudent.student_id,
-          action: 'update_profile',
-          full_name: studentFullName,
-          phone: studentPhone || null,
-          parent_name: studentParentName || null,
-          parent_phone: studentParentPhone || null,
-          class_level: studentClassLevel,
-        }),
-      })
-      toast.success('Student profile updated.')
-      setStudentProfileDialogOpen(false)
-      reloadAll()
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : 'Failed to update student profile')
-    } finally {
-      setSaving(false)
-    }
+    await studentProfileMutation.mutateAsync({
+      student_id: selectedStudent.student_id,
+      action: 'update_profile',
+      full_name: studentFullName,
+      phone: studentPhone || null,
+      parent_name: studentParentName || null,
+      parent_phone: studentParentPhone || null,
+      class_level: studentClassLevel,
+    })
   }
 
   async function handleTeacherProfileSave() {
     if (!selectedTeacher) return
-    setSaving(true)
-    try {
-      await fetchJson('/api/manage/teachers', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          teacher_id: selectedTeacher.teacher_id,
-          action: 'update_profile',
-          full_name: teacherFullName,
-          phone: teacherPhone || null,
-        }),
-      })
-      toast.success('Teacher profile updated.')
-      setTeacherProfileDialogOpen(false)
-      reloadAll()
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : 'Failed to update teacher profile')
-    } finally {
-      setSaving(false)
-    }
+    await teacherProfileMutation.mutateAsync({
+      teacher_id: selectedTeacher.teacher_id,
+      action: 'update_profile',
+      full_name: teacherFullName,
+      phone: teacherPhone || null,
+    })
   }
 
   async function handleStudentWithdraw(enrollmentId: string, batchName: string) {
     if (role !== 'centre_head') return
     if (!confirm(`Withdraw this student from ${batchName}?`)) return
-    try {
-      await fetchJson('/api/manage/enrollments', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: enrollmentId, status: 'withdrawn' }),
-      })
-      toast.success('Enrollment withdrawn.')
-      reloadAll()
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : 'Failed to withdraw enrollment')
-    }
+    await withdrawEnrollmentMutation.mutateAsync({ id: enrollmentId, status: 'withdrawn' })
   }
 
   async function handleTeacherWithdraw(assignmentId: string, batchName: string, subject: string | null) {
     if (role !== 'centre_head') return
     if (!confirm(`Remove this teacher assignment from ${batchName}${subject ? ` (${subject})` : ''}?`)) return
-    try {
-      await fetchJson('/api/manage/teachers', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: assignmentId, action: 'unassign' }),
-      })
-      toast.success('Teacher assignment withdrawn.')
-      reloadAll()
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : 'Failed to withdraw teacher assignment')
-    }
+    await withdrawTeacherMutation.mutateAsync({ id: assignmentId, action: 'unassign' })
   }
 
   return (

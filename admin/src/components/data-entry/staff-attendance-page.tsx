@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, subDays } from 'date-fns'
 import { Clock, Search, Users } from 'lucide-react'
@@ -45,6 +45,7 @@ export function StaffAttendancePage() {
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [teacherSearch, setTeacherSearch] = useState('')
   const [selectedTeacherId, setSelectedTeacherId] = useState('')
+  const [draftTeacherEdits, setDraftTeacherEdits] = useState<Record<string, Pick<StaffRow, 'status' | 'in_time' | 'out_time'>>>({})
   const scopedFiltersQuery = useScopedFilters()
 
   const centresQuery = useTaskCentres('/api/data-entry/staff-attendance', 'staff-attendance')
@@ -92,7 +93,13 @@ export function StaffAttendancePage() {
   useQueryErrorToast(scopedFiltersQuery.error, 'Failed to load staff-attendance batches')
   useQueryErrorToast(teachersQuery.error, 'Failed to load teacher attendance')
 
-  const teachers = useMemo(() => teachersQuery.data?.staff ?? [], [teachersQuery.data?.staff])
+  const teachers = useMemo(
+    () => (teachersQuery.data?.staff ?? []).map((teacher) => ({
+      ...teacher,
+      ...draftTeacherEdits[teacher.user_id],
+    })),
+    [draftTeacherEdits, teachersQuery.data?.staff],
+  )
   const loadingCentres = centresQuery.isPending || centresQuery.isFetching
   const loadingTeachers = teachersQuery.isPending || teachersQuery.isFetching
   const saving = saveMutation.isPending
@@ -120,6 +127,10 @@ export function StaffAttendancePage() {
     [effectiveSelectedTeacherId, filteredTeachers],
   )
 
+  useEffect(() => {
+    setDraftTeacherEdits({})
+  }, [effectiveSelectedCentre, selectedBatch, selectedDate])
+
   const previousDaySummary = useMemo(() => {
     const previousDate = format(subDays(new Date(selectedDate), 1), 'yyyy-MM-dd')
     return `Previous-day reference: choose ${previousDate} to inspect or edit that day's saved status.`
@@ -128,21 +139,34 @@ export function StaffAttendancePage() {
   function updateTeacher(field: 'status' | 'in_time' | 'out_time', value: string) {
     if (!selectedTeacher) return
 
-    setTeachers((previous) => previous.map((teacher) => {
-      if (teacher.user_id !== selectedTeacher.user_id) return teacher
+    setDraftTeacherEdits((previous) => {
+      const current = previous[selectedTeacher.user_id] ?? {
+        status: selectedTeacher.status,
+        in_time: selectedTeacher.in_time,
+        out_time: selectedTeacher.out_time,
+      }
 
       if (field === 'status') {
         const status = value as StaffRow['status']
         return {
-          ...teacher,
-          status,
-          in_time: status === 'partial' ? teacher.in_time : null,
-          out_time: status === 'partial' ? teacher.out_time : null,
+          ...previous,
+          [selectedTeacher.user_id]: {
+            ...current,
+            status,
+            in_time: status === 'partial' ? current.in_time : null,
+            out_time: status === 'partial' ? current.out_time : null,
+          },
         }
       }
 
-      return { ...teacher, [field]: value || null }
-    }))
+      return {
+        ...previous,
+        [selectedTeacher.user_id]: {
+          ...current,
+          [field]: value || null,
+        },
+      }
+    })
   }
 
   async function handleSave() {

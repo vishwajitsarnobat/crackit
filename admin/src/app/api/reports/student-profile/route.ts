@@ -13,7 +13,7 @@ type SearchStudentRow = {
   student_code: string | null
   class_level: number
   is_active: boolean
-  users: { full_name: string | null } | null
+  users: { full_name: string | null } | Array<{ full_name: string | null }> | null
 }
 
 type BatchIdRow = { id: string }
@@ -29,11 +29,15 @@ type StudentWithUserRow = {
     full_name: string | null
     email: string | null
     phone: string | null
-  } | null
+  } | Array<{
+    full_name: string | null
+    email: string | null
+    phone: string | null
+  }> | null
 }
 
 type CentreScopedEnrollmentRow = {
-  batches: { centre_id: string | null } | null
+  batches: { centre_id: string | null } | Array<{ centre_id: string | null }> | null
 }
 
 type ReportEnrollmentRow = {
@@ -42,8 +46,12 @@ type ReportEnrollmentRow = {
   batches: {
     centre_id?: string | null
     batch_name: string | null
-    centres: { centre_name: string | null } | null
-  } | null
+    centres: { centre_name: string | null } | Array<{ centre_name: string | null }> | null
+  } | Array<{
+    centre_id?: string | null
+    batch_name: string | null
+    centres: { centre_name: string | null } | Array<{ centre_name: string | null }> | null
+  }> | null
 }
 
 export const GET = withAuth(async (request, ctx) => {
@@ -124,13 +132,16 @@ export const GET = withAuth(async (request, ctx) => {
     const { data, error } = await query
     if (error) return apiError(error.message, 500)
 
-    const students = (data ?? []).map((student: SearchStudentRow) => ({
-      id: student.id,
-      student_code: student.student_code,
-      student_name: student.users?.full_name ?? 'Unknown',
-      class_level: student.class_level,
-      is_active: student.is_active,
-    }))
+    const students = (data ?? []).map((student: SearchStudentRow) => {
+      const studentUser = Array.isArray(student.users) ? student.users[0] : student.users
+      return {
+        id: student.id,
+        student_code: student.student_code,
+        student_name: studentUser?.full_name ?? 'Unknown',
+        class_level: student.class_level,
+        is_active: student.is_active,
+      }
+    })
 
     return NextResponse.json({ students })
   }
@@ -151,7 +162,10 @@ export const GET = withAuth(async (request, ctx) => {
       .eq('is_active', true)
 
     const batchCentreIds = (enrollments ?? [])
-      .map((enrollment: CentreScopedEnrollmentRow) => enrollment.batches?.centre_id)
+      .map((enrollment: CentreScopedEnrollmentRow) => {
+        const batch = Array.isArray(enrollment.batches) ? enrollment.batches[0] : enrollment.batches
+        return batch?.centre_id
+      })
       .filter((centreId): centreId is string => Boolean(centreId))
 
     const hasAccess = batchCentreIds.some((centreId) => ctx.profile.centreIds.includes(centreId))
@@ -164,23 +178,31 @@ export const GET = withAuth(async (request, ctx) => {
     .eq('student_id', studentId)
 
   const scopedEnrollments = ctx.profile.role === 'centre_head'
-    ? (enrollments ?? []).filter((enrollment: ReportEnrollmentRow) => ctx.profile.centreIds.includes(enrollment.batches?.centre_id ?? ''))
+    ? (enrollments ?? []).filter((enrollment: ReportEnrollmentRow) => {
+        const batch = Array.isArray(enrollment.batches) ? enrollment.batches[0] : enrollment.batches
+        return ctx.profile.centreIds.includes(batch?.centre_id ?? '')
+      })
     : (enrollments ?? [])
 
   const typedStudent = student as StudentWithUserRow
+  const studentUser = Array.isArray(typedStudent.users) ? typedStudent.users[0] : typedStudent.users
   const reportData = {
-    student_name: typedStudent.users?.full_name ?? 'Unknown',
+    student_name: studentUser?.full_name ?? 'Unknown',
     student_code: typedStudent.student_code ?? '',
-    email: typedStudent.users?.email ?? null,
-    phone: typedStudent.users?.phone ?? null,
+    email: studentUser?.email ?? null,
+    phone: studentUser?.phone ?? null,
     date_of_birth: typedStudent.date_of_birth ?? null,
     class_level: typedStudent.class_level ?? 0,
     parent_name: typedStudent.parent_name ?? null,
     parent_phone: typedStudent.parent_phone ?? null,
     current_points: typedStudent.current_points ?? 0,
     enrollments: scopedEnrollments.map((enrollment: ReportEnrollmentRow) => ({
-      batch_name: enrollment.batches?.batch_name ?? '',
-      centre_name: enrollment.batches?.centres?.centre_name ?? '',
+      batch_name: (Array.isArray(enrollment.batches) ? enrollment.batches[0] : enrollment.batches)?.batch_name ?? '',
+      centre_name: (() => {
+        const batch = Array.isArray(enrollment.batches) ? enrollment.batches[0] : enrollment.batches
+        const centre = Array.isArray(batch?.centres) ? batch?.centres[0] : batch?.centres
+        return centre?.centre_name ?? ''
+      })(),
       enrollment_date: enrollment.enrollment_date ?? '',
       status: enrollment.status ?? '',
     })),

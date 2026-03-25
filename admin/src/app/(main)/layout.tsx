@@ -16,7 +16,7 @@ import { ThemeToggle } from '@/components/theme-toggle'
 export default async function MainLayout({ children }: { children: React.ReactNode }) {
   const context = await getCurrentUserContext()
 
-  if (!context || !context.isActive) {
+  if (!context || !context.isActive || !context.role) {
     redirect('/login')
   }
 

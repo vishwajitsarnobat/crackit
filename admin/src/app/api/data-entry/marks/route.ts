@@ -20,8 +20,11 @@ type EnrollmentRow = {
     student_id: string
     students: {
         student_code: string | null
-        users: { full_name: string | null } | null
-    } | null
+        users: { full_name: string | null } | Array<{ full_name: string | null }> | null
+    } | Array<{
+        student_code: string | null
+        users: { full_name: string | null } | Array<{ full_name: string | null }> | null
+    }> | null
 }
 
 type StudentMarkRow = {
@@ -103,10 +106,12 @@ export const GET = withAuth(async (request, ctx) => {
 
         const students = ((enrollments ?? []) as EnrollmentRow[]).map((e) => {
             const existing = marksMap.get(e.student_id)
+            const studentInfo = Array.isArray(e.students) ? e.students[0] : e.students
+            const studentUser = Array.isArray(studentInfo?.users) ? studentInfo?.users[0] : studentInfo?.users
             return {
                 student_id: e.student_id,
-                student_name: e.students?.users?.full_name ?? 'Unknown',
-                student_code: e.students?.student_code ?? null,
+                student_name: studentUser?.full_name ?? 'Unknown',
+                student_code: studentInfo?.student_code ?? null,
                 marks_obtained: existing?.marks_obtained ?? 0,
                 is_absent: existing?.is_absent ?? false,
                 id: existing?.id ?? null,

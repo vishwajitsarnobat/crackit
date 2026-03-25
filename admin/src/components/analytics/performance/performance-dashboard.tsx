@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { BookOpen, Medal, Percent, Search, TrendingUp, UserRoundCheck } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ComposedChart, Line, Radar, RadarChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, XAxis, YAxis } from 'recharts'
-import { toast } from 'sonner'
 import { format } from 'date-fns';
 
 import { fetchJson } from '@/lib/http/fetch-json'
@@ -19,6 +18,7 @@ import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartToo
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
 type PerformancePayload = {
   filters: {
@@ -88,11 +88,7 @@ export function PerformanceDashboard() {
 
   const loading = isPending || isFetching
 
-  useEffect(() => {
-    if (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to load performance analytics')
-    }
-  }, [error])
+  useQueryErrorToast(error, 'Failed to load performance analytics')
 
   function applyFilters() {
     setAppliedFilters({

@@ -9,7 +9,6 @@
 import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Plus, Pencil, Power } from 'lucide-react'
-import { fetchJson } from '@/lib/http/fetch-json'
 import { SelectField } from '@/components/shared/form/select-field'
 
 import { Button } from '@/components/ui/button'
@@ -20,15 +19,28 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ManageDialog } from '@/components/manage/manage-dialog'
 import { useManageData } from '@/lib/hooks/use-manage-data'
+import { useManageMutation } from '@/lib/hooks/use-manage-mutation'
 import { type Centre } from '@/lib/types/entities'
 
 type StatusFilter = 'all' | 'active' | 'inactive'
 
 export function CentresPage() {
-    const { data, loading, reload } = useManageData<{ centres: Centre[] }>({ endpoint: 'centres' })
+    const { data, loading } = useManageData<{ centres: Centre[] }>({ endpoint: 'centres' })
+    const createCentreMutation = useManageMutation<{ centre_code: string; centre_name: string; address: string; city: string; phone: string }>({
+        endpoint: 'centres',
+        method: 'POST',
+        errorPrefix: 'Create centre',
+        buildBody: (variables) => variables,
+    })
+
+    const updateCentreMutation = useManageMutation<{ id: string; centre_name?: string; address?: string; city?: string; phone?: string; is_active?: boolean }>({
+        endpoint: 'centres',
+        method: 'PATCH',
+        errorPrefix: 'Update centre',
+        buildBody: (variables) => variables,
+    })
 
     const [dialogOpen, setDialogOpen] = useState(false)
-    const [saving, setSaving] = useState(false)
     const [editing, setEditing] = useState<Centre | null>(null)
     const [search, setSearch] = useState('')
     const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
@@ -39,6 +51,7 @@ export function CentresPage() {
     const [address, setAddress] = useState('')
     const [city, setCity] = useState('')
     const [phone, setPhone] = useState('')
+    const saving = createCentreMutation.isPending || updateCentreMutation.isPending
 
     const filteredCentres = useMemo(() => {
         const query = search.trim().toLowerCase()
@@ -74,27 +87,16 @@ export function CentresPage() {
     }
 
     async function handleSave() {
-        setSaving(true)
         try {
             if (editing) {
-                await fetchJson('/api/manage/centres', {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id: editing.id, centre_name: name, address, city, phone })
-                })
+                await updateCentreMutation.mutateAsync({ id: editing.id, centre_name: name, address, city, phone })
                 toast.success('Centre updated')
             } else {
-                await fetchJson('/api/manage/centres', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ centre_code: code, centre_name: name, address, city, phone })
-                })
+                await createCentreMutation.mutateAsync({ centre_code: code, centre_name: name, address, city, phone })
                 toast.success('Centre created')
             }
             setDialogOpen(false)
-            await reload()
         } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Failed to save centre changes') }
-        finally { setSaving(false) }
     }
 
     async function toggleActive(c: Centre) {
@@ -102,13 +104,8 @@ export function CentresPage() {
         if (!confirm(`Are you sure you want to ${actionLabel} ${c.centre_name}?`)) return
 
         try {
-            await fetchJson('/api/manage/centres', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: c.id, is_active: !c.is_active })
-            })
+            await updateCentreMutation.mutateAsync({ id: c.id, is_active: !c.is_active })
             toast.success(`Centre ${c.is_active ? 'deactivated' : 'activated'}`)
-            await reload()
         } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Failed to update centre status') }
     }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Clock3, ShieldAlert, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
@@ -19,6 +19,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
 type ApprovalTab = 'pending' | 'approved' | 'rejected'
 
@@ -85,11 +86,7 @@ export function ApprovalsPage() {
     retry: false,
   })
 
-  useEffect(() => {
-    if (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to load approvals.')
-    }
-  }, [error])
+  useQueryErrorToast(error, 'Failed to load approvals.')
 
   const actionMutation = useMutation({
     mutationFn: async ({ id, action, reason }: { id: string; action: 'approve' | 'reject'; reason?: string | null }) => {

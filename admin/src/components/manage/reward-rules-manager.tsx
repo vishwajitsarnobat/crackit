@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { Play, Plus, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { type Batch, type Centre, type RewardRule } from '@/lib/types/entities'
 import { useScopedFilters } from '@/lib/hooks/use-scoped-filters'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
 type RewardRulesPayload = { rules: RewardRule[] }
 
@@ -35,7 +36,7 @@ const scopeOptions = [
 ] as const
 
 export function RewardRulesManager() {
-  const [saving, setSaving] = useState(false)
+  const queryClient = useQueryClient()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<RewardRule | null>(null)
   const [runMonth, setRunMonth] = useState(format(new Date(), 'yyyy-MM'))
@@ -61,22 +62,61 @@ export function RewardRulesManager() {
   })
   const scopedFiltersQuery = useScopedFilters()
 
-  useEffect(() => {
-    if (rulesQuery.error) {
-      toast.error(rulesQuery.error instanceof Error ? rulesQuery.error.message : 'Failed to load reward rules')
-    }
-  }, [rulesQuery.error])
-
-  useEffect(() => {
-    if (scopedFiltersQuery.error) {
-      toast.error(scopedFiltersQuery.error instanceof Error ? scopedFiltersQuery.error.message : 'Failed to load reward filters')
-    }
-  }, [scopedFiltersQuery.error])
+  useQueryErrorToast(rulesQuery.error, 'Failed to load reward rules')
+  useQueryErrorToast(scopedFiltersQuery.error, 'Failed to load reward filters')
 
   const rules = useMemo(() => rulesQuery.data?.rules ?? [], [rulesQuery.data?.rules])
   const centres: Centre[] = useMemo(() => scopedFiltersQuery.data?.centres ?? [], [scopedFiltersQuery.data?.centres])
   const batches: Batch[] = useMemo(() => scopedFiltersQuery.data?.batches ?? [], [scopedFiltersQuery.data?.batches])
   const loading = rulesQuery.isPending || rulesQuery.isFetching || scopedFiltersQuery.isPending || scopedFiltersQuery.isFetching
+
+  const saveMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => fetchJson('/api/manage/reward-points/rules', {
+      method: editing ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: async () => {
+      toast.success(editing ? 'Reward rule updated' : 'Reward rule created')
+      setDialogOpen(false)
+      await queryClient.invalidateQueries({ queryKey: ['reward-rules'] })
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to save reward rule')
+    },
+  })
+
+  const toggleMutation = useMutation({
+    mutationFn: (payload: { id: string; is_active: boolean }) => fetchJson('/api/manage/reward-points/rules', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: async (_data, variables) => {
+      toast.success(`Rule ${variables.is_active ? 'activated' : 'deactivated'}`)
+      await queryClient.invalidateQueries({ queryKey: ['reward-rules'] })
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to update rule status')
+    },
+  })
+
+  const runMutation = useMutation({
+    mutationFn: (payload: { rule_id: string; month_year: string }) => fetchJson<{ eligible_count: number; awarded_count: number }>('/api/manage/reward-points/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+    onSuccess: async (json) => {
+      toast.success(`Rule executed. Eligible: ${json.eligible_count}, awarded: ${json.awarded_count}`)
+      await queryClient.invalidateQueries({ queryKey: ['reward-rules'] })
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to execute rule')
+    },
+  })
+
+  const saving = saveMutation.isPending
 
   const scopedBatches = useMemo(() => {
     if (scopeType === 'centre' && centreId) return batches.filter((batch) => batch.centre_id === centreId)
@@ -129,7 +169,6 @@ export function RewardRulesManager() {
   }
 
   async function handleSave() {
-    setSaving(true)
     try {
       const payload = {
         ...(editing ? { id: editing.id } : {}),
@@ -145,48 +184,18 @@ export function RewardRulesManager() {
         is_active: editing?.is_active ?? true,
       }
 
-      await fetchJson('/api/manage/reward-points/rules', {
-        method: editing ? 'PATCH' : 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-
-      toast.success(editing ? 'Reward rule updated' : 'Reward rule created')
-      setDialogOpen(false)
-      await rulesQuery.refetch()
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : 'Failed to save reward rule')
-    } finally {
-      setSaving(false)
+      await saveMutation.mutateAsync(payload)
+    } catch {
+      // handled by mutation
     }
   }
 
   async function toggleRule(rule: RewardRule) {
-    try {
-      await fetchJson('/api/manage/reward-points/rules', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: rule.id, is_active: !rule.is_active }),
-      })
-      toast.success(`Rule ${rule.is_active ? 'deactivated' : 'activated'}`)
-      await rulesQuery.refetch()
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : 'Failed to update rule status')
-    }
+    await toggleMutation.mutateAsync({ id: rule.id, is_active: !rule.is_active })
   }
 
   async function runRule(rule: RewardRule) {
-    try {
-      const json = await fetchJson<{ eligible_count: number; awarded_count: number }>('/api/manage/reward-points/execute', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rule_id: rule.id, month_year: `${runMonth}-01` }),
-      })
-      toast.success(`Rule executed. Eligible: ${json.eligible_count}, awarded: ${json.awarded_count}`)
-      await rulesQuery.refetch()
-    } catch (error: unknown) {
-      toast.error(error instanceof Error ? error.message : 'Failed to execute rule')
-    }
+    await runMutation.mutateAsync({ rule_id: rule.id, month_year: `${runMonth}-01` })
   }
 
   return (

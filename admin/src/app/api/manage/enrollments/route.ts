@@ -23,13 +23,23 @@ type EnrollmentRow = {
     parent_name: string | null
     parent_phone: string | null
     class_level: number | null
-    users: { full_name: string | null; phone: string | null } | null
-  } | null
+    users: { full_name: string | null; phone: string | null } | Array<{ full_name: string | null; phone: string | null }> | null
+  } | Array<{
+    student_code: string | null
+    parent_name: string | null
+    parent_phone: string | null
+    class_level: number | null
+    users: { full_name: string | null; phone: string | null } | Array<{ full_name: string | null; phone: string | null }> | null
+  }> | null
   batches: {
     batch_name: string | null
     centre_id: string | null
-    centres: { centre_name: string | null } | null
-  } | null
+    centres: { centre_name: string | null } | Array<{ centre_name: string | null }> | null
+  } | Array<{
+    batch_name: string | null
+    centre_id: string | null
+    centres: { centre_name: string | null } | Array<{ centre_name: string | null }> | null
+  }> | null
 }
 
 type StudentRow = {
@@ -39,7 +49,7 @@ type StudentRow = {
   parent_name: string | null
   parent_phone: string | null
   class_level: number | null
-  users: { full_name: string | null; phone: string | null } | null
+  users: { full_name: string | null; phone: string | null } | Array<{ full_name: string | null; phone: string | null }> | null
 }
 
 type UserCentreAssignmentRow = {
@@ -61,7 +71,9 @@ type CentreAssignmentCheckRow = {
   centre_id: string | null
 }
 
-function resolveRoleName(roles: StudentCentreValidationRow['users'] extends { roles: infer R } ? R : never) {
+type RoleRelation = { role_name: string | null } | Array<{ role_name: string | null }> | null
+
+function resolveRoleName(roles: RoleRelation) {
   if (Array.isArray(roles)) return roles[0]?.role_name ?? null
   return roles?.role_name ?? null
 }
@@ -180,14 +192,18 @@ export const GET = withAuth(async (request, ctx) => {
 
   const profiles = new Map<string, StudentProfile>()
   for (const enrollment of (enrollmentData ?? []) as EnrollmentRow[]) {
+    const studentInfo = Array.isArray(enrollment.students) ? enrollment.students[0] : enrollment.students
+    const studentUser = Array.isArray(studentInfo?.users) ? studentInfo?.users[0] : studentInfo?.users
+    const batchInfo = Array.isArray(enrollment.batches) ? enrollment.batches[0] : enrollment.batches
+    const centreInfo = Array.isArray(batchInfo?.centres) ? batchInfo?.centres[0] : batchInfo?.centres
     const existing = profiles.get(enrollment.student_id) ?? {
       student_id: enrollment.student_id,
-      student_name: enrollment.students?.users?.full_name ?? 'Unknown',
-      student_code: enrollment.students?.student_code ?? null,
-      phone: enrollment.students?.users?.phone ?? null,
-      parent_name: enrollment.students?.parent_name ?? null,
-      parent_phone: enrollment.students?.parent_phone ?? null,
-      class_level: enrollment.students?.class_level ?? null,
+      student_name: studentUser?.full_name ?? 'Unknown',
+      student_code: studentInfo?.student_code ?? null,
+      phone: studentUser?.phone ?? null,
+      parent_name: studentInfo?.parent_name ?? null,
+      parent_phone: studentInfo?.parent_phone ?? null,
+      class_level: studentInfo?.class_level ?? null,
       centre_ids: [],
       assignments: [],
       total_monthly_fee: 0,
@@ -195,16 +211,16 @@ export const GET = withAuth(async (request, ctx) => {
       status: 'assigned' as const,
     }
 
-    if (enrollment.batches?.centre_id && !existing.centre_ids.includes(enrollment.batches.centre_id)) {
-      existing.centre_ids.push(enrollment.batches.centre_id)
+    if (batchInfo?.centre_id && !existing.centre_ids.includes(batchInfo.centre_id)) {
+      existing.centre_ids.push(batchInfo.centre_id)
     }
 
     existing.assignments.push({
       enrollment_id: enrollment.id,
       batch_id: enrollment.batch_id,
-      batch_name: enrollment.batches?.batch_name ?? '-',
-      centre_id: enrollment.batches?.centre_id ?? null,
-      centre_name: enrollment.batches?.centres?.centre_name ?? null,
+      batch_name: batchInfo?.batch_name ?? '-',
+      centre_id: batchInfo?.centre_id ?? null,
+      centre_name: centreInfo?.centre_name ?? null,
       enrollment_date: enrollment.enrollment_date,
       monthly_fee: Number(enrollment.monthly_fee),
       status: enrollment.status,
@@ -243,12 +259,13 @@ export const GET = withAuth(async (request, ctx) => {
 
     for (const student of (studentsData ?? []) as StudentRow[]) {
       if (profiles.has(student.id)) continue
+      const studentUser = Array.isArray(student.users) ? student.users[0] : student.users
 
       profiles.set(student.id, {
         student_id: student.id,
-        student_name: student.users?.full_name ?? 'Unknown',
+        student_name: studentUser?.full_name ?? 'Unknown',
         student_code: student.student_code ?? null,
-        phone: student.users?.phone ?? null,
+        phone: studentUser?.phone ?? null,
         parent_name: student.parent_name ?? null,
         parent_phone: student.parent_phone ?? null,
         class_level: student.class_level ?? null,

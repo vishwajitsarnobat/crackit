@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query'
 import { format, subDays } from 'date-fns'
 import { Clock3, Percent, UserCheck, UserMinus, UserX } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts'
-import { toast } from 'sonner'
 
 import { fetchJson } from '@/lib/http/fetch-json'
 import { DonutChart } from '@/components/analytics/shared/donut-chart'
@@ -22,6 +21,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useStaffAttendanceAnalyticsFilterStore } from '@/lib/stores/staff-attendance-analytics-filters'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
 type StaffAttendancePayload = {
   filters: {
@@ -144,11 +144,7 @@ export function StaffAttendanceDashboard({ role }: { role: string }) {
 
   const loading = isPending || isFetching
 
-  useEffect(() => {
-    if (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to load staff attendance analytics')
-    }
-  }, [error])
+  useQueryErrorToast(error, 'Failed to load staff attendance analytics')
 
   function applyFilters() {
     setAppliedFilters({

@@ -344,13 +344,16 @@ export async function previewRewardRule(params: {
   }
 
   const studentMap = new Map(
-    ((studentRows ?? []) as Array<{ id: string; student_code: string | null; users: { full_name: string | null } | null }>).map((student) => [
-      student.id,
-      {
-        student_name: student.users?.full_name ?? 'Unknown student',
-        student_code: student.student_code,
-      },
-    ]),
+    ((studentRows ?? []) as Array<{ id: string; student_code: string | null; users: { full_name: string | null } | Array<{ full_name: string | null }> | null }>).map((student) => {
+      const studentUser = Array.isArray(student.users) ? student.users[0] : student.users
+      return [
+        student.id,
+        {
+          student_name: studentUser?.full_name ?? 'Unknown student',
+          student_code: student.student_code,
+        },
+      ]
+    }),
   )
 
   return {

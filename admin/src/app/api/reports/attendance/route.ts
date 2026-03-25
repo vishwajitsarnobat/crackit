@@ -13,7 +13,11 @@ type StudentIdRow = { student_id: string }
 type SearchStudentRow = {
   id: string
   student_code: string | null
-  users: { full_name: string | null } | null
+  users: { full_name: string | null } | Array<{ full_name: string | null }> | null
+}
+
+type CentreScopedEnrollmentRow = {
+  batches: { centre_id: string | null } | Array<{ centre_id: string | null }> | null
 }
 
 export const GET = withAuth(async (request, ctx) => {
@@ -80,6 +84,7 @@ export const GET = withAuth(async (request, ctx) => {
     if (error) return apiError(error.message, 500)
 
     const students = await Promise.all(((data ?? []) as SearchStudentRow[]).map(async (student) => {
+      const studentUser = Array.isArray(student.users) ? student.users[0] : student.users
       let attQuery = supabase.from('attendance').select('attendance_date, status').eq('student_id', student.id)
       if (from) attQuery = attQuery.gte('attendance_date', from)
       if (to) attQuery = attQuery.lte('attendance_date', to)
@@ -92,7 +97,7 @@ export const GET = withAuth(async (request, ctx) => {
       return {
         id: student.id,
         student_code: student.student_code,
-        student_name: student.users?.full_name ?? 'Unknown',
+        student_name: studentUser?.full_name ?? 'Unknown',
         total_days: totalDays,
         present,
         absent,
@@ -120,7 +125,10 @@ export const GET = withAuth(async (request, ctx) => {
       .eq('student_id', studentId)
       .eq('is_active', true)
 
-    const allowed = (enrollments ?? []).some((row: { batches: { centre_id: string | null } | null }) => ctx.profile.centreIds.includes(row.batches?.centre_id ?? ''))
+    const allowed = (enrollments ?? []).some((row: CentreScopedEnrollmentRow) => {
+      const batch = Array.isArray(row.batches) ? row.batches[0] : row.batches
+      return ctx.profile.centreIds.includes(batch?.centre_id ?? '')
+    })
     if (!allowed) return apiError('Access denied', 403)
   }
 

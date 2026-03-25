@@ -43,7 +43,9 @@ type CentreAssignmentCheckRow = {
   centre_id: string | null
 }
 
-function resolveRoleName(roles: UserRow['roles']) {
+type RoleRelation = { role_name: string | null } | { role_name: string | null }[] | null
+
+function resolveRoleName(roles: RoleRelation) {
   if (Array.isArray(roles)) return roles[0]?.role_name ?? null
   return roles?.role_name ?? null
 }
@@ -129,6 +131,7 @@ export const GET = withAuth(async (request, ctx) => {
   const teacherProfiles = new Map<string, {
     teacher_id: string
     teacher_name: string
+    phone: string | null
     centre_ids: string[]
     assignments: Array<{
       teacher_id: string
