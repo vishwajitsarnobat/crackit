@@ -191,10 +191,19 @@ function ChartTooltipContent({
             const key = `${nameKey || item.name || item.dataKey || "value"}`
             const itemConfig = getPayloadConfigFromPayload(config, item, key)
             const indicatorColor = color || item.payload.fill || item.color
+            const itemKey = [
+              item.dataKey,
+              item.name,
+              item.color,
+              item.type,
+              index,
+            ]
+              .filter(Boolean)
+              .join(":")
 
             return (
               <div
-                key={item.dataKey}
+                key={itemKey}
                 className={cn(
                   "flex w-full flex-wrap items-stretch gap-2 [&>svg]:h-2.5 [&>svg]:w-2.5 [&>svg]:text-muted-foreground",
                   indicator === "dot" && "items-center"
@@ -285,13 +294,22 @@ function ChartLegendContent({
     >
       {payload
         .filter((item) => item.type !== "none")
-        .map((item) => {
+        .map((item, index) => {
           const key = `${nameKey || item.dataKey || "value"}`
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
+          const itemKey = [
+            item.value,
+            item.dataKey,
+            item.color,
+            item.type,
+            index,
+          ]
+            .filter(Boolean)
+            .join(":")
 
           return (
             <div
-              key={item.value}
+              key={itemKey}
               className={cn(
                 "flex items-center gap-1.5 [&>svg]:h-3 [&>svg]:w-3 [&>svg]:text-muted-foreground"
               )}

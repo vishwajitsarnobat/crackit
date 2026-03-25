@@ -1264,7 +1264,7 @@ DECLARE
     v_existing_max_month DATE;
     v_from_month DATE;
     v_to_month DATE;
-    v_candidate DATE;
+    v_candidate UUID;
     v_user_id UUID;
     v_old_user_id UUID;
 BEGIN
@@ -1292,9 +1292,9 @@ BEGIN
     END IF;
 
     FOR v_candidate IN
-        SELECT DISTINCT centre_id
-        FROM unnest(ARRAY[v_old_centre_id, v_new_centre_id]) AS centre_id
-        WHERE centre_id IS NOT NULL
+        SELECT DISTINCT centres.centre_id
+        FROM unnest(ARRAY[v_old_centre_id, v_new_centre_id]) AS centres(centre_id)
+        WHERE centres.centre_id IS NOT NULL
     LOOP
 
         v_from_month := v_current_month;

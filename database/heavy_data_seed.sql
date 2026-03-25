@@ -62,7 +62,19 @@ VALUES
     ('66666666-6666-6666-6666-666666666661', 'authenticated', 'authenticated', 'arpit.sen@crackit.test', '$2a$10$7EqJtq98hPqEX7fNZaFWoOHiY7Q5rYzA9H9n1tFoZT3zh0ElBTt1K', NOW(), '{"provider":"email","providers":["email"]}', '{"full_name":"Arpit Sen"}', NOW(), NOW(), '', '', '', ''),
     ('66666666-6666-6666-6666-666666666662', 'authenticated', 'authenticated', 'niharika.bose@crackit.test', '$2a$10$7EqJtq98hPqEX7fNZaFWoOHiY7Q5rYzA9H9n1tFoZT3zh0ElBTt1K', NOW(), '{"provider":"email","providers":["email"]}', '{"full_name":"Niharika Bose"}', NOW(), NOW(), '', '', '', ''),
     ('66666666-6666-6666-6666-666666666663', 'authenticated', 'authenticated', 'alok.saxena@crackit.test', '$2a$10$7EqJtq98hPqEX7fNZaFWoOHiY7Q5rYzA9H9n1tFoZT3zh0ElBTt1K', NOW(), '{"provider":"email","providers":["email"]}', '{"full_name":"Alok Saxena"}', NOW(), NOW(), '', '', '', '')
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE
+SET aud = EXCLUDED.aud,
+    role = EXCLUDED.role,
+    email = EXCLUDED.email,
+    encrypted_password = EXCLUDED.encrypted_password,
+    email_confirmed_at = EXCLUDED.email_confirmed_at,
+    raw_app_meta_data = EXCLUDED.raw_app_meta_data,
+    raw_user_meta_data = EXCLUDED.raw_user_meta_data,
+    updated_at = NOW(),
+    confirmation_token = EXCLUDED.confirmation_token,
+    email_change = EXCLUDED.email_change,
+    email_change_token_new = EXCLUDED.email_change_token_new,
+    recovery_token = EXCLUDED.recovery_token;
 
 -- ---------------------------------------------------------------------------
 -- SECTION 2: APP USERS, CENTRES, ASSIGNMENTS, AND APPROVALS

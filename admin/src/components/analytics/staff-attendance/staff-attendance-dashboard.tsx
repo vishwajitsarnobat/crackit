@@ -71,7 +71,16 @@ function TrendChart({ data }: { data: { label: string; present: number; absent: 
     <ChartContainer config={chartConfig} className="h-[290px] w-full aspect-auto">
       <BarChart data={data}>
         <CartesianGrid vertical={false} strokeDasharray="3 3" />
-        <XAxis dataKey="label" tickLine={false} axisLine={false} interval={0} minTickGap={24} />
+        <XAxis
+          dataKey="label"
+          tickLine={false}
+          axisLine={false}
+          minTickGap={18}
+          angle={-35}
+          textAnchor="end"
+          height={56}
+          tickMargin={10}
+        />
         <YAxis tickLine={false} axisLine={false} allowDecimals={false} />
         <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
         <ChartLegend content={<ChartLegendContent />} />

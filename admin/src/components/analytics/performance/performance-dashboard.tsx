@@ -164,7 +164,6 @@ export function PerformanceDashboard() {
                 <XAxis dataKey="label" tickLine={false} axisLine={false} />
                 <YAxis domain={[0, 100]} tickLine={false} axisLine={false} />
                 <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                <ChartLegend content={<ChartLegendContent />} />
                 <Bar dataKey="average" fill="var(--color-average)" radius={[6, 6, 0, 0]} />
                 <Line type="monotone" dataKey="average" stroke="var(--color-top)" strokeWidth={3} dot={{ r: 4 }} />
               </ComposedChart>
