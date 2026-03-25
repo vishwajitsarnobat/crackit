@@ -1,178 +1,248 @@
 'use client'
 
-/**
- * Attendance Page Component
- * Allows teachers and admins to view and log daily student attendance for a specific batch.
- * Features: Batch and date selection, marking present/absent, and saving records to the database.
- */
-
-import { useState, useCallback, useEffect } from 'react'
-import { toast } from 'sonner'
-import { CalendarCheck, Save, Users } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
+import { CalendarCheck, CheckSquare2, Search } from 'lucide-react'
+import { toast } from 'sonner'
 
-import { Button } from '@/components/ui/button'
-import { Card, CardTitle, CardDescription } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TaskBatchSelector } from '@/components/data-entry/shared/task-batch-selector'
+import { DatePickerField } from '@/components/shared/form/date-picker-field'
+import { fetchJson } from '@/lib/http/fetch-json'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { AppRole } from '@/lib/types/entities'
+import { useTaskBatches } from '@/lib/hooks/use-task-batches'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
-type BatchOption = { id: string; batch_name: string; batch_code: string; centre_name: string }
-type StudentRow = { student_id: string; student_name: string; student_code: string | null; status: 'present' | 'absent' | null }
+type StudentRow = {
+  student_id: string
+  student_name: string
+  student_code: string | null
+  status: 'present' | 'absent' | null
+}
 
-export function AttendancePage({ role }: { role: AppRole }) {
-    const [batches, setBatches] = useState<BatchOption[]>([])
-    const [selectedBatch, setSelectedBatch] = useState('')
-    const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
-    const [students, setStudents] = useState<StudentRow[]>([])
-    const [loading, setLoading] = useState(true)
-    const [saving, setSaving] = useState(false)
+export function AttendancePage() {
+  const queryClient = useQueryClient()
+  const [selectedBatchId, setSelectedBatchId] = useState('')
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [studentSearch, setStudentSearch] = useState('')
+  const [draftState, setDraftState] = useState<{ key: string; statuses: Record<string, StudentRow['status']> }>({ key: '', statuses: {} })
 
-    useEffect(() => {
-        async function load() {
-            const res = await fetch('/api/data-entry/attendance')
-            const json = await res.json()
-            if (res.ok) setBatches(json.batches ?? [])
-            setLoading(false)
-        }
-        load()
-    }, [])
+  const batchesQuery = useTaskBatches('/api/data-entry/attendance', 'attendance')
 
-    const loadStudents = useCallback(async (batchId: string, date: string) => {
-        if (!batchId || !date) return
-        setLoading(true)
-        try {
-            const res = await fetch(`/api/data-entry/attendance?batch_id=${batchId}&date=${date}`)
-            const json = await res.json()
-            if (res.ok) setStudents(json.students ?? [])
-        } finally {
-            setLoading(false)
-        }
-    }, [])
+  const batches = useMemo(() => batchesQuery.data?.batches ?? [], [batchesQuery.data?.batches])
+  const effectiveSelectedBatchId = selectedBatchId || batches[0]?.id || ''
 
-    useEffect(() => {
-        if (selectedBatch && selectedDate) loadStudents(selectedBatch, selectedDate)
-    }, [selectedBatch, selectedDate, loadStudents])
+  const rosterQuery = useQuery({
+    queryKey: ['task-attendance-roster', effectiveSelectedBatchId, selectedDate],
+    queryFn: async () => {
+      const params = new URLSearchParams({ batch_id: effectiveSelectedBatchId, date: selectedDate })
+      const json = await fetchJson<{ students: StudentRow[] }>(`/api/data-entry/attendance?${params.toString()}`, { errorPrefix: 'Load attendance roster' })
 
-    function toggleStatus(studentId: string) {
-        setStudents(prev => prev.map(s =>
-            s.student_id === studentId
-                ? { ...s, status: s.status === 'present' ? 'absent' : 'present' }
-                : s
-        ))
+      return {
+        students: (json.students ?? []).map((student) => ({
+          ...student,
+          status: student.status ?? 'absent',
+        })),
+      }
+    },
+    enabled: Boolean(effectiveSelectedBatchId && selectedDate),
+    staleTime: 15_000,
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: (students: StudentRow[]) => fetchJson<{ count: number }>('/api/data-entry/attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch_id: effectiveSelectedBatchId,
+        attendance_date: selectedDate,
+        records: students.map((student) => ({
+          student_id: student.student_id,
+          status: student.status === 'present' ? 'present' : 'absent',
+        })),
+      }),
+    }),
+    onSuccess: async (json) => {
+      toast.success(`Attendance saved for ${json.count} students`)
+      await queryClient.invalidateQueries({ queryKey: ['task-attendance-roster', effectiveSelectedBatchId, selectedDate] })
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to save attendance')
+    },
+  })
+
+  useQueryErrorToast(batchesQuery.error, 'Failed to load batches')
+  useQueryErrorToast(rosterQuery.error, 'Failed to load students')
+
+  const draftKey = `${effectiveSelectedBatchId}:${selectedDate}`
+
+  const rosterStudents = useMemo(() => rosterQuery.data?.students ?? [], [rosterQuery.data?.students])
+  const students = useMemo(
+    () => {
+      const activeDraftStatuses = draftState.key === draftKey ? draftState.statuses : {}
+      return rosterStudents.map((student) => ({
+        ...student,
+        status: activeDraftStatuses[student.student_id] ?? student.status,
+      }))
+    },
+    [draftKey, draftState, rosterStudents],
+  )
+
+  const selectedBatch = useMemo(
+    () => batches.find((batch) => batch.id === effectiveSelectedBatchId) ?? null,
+    [batches, effectiveSelectedBatchId],
+  )
+
+  const filteredStudents = useMemo(() => {
+    const query = studentSearch.trim().toLowerCase()
+    if (!query) return students
+
+    return students.filter((student) =>
+      [student.student_name, student.student_code ?? ''].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
+    )
+  }, [studentSearch, students])
+
+  const loadingBatches = batchesQuery.isPending || batchesQuery.isFetching
+  const loadingStudents = rosterQuery.isPending || rosterQuery.isFetching
+  const saving = saveMutation.isPending
+
+  function togglePresent(studentId: string, checked: boolean) {
+    setDraftState((previous) => ({
+      key: draftKey,
+      statuses: {
+        ...(previous.key === draftKey ? previous.statuses : {}),
+        [studentId]: checked ? 'present' : 'absent',
+      },
+    }))
+  }
+
+  async function handleSave() {
+    if (!effectiveSelectedBatchId) {
+      toast.error('Select a batch first.')
+      return
     }
 
-    function markAll(status: 'present' | 'absent') {
-        setStudents(prev => prev.map(s => ({ ...s, status })))
-    }
+    await saveMutation.mutateAsync(students)
+  }
 
-    async function handleSave() {
-        const unmarked = students.filter(s => !s.status)
-        if (unmarked.length > 0) {
-            toast.error(`${unmarked.length} student(s) not marked yet.`)
-            return
-        }
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-serif text-3xl tracking-tight">Task Attendance</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Choose an assigned batch, pick a date, and mark present students. Everyone else is treated as absent automatically.</p>
+      </div>
 
-        setSaving(true)
-        try {
-            const res = await fetch('/api/data-entry/attendance', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    batch_id: selectedBatch,
-                    attendance_date: selectedDate,
-                    records: students.map(s => ({ student_id: s.student_id, status: s.status })),
-                }),
-            })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error)
-            toast.success(`Attendance saved for ${json.count} students`)
-        } catch (e: unknown) {
-            toast.error(e instanceof Error ? e.message : 'Failed to save')
-        } finally {
-            setSaving(false)
-        }
-    }
+      <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
+        <TaskBatchSelector
+          title="Assigned Batches"
+          description="Select a batch to load its student roster."
+          batches={batches}
+          selectedBatchId={effectiveSelectedBatchId}
+          onSelect={setSelectedBatchId}
+          loading={loadingBatches}
+          emptyMessage="No assigned batches found."
+          searchPlaceholder="Search assigned batches"
+        />
 
-    return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="font-serif text-3xl tracking-tight">Student Attendance</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Mark daily attendance for students in a batch.</p>
+        <Card className="gap-0 overflow-hidden py-0">
+          <div className="border-b bg-muted/30 px-5 py-3.5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <CardTitle className="flex items-center gap-2 text-base tracking-tight">
+                  <CalendarCheck className="h-4 w-4" />Attendance Roster
+                </CardTitle>
+                <CardDescription className="mt-0.5">
+                  {selectedBatch ? `Mark attendance for ${selectedBatch.batch_name}` : 'Select a batch to begin.'}
+                </CardDescription>
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="w-[220px]">
+                  <DatePickerField id="attendance-date" label="Date" value={selectedDate} onChange={setSelectedDate} max={format(new Date(), 'yyyy-MM-dd')} />
+                </div>
+                <Button onClick={handleSave} disabled={saving || !effectiveSelectedBatchId || students.length === 0}>
+                  <CheckSquare2 className="mr-2 h-4 w-4" />{saving ? 'Saving...' : 'Save Attendance'}
+                </Button>
+              </div>
             </div>
+          </div>
 
-            <div className="flex flex-wrap items-end gap-4">
-                <div className="space-y-2 min-w-[220px]">
-                    <Label>Batch</Label>
-                    <Select value={selectedBatch} onValueChange={setSelectedBatch}>
-                        <SelectTrigger><SelectValue placeholder="Select batch…" /></SelectTrigger>
-                        <SelectContent>
-                            {batches.map(b => (
-                                <SelectItem key={b.id} value={b.id}>{b.batch_name} — {b.centre_name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+          {!effectiveSelectedBatchId ? (
+            <div className="flex min-h-[420px] flex-col items-center justify-center p-10 text-center text-sm text-muted-foreground">
+              <CalendarCheck className="mb-3 h-8 w-8 opacity-20" />
+              Select a batch on the left, then choose a date to mark attendance.
+            </div>
+          ) : (
+            <div className="space-y-4 px-5 py-5">
+              <div className="flex flex-wrap items-end justify-between gap-4 rounded-xl border bg-muted/20 p-4">
+                <div>
+                  <div className="font-medium">{selectedBatch?.batch_name}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">Selected date: {selectedDate}</div>
                 </div>
                 <div className="space-y-2">
-                    <Label>Date</Label>
-                    <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} max={format(new Date(), 'yyyy-MM-dd')} className="w-[180px]" />
+                  <Label htmlFor="student-search">Search students</Label>
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      id="student-search"
+                      value={studentSearch}
+                      onChange={(event) => setStudentSearch(event.target.value)}
+                      className="w-[260px] pl-9"
+                      placeholder="Search roster"
+                    />
+                  </div>
                 </div>
-            </div>
+              </div>
 
-            {selectedBatch && (
-                <Card className="gap-0 py-0 overflow-hidden">
-                    <div className="border-b bg-muted/30 px-5 py-3.5 flex items-center justify-between">
-                        <div>
-                            <CardTitle className="text-base tracking-tight flex items-center gap-2"><Users className="h-4 w-4" />Student Roster</CardTitle>
-                            <CardDescription className="mt-0.5">{students.length} student(s) enrolled</CardDescription>
+              {loadingStudents ? (
+                <div className="h-56 animate-pulse rounded-xl bg-muted/20" />
+              ) : filteredStudents.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">
+                  No students found for this batch and search filter.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredStudents.map((student, index) => {
+                    const isPresent = student.status === 'present'
+
+                    return (
+                      <label
+                        key={student.student_id}
+                        className="flex cursor-pointer items-center justify-between gap-4 rounded-xl border bg-background px-4 py-3 transition-colors hover:bg-muted/20"
+                      >
+                        <div className="flex items-center gap-4">
+                          <span className="w-6 text-sm text-muted-foreground">{index + 1}</span>
+                          <input
+                            type="checkbox"
+                            checked={isPresent}
+                            onChange={(event) => togglePresent(student.student_id, event.target.checked)}
+                            className="h-4 w-4 rounded border-input"
+                          />
+                          <div>
+                            <div className="font-medium">{student.student_name}</div>
+                            <div className="font-mono text-xs text-muted-foreground">{student.student_code || '-'}</div>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={() => markAll('present')}>All Present</Button>
-                            <Button variant="outline" size="sm" onClick={() => markAll('absent')}>All Absent</Button>
-                            <Button size="sm" onClick={handleSave} disabled={saving || students.length === 0}>
-                                <Save className="h-3.5 w-3.5 mr-1.5" />{saving ? 'Saving…' : 'Save'}
-                            </Button>
-                        </div>
-                    </div>
-                    {loading ? (
-                        <div className="animate-pulse h-40 bg-muted/20" />
-                    ) : students.length === 0 ? (
-                        <div className="p-8 text-center text-muted-foreground text-sm">No students enrolled in this batch.</div>
-                    ) : (
-                        <Table>
-                            <TableHeader className="bg-muted/50">
-                                <TableRow>
-                                    <TableHead className="w-12">#</TableHead>
-                                    <TableHead>Code</TableHead>
-                                    <TableHead>Student Name</TableHead>
-                                    <TableHead className="text-center">Status</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {students.map((s, i) => (
-                                    <TableRow key={s.student_id} className="transition-colors hover:bg-muted/30 cursor-pointer" onClick={() => toggleStatus(s.student_id)}>
-                                        <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                                        <TableCell className="font-mono text-xs">{s.student_code || '—'}</TableCell>
-                                        <TableCell className="font-medium">{s.student_name}</TableCell>
-                                        <TableCell className="text-center">
-                                            {s.status === 'present' ? (
-                                                <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-200" variant="outline">Present</Badge>
-                                            ) : s.status === 'absent' ? (
-                                                <Badge className="bg-red-500/10 text-red-600 border-red-200" variant="outline">Absent</Badge>
-                                            ) : (
-                                                <Badge variant="outline" className="text-muted-foreground">Not Marked</Badge>
-                                            )}
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </TableBody>
-                        </Table>
-                    )}
-                </Card>
-            )}
-        </div>
-    )
+                        <Badge
+                          variant="outline"
+                          className={isPresent ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-red-500/10 text-red-600 border-red-200'}
+                        >
+                          {isPresent ? 'Present' : 'Absent'}
+                        </Badge>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  )
 }

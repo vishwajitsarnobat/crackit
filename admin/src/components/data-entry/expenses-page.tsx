@@ -1,201 +1,280 @@
 'use client'
 
-/**
- * Expenses Page Component
- * Allows accountants and admins to log monthly expenses for a specific centre.
- * Features: Category-wise expense entry (Rent, Electricity, etc.), description notes, and cost calculation.
- */
-
-import { useState, useCallback, useEffect } from 'react'
-import { toast } from 'sonner'
-import { Save } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
+import { Plus, Receipt, Save } from 'lucide-react'
+import { toast } from 'sonner'
 
+import { SelectField } from '@/components/shared/form/select-field'
 import { Button } from '@/components/ui/button'
-import { Card, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import type { AppRole, CentreExpense } from '@/lib/types/entities'
+import { fetchJson } from '@/lib/http/fetch-json'
+import type { CentreExpense } from '@/lib/types/entities'
+import { useTaskCentres } from '@/lib/hooks/use-task-centres'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
-type CentreOption = { id: string; centre_name: string; centre_code: string }
-
-const CATEGORIES = [
-    { value: 'rent', label: 'Rent' },
-    { value: 'electricity_bill', label: 'Electricity Bill' },
-    { value: 'stationery', label: 'Stationery' },
-    { value: 'internet_bill', label: 'Internet Bill' },
-    { value: 'miscellaneous', label: 'Miscellaneous' },
-] as const
-
-type ExpenseRow = {
-    category: string
-    label: string
-    amount: string
-    description: string
+type MonthSummary = {
+  month_year: string
+  total: number
+  count: number
+  categories: Record<string, number>
 }
 
-export function ExpensesPage({ role }: { role: AppRole }) {
-    const [centres, setCentres] = useState<CentreOption[]>([])
-    const [selectedCentre, setSelectedCentre] = useState('')
-    const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM'))
-    const [expenses, setExpenses] = useState<ExpenseRow[]>(
-        CATEGORIES.map(c => ({ category: c.value, label: c.label, amount: '', description: '' }))
-    )
-    const [loading, setLoading] = useState(true)
-    const [saving, setSaving] = useState(false)
+const CATEGORIES = [
+  { value: 'rent', label: 'Rent' },
+  { value: 'electricity_bill', label: 'Electricity Bill' },
+  { value: 'stationery', label: 'Stationery' },
+  { value: 'internet_bill', label: 'Internet Bill' },
+  { value: 'miscellaneous', label: 'Miscellaneous' },
+] as const
 
-    useEffect(() => {
-        async function load() {
-            const res = await fetch('/api/data-entry/expenses')
-            const json = await res.json()
-            if (res.ok) setCentres(json.centres ?? [])
-            setLoading(false)
-        }
-        load()
-    }, [])
+type DraftExpense = {
+  category: string
+  amount: string
+  description: string
+}
 
-    const loadExpenses = useCallback(async (centreId: string, month: string) => {
-        setLoading(true)
-        try {
-            const monthYear = `${month}-01`
-            const res = await fetch(`/api/data-entry/expenses?centre_id=${centreId}&month_year=${monthYear}`)
-            const json = await res.json()
-            if (res.ok) {
-                const existing = json.expenses ?? []
-                const existingMap = new Map(existing.map((e: CentreExpense) => [e.category, e]))
+function getRecentMonths() {
+  const result: MonthSummary[] = []
+  const today = new Date()
 
-                setExpenses(CATEGORIES.map(c => {
-                    const ex = existingMap.get(c.value) as CentreExpense | undefined
-                    return {
-                        category: c.value,
-                        label: c.label,
-                        amount: ex ? String(ex.amount) : '',
-                        description: ex?.description ?? '',
-                    }
-                }))
-            }
-        } finally {
-            setLoading(false)
-        }
-    }, [])
+  for (let index = 0; index < 6; index += 1) {
+    const date = new Date(today.getFullYear(), today.getMonth() - index, 1)
+    result.push({
+      month_year: format(date, 'yyyy-MM-01'),
+      total: 0,
+      count: 0,
+      categories: {},
+    })
+  }
 
-    useEffect(() => {
-        if (selectedCentre && selectedMonth) loadExpenses(selectedCentre, selectedMonth)
-    }, [selectedCentre, selectedMonth, loadExpenses])
+  return result
+}
 
-    function updateExpense(index: number, field: 'amount' | 'description', value: string) {
-        setExpenses(prev => prev.map((e, i) => i === index ? { ...e, [field]: value } : e))
+export function ExpensesPage() {
+  const queryClient = useQueryClient()
+  const [selectedCentre, setSelectedCentre] = useState('')
+  const [selectedMonth, setSelectedMonth] = useState(format(new Date(), 'yyyy-MM-01'))
+  const [drafts, setDrafts] = useState<DraftExpense[]>([{ category: 'rent', amount: '', description: '' }])
+  const centresQuery = useTaskCentres('/api/data-entry/expenses', 'expenses')
+
+  const centres = useMemo(() => centresQuery.data?.centres ?? [], [centresQuery.data?.centres])
+  const effectiveSelectedCentre = selectedCentre || centres[0]?.id || ''
+
+  const monthsQuery = useQuery({
+    queryKey: ['task-expense-months', effectiveSelectedCentre],
+    queryFn: () => fetchJson<{ months: MonthSummary[] }>(`/api/data-entry/expenses?centre_id=${effectiveSelectedCentre}`, { errorPrefix: 'Load expense months' }),
+    enabled: Boolean(effectiveSelectedCentre),
+    staleTime: 30_000,
+  })
+
+  const entriesQuery = useQuery({
+    queryKey: ['task-expense-entries', effectiveSelectedCentre || 'default', selectedMonth],
+    queryFn: () => fetchJson<{ expenses: CentreExpense[] }>(`/api/data-entry/expenses?centre_id=${effectiveSelectedCentre}&month_year=${selectedMonth}`, { errorPrefix: 'Load expense entries' }),
+    enabled: Boolean(effectiveSelectedCentre && selectedMonth),
+    staleTime: 30_000,
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: (records: Array<{ category: string; amount: number; description: string | null }>) =>
+      fetchJson<{ count: number }>('/api/data-entry/expenses', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ centre_id: effectiveSelectedCentre, month_year: selectedMonth, expenses: records }),
+      }),
+    onSuccess: async (json) => {
+      toast.success(`${json.count} expense entr${json.count === 1 ? 'y' : 'ies'} added`)
+      setDrafts([{ category: 'rent', amount: '', description: '' }])
+      await queryClient.invalidateQueries({ queryKey: ['task-expense-months', effectiveSelectedCentre] })
+      await queryClient.invalidateQueries({ queryKey: ['task-expense-entries', effectiveSelectedCentre, selectedMonth] })
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to save expense entries')
+    },
+  })
+
+  useQueryErrorToast(centresQuery.error, 'Failed to load centres')
+  useQueryErrorToast(monthsQuery.error, 'Failed to load expense months')
+  useQueryErrorToast(entriesQuery.error, 'Failed to load expense entries')
+
+  const months = useMemo(() => {
+    const summaryMap = new Map<string, MonthSummary>(((monthsQuery.data?.months) ?? []).map((month: MonthSummary) => [month.month_year, month]))
+    return getRecentMonths().map((month) => summaryMap.get(month.month_year) ?? month)
+  }, [monthsQuery.data?.months])
+  const entries = entriesQuery.data?.expenses ?? []
+  const loadingCentres = centresQuery.isPending || centresQuery.isFetching
+  const loadingMonths = monthsQuery.isPending || monthsQuery.isFetching
+  const loadingEntries = entriesQuery.isPending || entriesQuery.isFetching
+  const saving = saveMutation.isPending
+
+  const selectedMonthSummary = useMemo(
+    () => months.find((month) => month.month_year === selectedMonth) ?? months[0] ?? null,
+    [months, selectedMonth],
+  )
+
+  function updateDraft(index: number, field: keyof DraftExpense, value: string) {
+    setDrafts((previous) => previous.map((draft, draftIndex) => (
+      draftIndex === index ? { ...draft, [field]: value } : draft
+    )))
+  }
+
+  function addDraft() {
+    setDrafts((previous) => [...previous, { category: 'miscellaneous', amount: '', description: '' }])
+  }
+
+  async function handleSave() {
+    try {
+      const records = drafts
+        .filter((draft) => draft.amount && parseFloat(draft.amount) !== 0)
+        .map((draft) => ({
+          category: draft.category,
+          amount: parseFloat(draft.amount),
+          description: draft.description || null,
+        }))
+
+      if (records.length === 0) {
+        toast.error('Enter at least one non-zero expense entry.')
+        return
+      }
+
+      await saveMutation.mutateAsync(records)
+    } catch {
+      // handled by mutation callbacks
     }
+  }
 
-    async function handleSave() {
-        setSaving(true)
-        try {
-            const monthYear = `${selectedMonth}-01`
-            const records = expenses
-                .filter(e => e.amount && parseFloat(e.amount) > 0)
-                .map(e => ({
-                    category: e.category,
-                    amount: parseFloat(e.amount),
-                    description: e.description || null,
-                }))
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-serif text-3xl tracking-tight">Task Expenses</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Each month is represented as a summary card. Open a month to review immutable entries and append new ones.</p>
+      </div>
 
-            if (records.length === 0) {
-                toast.error('Enter at least one expense.')
-                setSaving(false)
-                return
-            }
-
-            const res = await fetch('/api/data-entry/expenses', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ centre_id: selectedCentre, month_year: monthYear, expenses: records }),
-            })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error)
-            toast.success(`${json.count} expense(s) saved`)
-        } catch (e: unknown) {
-            toast.error(e instanceof Error ? e.message : 'Failed to save')
-        } finally {
-            setSaving(false)
-        }
-    }
-
-    const total = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0)
-
-    return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="font-serif text-3xl tracking-tight">Expense Logging</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Record monthly expenses per centre and category.</p>
-            </div>
-
-            <div className="flex flex-wrap items-end gap-4">
-                <div className="space-y-2 min-w-[220px]">
-                    <Label>Centre</Label>
-                    <Select value={selectedCentre} onValueChange={setSelectedCentre}>
-                        <SelectTrigger><SelectValue placeholder="Select centre…" /></SelectTrigger>
-                        <SelectContent>
-                            {centres.map(c => (
-                                <SelectItem key={c.id} value={c.id}>{c.centre_name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                <div className="space-y-2">
-                    <Label>Month</Label>
-                    <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-[180px]" />
-                </div>
-            </div>
-
-            {selectedCentre && (
-                <Card className="gap-0 py-0 overflow-hidden">
-                    <div className="border-b bg-muted/30 px-5 py-3.5 flex items-center justify-between">
-                        <div>
-                            <CardTitle className="text-base tracking-tight">Expense Categories</CardTitle>
-                            <CardDescription className="mt-0.5">Total: ₹{total.toLocaleString('en-IN')}</CardDescription>
-                        </div>
-                        <Button size="sm" onClick={handleSave} disabled={saving}>
-                            <Save className="h-3.5 w-3.5 mr-1.5" />{saving ? 'Saving…' : 'Save'}
-                        </Button>
-                    </div>
-                    {loading ? (
-                        <div className="animate-pulse h-60 bg-muted/20" />
-                    ) : (
-                        <div className="divide-y">
-                            {expenses.map((exp, i) => (
-                                <div key={exp.category} className="px-5 py-4 grid grid-cols-[1fr_160px_1fr] gap-4 items-start">
-                                    <div className="flex items-center gap-2 pt-2">
-                                        <span className="text-sm font-medium">{exp.label}</span>
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label className="text-xs text-muted-foreground">Amount (₹)</Label>
-                                        <Input
-                                            type="number"
-                                            min={0}
-                                            value={exp.amount}
-                                            onChange={e => updateExpense(i, 'amount', e.target.value)}
-                                            placeholder="0"
-                                            className="tabular-nums"
-                                        />
-                                    </div>
-                                    <div className="space-y-1">
-                                        <Label className="text-xs text-muted-foreground">Description</Label>
-                                        <Textarea
-                                            value={exp.description}
-                                            onChange={e => updateExpense(i, 'description', e.target.value)}
-                                            placeholder="Optional notes…"
-                                            rows={1}
-                                            className="resize-none"
-                                        />
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </Card>
-            )}
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="min-w-[240px]">
+          <SelectField id="expenses-centre" label="Centre" value={effectiveSelectedCentre} onChange={setSelectedCentre} options={centres.map((centre) => ({ value: centre.id, label: centre.centre_name }))} placeholder={loadingCentres ? 'Loading centres...' : 'Select centre'} />
         </div>
-    )
+      </div>
+
+      {effectiveSelectedCentre && (
+        <>
+          <Card className="gap-0 overflow-hidden py-0">
+            <div className="border-b bg-muted/30 px-5 py-3.5">
+              <CardTitle className="text-base tracking-tight">Month Cards</CardTitle>
+              <CardDescription className="mt-0.5">Current and recent months appear here with summary totals even before opening the detail view.</CardDescription>
+            </div>
+            {loadingMonths ? (
+              <div className="h-40 animate-pulse bg-muted/20" />
+            ) : (
+              <div className="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
+                {months.map((month) => (
+                  <button
+                    key={month.month_year}
+                    type="button"
+                    onClick={() => setSelectedMonth(month.month_year)}
+                    className={`rounded-2xl border p-4 text-left transition-colors hover:bg-muted/20 ${selectedMonth === month.month_year ? 'border-sky-400/50 bg-sky-500/5' : 'bg-background'}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-medium">{format(new Date(month.month_year), 'MMMM yyyy')}</div>
+                        <div className="mt-1 text-sm text-muted-foreground">{month.count} entr{month.count === 1 ? 'y' : 'ies'}</div>
+                      </div>
+                      <Receipt className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                    <div className="mt-4 text-2xl font-semibold">Rs {Number(month.total).toLocaleString('en-IN')}</div>
+                    <div className="mt-3 text-xs text-muted-foreground">
+                      {Object.entries(month.categories).length === 0
+                        ? 'No expenses added yet.'
+                        : Object.entries(month.categories)
+                            .sort((left, right) => Math.abs(right[1]) - Math.abs(left[1]))
+                            .slice(0, 2)
+                            .map(([category, amount]) => `${category.replaceAll('_', ' ')}: Rs ${Number(amount).toLocaleString('en-IN')}`)
+                            .join(' · ')}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <div className="grid gap-4 xl:grid-cols-[1.05fr_1fr]">
+            <Card className="overflow-hidden py-0">
+              <div className="flex items-center justify-between border-b bg-muted/30 px-5 py-3.5">
+                <div>
+                  <CardTitle className="text-base tracking-tight">Add Expense Entries</CardTitle>
+                  <CardDescription className="mt-0.5">Appending to {selectedMonthSummary ? format(new Date(selectedMonthSummary.month_year), 'MMMM yyyy') : 'selected month'}. Use negative miscellaneous entries to compensate mistakes.</CardDescription>
+                </div>
+                <Button size="sm" onClick={handleSave} disabled={saving}>
+                  <Save className="mr-1.5 h-3.5 w-3.5" />{saving ? 'Saving...' : 'Save'}
+                </Button>
+              </div>
+
+              <div className="divide-y">
+                {drafts.map((draft, index) => (
+                  <div key={`${draft.category}-${index}`} className="grid gap-4 px-5 py-4 md:grid-cols-[220px_180px_1fr]">
+                    <SelectField id={`expense-category-${index}`} label="Category" value={draft.category} onChange={(value) => updateDraft(index, 'category', value)} options={CATEGORIES.map((category) => ({ value: category.value, label: category.label }))} />
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Amount (Rs)</Label>
+                      <Input type="number" value={draft.amount} onChange={(event) => updateDraft(index, 'amount', event.target.value)} placeholder="Negative misc for corrections" className="tabular-nums" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">Description</Label>
+                      <Textarea value={draft.description} onChange={(event) => updateDraft(index, 'description', event.target.value)} placeholder="Why this entry is being added" rows={1} className="resize-none" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t px-5 py-4">
+                <Button type="button" variant="outline" onClick={addDraft}><Plus className="mr-1.5 h-3.5 w-3.5" />Add Another Entry</Button>
+              </div>
+            </Card>
+
+            <Card className="overflow-hidden py-0">
+              <div className="border-b bg-muted/30 px-5 py-3.5">
+                <CardTitle className="text-base tracking-tight">Month Detail</CardTitle>
+                <CardDescription className="mt-0.5">{selectedMonthSummary ? `${format(new Date(selectedMonthSummary.month_year), 'MMMM yyyy')} · Rs ${Number(selectedMonthSummary.total).toLocaleString('en-IN')}` : 'Select a month card to review entries'}</CardDescription>
+              </div>
+
+              {loadingEntries ? (
+                <div className="h-60 animate-pulse bg-muted/20" />
+              ) : entries.length === 0 ? (
+                <div className="p-8 text-center text-sm text-muted-foreground">No expense entries found for this month.</div>
+              ) : (
+                <Table>
+                  <TableHeader className="bg-muted/50">
+                     <TableRow>
+                       <TableHead>#</TableHead>
+                       <TableHead>Category</TableHead>
+                       <TableHead className="text-right">Amount (Rs)</TableHead>
+                       <TableHead>Description</TableHead>
+                       <TableHead>Entered By</TableHead>
+                       <TableHead>Recorded At</TableHead>
+                     </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {entries.map((entry, index) => (
+                      <TableRow key={entry.id}>
+                        <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                        <TableCell className="font-medium capitalize">{entry.category.replaceAll('_', ' ')}</TableCell>
+                        <TableCell className="text-right tabular-nums">{Number(entry.amount).toLocaleString('en-IN')}</TableCell>
+                        <TableCell className="text-muted-foreground">{entry.description || '-'}</TableCell>
+                        <TableCell className="text-muted-foreground">{entry.entered_by_name || 'Unknown'}</TableCell>
+                        <TableCell className="tabular-nums text-muted-foreground">{entry.created_at.slice(0, 10)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </Card>
+          </div>
+        </>
+      )}
+    </div>
+  )
 }

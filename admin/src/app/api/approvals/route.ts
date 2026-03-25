@@ -1,8 +1,8 @@
 /**
  * Approvals List API
- * GET — Returns pending or processed approval requests with applicant/centre info.
- *       CEO reviews centre_head/accountant requests; centre_head reviews teacher/student.
- *       Supports ?status=pending|processed filter.
+ * GET — Returns approval requests with applicant/centre info.
+ *       CEO can review all request types; centre_head reviews teacher/student for owned centres.
+ *       Supports ?status=pending|approved|rejected|processed filter.
  */
 import { NextResponse, type NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -30,7 +30,10 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url)
   const statusFilter = searchParams.get('status')
-  const status: 'pending' | 'processed' = statusFilter === 'processed' ? 'processed' : 'pending'
+  const status: 'pending' | 'approved' | 'rejected' | 'processed' =
+    statusFilter === 'approved' || statusFilter === 'rejected' || statusFilter === 'processed'
+      ? statusFilter
+      : 'pending'
 
   try {
     const admin = createAdminClient()
@@ -43,15 +46,10 @@ export async function GET(request: NextRequest) {
       .order(status === 'pending' ? 'created_at' : 'reviewed_at', { ascending: false })
       .limit(100)
 
-    if (status === 'pending') {
-      query = query.eq('status', 'pending')
-    } else {
-      query = query.in('status', ['approved', 'rejected'])
-    }
+    if (status === 'processed') query = query.in('status', ['approved', 'rejected'])
+    else query = query.eq('status', status)
 
-    if (reviewer.data.role === 'ceo') {
-      query = query.in('requested_role', ['centre_head', 'accountant'])
-    } else {
+    if (reviewer.data.role !== 'ceo') {
       query = query
         .in('requested_role', ['teacher', 'student'])
         .in('centre_id', reviewer.data.centreIds)

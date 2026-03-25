@@ -1,265 +1,436 @@
 'use client'
 
-/**
- * Attendance Dashboard Component
- * Data visualization for student attendance across centres and batches.
- * Features: Daily trend charts (bar charts), status breakdown (donut chart), and individual student percentage tables.
- */
-
 import { useEffect, useMemo, useState } from 'react'
-import { format } from 'date-fns'
-import { CalendarCheck, CalendarX, CalendarDays, Percent } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
+import { useQuery } from '@tanstack/react-query'
+import { endOfMonth, format, startOfMonth, subDays } from 'date-fns'
+import { CalendarDays, CalendarCheck2, CalendarX2, Percent, Search } from 'lucide-react'
+import { Bar, BarChart, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts'
 import { toast } from 'sonner'
 
+import { fetchJson } from '@/lib/http/fetch-json'
+import { DonutChart } from '@/components/analytics/shared/donut-chart'
+import { EmptyState } from '@/components/analytics/shared/empty-state'
+import { FilterBar, SelectFilter, type FilterOption } from '@/components/analytics/shared/filter-bar'
+import { SectionCard } from '@/components/analytics/shared/section-card'
+import { StatCard } from '@/components/analytics/shared/stat-card'
+import { DatePickerField } from '@/components/shared/form/date-picker-field'
+import { SelectField } from '@/components/shared/form/select-field'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-
-import { StatCard } from '@/components/analytics/shared/stat-card'
-import { FilterBar, SelectFilter, DateFilter, type FilterOption } from '@/components/analytics/shared/filter-bar'
-import { EmptyState } from '@/components/analytics/shared/empty-state'
-import { DonutChart } from '@/components/analytics/shared/donut-chart'
-import { SectionCard } from '@/components/analytics/shared/section-card'
-
-/* ── Types ────────────────────────────────────────── */
+import { useAttendanceAnalyticsFilterStore } from '@/lib/stores/attendance-analytics-filters'
 
 type AttendancePayload = {
-    filters: {
-        centres: { id: string; centre_name: string }[]
-        batches: { id: string; batch_name: string; centre_id: string }[]
-        students: { id: string; display_name: string; student_code: string | null }[]
-        selectedStudentId: string | null
-    }
-    summary: { totalDays: number; presentCount: number; absentCount: number; attendancePercent: number | null }
-    dailyTrend: { date: string; present: number; absent: number }[]
-    studentBreakdown: { student_id: string; student_name: string; student_code: string | null; present: number; absent: number; total: number; percent: number | null }[]
+  filters: {
+    centres: { id: string; centre_name: string }[]
+    batches: { id: string; batch_name: string; centre_id: string }[]
+    students: { id: string; display_name: string; student_code: string | null }[]
+  }
+  summary: {
+    totalDays: number
+    presentCount: number
+    absentCount: number
+    attendancePercent: number | null
+    presentDays: number
+    absentDays: number
+  }
+  dailyTrend: { date: string; present: number; absent: number }[]
+  monthlyTrend: { month: string; present: number; absent: number }[]
+  yearlyTrend: { month: string; present: number; absent: number; percent: number | null }[]
+  studentBreakdown: {
+    student_id: string
+    student_name: string
+    student_code: string | null
+    present: number
+    absent: number
+    total: number
+    percent: number | null
+  }[]
 }
 
-/* ── Helpers ───────────────────────────────────────── */
-
-function fmtDate(d: string) {
-    return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
+type AppliedAttendanceFilters = {
+  centreId: string
+  batchId: string
+  studentId: string
+  month: string
+  from: string
+  to: string
+  year: string
 }
 
-function pctLabel(v: number | null) { return v === null ? '-' : `${v.toFixed(1)}%` }
+const chartConfig = {
+  present: { label: 'Present', color: '#38bdf8' },
+  absent: { label: 'Absent', color: '#fb7185' },
+  percent: { label: 'Attendance %', color: '#34d399' },
+} satisfies ChartConfig
 
-function attendanceTone(pct: number | null) {
-    if (pct === null) return { bar: 'bg-muted', text: 'text-muted-foreground', label: '-' }
-    if (pct >= 85) return { bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400', label: 'Excellent' }
-    if (pct >= 70) return { bar: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400', label: 'Moderate' }
-    return { bar: 'bg-rose-500', text: 'text-rose-600 dark:text-rose-400', label: 'Low' }
+function fmtPercent(value: number | null) {
+  return value === null ? '-' : `${value.toFixed(1)}%`
 }
 
-/* ── Daily Trend Chart ────────────────────────────── */
-
-function StatusDonutChart({ summary }: { summary: AttendancePayload['summary'] }) {
-    const data = [
-        { name: 'Present', value: summary.presentCount, fill: '#16a34a' },
-        { name: 'Absent', value: summary.absentCount, fill: '#dc2626' }
-    ]
-
-    const config = {
-        present: { label: 'Present', color: '#16a34a' },
-        absent: { label: 'Absent', color: '#dc2626' }
-    } satisfies ChartConfig
-
-    return <DonutChart data={data} config={config} emptyMessage="No attendance data available." />
+function prettyMonth(value: string) {
+  return format(new Date(`${value}-01T00:00:00`), 'MMM')
 }
 
-function DailyTrendChart({ data }: { data: AttendancePayload['dailyTrend'] }) {
-    if (!data.length) return <EmptyState title="No attendance data" message="No records found for the selected filters." />
-
-    const chartData = data.map(d => ({ date: fmtDate(d.date), present: d.present, absent: d.absent }))
-    const config = {
-        present: { label: 'Present', color: '#16a34a' },
-        absent: { label: 'Absent', color: '#dc2626' },
-    } satisfies ChartConfig
-    const width = Math.max(chartData.length * 48, 400)
-
-    return (
-        <ScrollArea className="w-full pb-1">
-            <div style={{ width: `${width}px` }}>
-                <ChartContainer config={config} className="h-[280px] w-full aspect-auto">
-                    <BarChart data={chartData} margin={{ left: 12, right: 12, top: 8, bottom: 8 }}>
-                        <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                        <XAxis dataKey="date" tickLine={false} axisLine={false} tickMargin={8} interval={0} />
-                        <YAxis tickLine={false} axisLine={false} width={28} allowDecimals={false} />
-                        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                        <Bar dataKey="present" stackId="a" fill="var(--color-present)" radius={[0, 0, 0, 0]} />
-                        <Bar dataKey="absent" stackId="a" fill="var(--color-absent)" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                </ChartContainer>
-            </div>
-            <ScrollBar orientation="horizontal" />
-        </ScrollArea>
-    )
+function prettyDate(value: string) {
+  return format(new Date(`${value}T00:00:00`), 'dd MMM')
 }
 
-/* ── Student Breakdown ────────────────────────────── */
-
-function StudentBreakdownTable({ rows }: { rows: AttendancePayload['studentBreakdown'] }) {
-    if (!rows.length) return <EmptyState title="No students" message="No student attendance data available." />
-
-    return (
-        <div className="overflow-hidden rounded-lg border">
-            <Table className="min-w-[600px]">
-                <TableHeader>
-                    <TableRow className="bg-muted/40">
-                        <TableHead className="w-10">#</TableHead>
-                        <TableHead>Student</TableHead>
-                        <TableHead className="text-center">Present</TableHead>
-                        <TableHead className="text-center">Absent</TableHead>
-                        <TableHead className="text-center">Total</TableHead>
-                        <TableHead className="text-right">Attendance %</TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {rows.map((r, i) => {
-                        const t = attendanceTone(r.percent)
-                        return (
-                            <TableRow key={r.student_id} className={`transition-colors hover:bg-muted/30 ${i % 2 === 0 ? 'bg-background' : 'bg-muted/10'}`}>
-                                <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                                <TableCell>
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                                            {r.student_name.slice(0, 2).toUpperCase()}
-                                        </div>
-                                        <div>
-                                            <p className="font-medium leading-none">{r.student_name}</p>
-                                            {r.student_code && <p className="text-xs text-muted-foreground mt-1">{r.student_code}</p>}
-                                        </div>
-                                    </div>
-                                </TableCell>
-                                <TableCell className="text-center tabular-nums text-emerald-600 dark:text-emerald-400">{r.present}</TableCell>
-                                <TableCell className="text-center tabular-nums text-rose-600 dark:text-rose-400">{r.absent}</TableCell>
-                                <TableCell className="text-center tabular-nums">{r.total}</TableCell>
-                                <TableCell>
-                                    <div className="flex items-center justify-end gap-2">
-                                        <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden hidden sm:block">
-                                            <div className={`h-full ${t.bar} transition-all`} style={{ width: `${r.percent ?? 0}%` }} />
-                                        </div>
-                                        <Badge variant="outline" className={`${t.text} min-w-[3.5rem] justify-center`}>{pctLabel(r.percent)}</Badge>
-                                    </div>
-                                </TableCell>
-                            </TableRow>
-                        )
-                    })}
-                </TableBody>
-            </Table>
-        </div>
-    )
+function buildAttendanceQueryString(filters: AppliedAttendanceFilters) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) params.set(key, value)
+  }
+  return params.toString()
 }
 
-/* ── Main Dashboard ───────────────────────────────── */
+function YearlyChart({ data, mode }: { data: AttendancePayload['yearlyTrend']; mode: 'present' | 'absent' | 'both' }) {
+  if (!data.length) return <EmptyState title="No yearly trend" message="No yearly attendance records are available for the current filters." />
+
+  const chartData = data.map((item) => ({
+    ...item,
+    monthLabel: prettyMonth(item.month),
+    value: mode === 'absent' ? item.absent : item.present,
+  }))
+
+  return (
+    <ChartContainer config={chartConfig} className="h-[300px] w-full aspect-auto">
+      <ComposedChart data={chartData}>
+        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+        <XAxis dataKey="monthLabel" tickLine={false} axisLine={false} />
+        <YAxis yAxisId="count" tickLine={false} axisLine={false} allowDecimals={false} />
+        <YAxis yAxisId="percent" orientation="right" tickLine={false} axisLine={false} domain={[0, 100]} />
+        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+        <ChartLegend content={<ChartLegendContent />} />
+        {mode !== 'absent' && <Bar yAxisId="count" dataKey="present" fill="var(--color-present)" radius={[6, 6, 0, 0]} />}
+        {mode !== 'present' && <Bar yAxisId="count" dataKey="absent" fill="var(--color-absent)" radius={[6, 6, 0, 0]} />}
+        <Line yAxisId="percent" type="monotone" dataKey="percent" stroke="var(--color-percent)" strokeWidth={3} dot={{ r: 4 }} />
+      </ComposedChart>
+    </ChartContainer>
+  )
+}
+
+function SimpleTrendChart({
+  title,
+  data,
+}: {
+  title: string
+  data: { label: string; present: number; absent: number }[]
+}) {
+  if (!data.length) return <EmptyState title={`No ${title.toLowerCase()}`} message="Try widening the date range or clearing student filters." />
+
+  return (
+    <ChartContainer config={chartConfig} className="h-[280px] w-full aspect-auto">
+      <BarChart data={data}>
+        <CartesianGrid vertical={false} strokeDasharray="3 3" />
+        <XAxis dataKey="label" tickLine={false} axisLine={false} interval={0} minTickGap={24} />
+        <YAxis tickLine={false} axisLine={false} allowDecimals={false} />
+        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+        <ChartLegend content={<ChartLegendContent />} />
+        <Bar dataKey="present" fill="var(--color-present)" radius={[6, 6, 0, 0]} />
+        <Bar dataKey="absent" fill="var(--color-absent)" radius={[6, 6, 0, 0]} />
+      </BarChart>
+    </ChartContainer>
+  )
+}
 
 export function AttendanceDashboard() {
-    const [data, setData] = useState<AttendancePayload | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [centreId, setCentreId] = useState('')
-    const [batchId, setBatchId] = useState('')
-    const [studentId, setStudentId] = useState('')
-    const [fromDate, setFromDate] = useState<Date | undefined>()
-    const [toDate, setToDate] = useState<Date | undefined>()
+  const {
+    centreId,
+    batchId,
+    studentId,
+    month,
+    fromDate,
+    toDate,
+    year,
+    yearMode,
+    tableStatus,
+    studentSearch,
+    patchFilters,
+    resetFilters,
+    setFilter,
+  } = useAttendanceAnalyticsFilterStore()
+  const [appliedFilters, setAppliedFilters] = useState<AppliedAttendanceFilters>({
+    centreId: '',
+    batchId: '',
+    studentId: '',
+    month: '',
+    from: format(subDays(new Date(), 29), 'yyyy-MM-dd'),
+    to: format(new Date(), 'yyyy-MM-dd'),
+    year: String(new Date().getFullYear()),
+  })
 
-    const visibleBatches = useMemo(() => {
-        if (!data) return []
-        return centreId ? data.filters.batches.filter(b => b.centre_id === centreId) : data.filters.batches
-    }, [centreId, data])
+  const { data, error, isPending, isFetching } = useQuery({
+    queryKey: ['analytics-attendance', appliedFilters],
+    queryFn: async () => {
+      const payload = await fetchJson<AttendancePayload>(`/api/analytics/attendance?${buildAttendanceQueryString(appliedFilters)}`, {
+        cache: 'no-store',
+        errorPrefix: 'Load attendance analytics',
+      })
+      return payload
+    },
+    staleTime: 30_000,
+    retry: false,
+  })
 
-    function buildParams(overrides?: Record<string, string>) {
-        const p = new URLSearchParams()
-        const vals = { centreId, batchId, studentId, from: fromDate ? format(fromDate, 'yyyy-MM-dd') : '', to: toDate ? format(toDate, 'yyyy-MM-dd') : '', ...overrides }
-        for (const [k, v] of Object.entries(vals)) { if (v) p.set(k, v) }
-        return p
+  const loading = isPending || isFetching
+
+  useEffect(() => {
+    if (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load attendance analytics')
     }
+  }, [error])
 
-    async function loadData(params?: URLSearchParams) {
-        setLoading(true)
-        const q = params ? `?${params}` : ''
-        const res = await fetch(`/api/analytics/attendance${q}`, { cache: 'no-store' })
-        const payload = await res.json().catch(() => null)
-        setLoading(false)
-        if (!res.ok || !payload) { toast.error(payload?.error ?? 'Failed to load attendance data.'); return }
-        const d = payload as AttendancePayload
-        setData(d)
-        if (!params) {
-            setCentreId(d.filters.centres[0]?.id ?? '')
-            setBatchId(d.filters.batches[0]?.id ?? '')
-            setStudentId('')
-        }
+  function applyFilters() {
+    setAppliedFilters({
+      centreId,
+      batchId,
+      studentId,
+      month,
+      from: fromDate,
+      to: toDate,
+      year,
+    })
+  }
+
+  const visibleBatches = useMemo(() => {
+    if (!data) return []
+    return centreId ? data.filters.batches.filter((batch) => batch.centre_id === centreId) : data.filters.batches
+  }, [centreId, data])
+
+  const centreOptions: FilterOption[] = [{ value: 'all', label: 'All centres' }, ...(data?.filters.centres.map((centre) => ({ value: centre.id, label: centre.centre_name })) ?? [])]
+  const batchOptions: FilterOption[] = [{ value: 'all', label: 'All batches' }, ...visibleBatches.map((batch) => ({ value: batch.id, label: batch.batch_name }))]
+  const studentOptions: FilterOption[] = [{ value: 'all', label: 'All students' }, ...(data?.filters.students.map((student) => ({ value: student.id, label: `${student.display_name}${student.student_code ? ` (${student.student_code})` : ''}` })) ?? [])]
+
+  const dailyTrend = useMemo(
+    () => (data?.dailyTrend ?? []).map((item) => ({ label: prettyDate(item.date), present: item.present, absent: item.absent })),
+    [data?.dailyTrend],
+  )
+
+  const monthlyTrend = useMemo(
+    () => (data?.monthlyTrend ?? []).map((item) => ({ label: prettyMonth(item.month), present: item.present, absent: item.absent })),
+    [data?.monthlyTrend],
+  )
+
+  const donutData = useMemo(
+    () => [
+      { name: 'present', value: data?.summary.presentCount ?? 0, fill: '#38bdf8' },
+      { name: 'absent', value: data?.summary.absentCount ?? 0, fill: '#fb7185' },
+    ],
+    [data?.summary.absentCount, data?.summary.presentCount],
+  )
+
+  const breakdownRows = useMemo(() => {
+    const query = studentSearch.trim().toLowerCase()
+    return (data?.studentBreakdown ?? [])
+      .filter((row) => !query || row.student_name.toLowerCase().includes(query) || (row.student_code ?? '').toLowerCase().includes(query))
+      .filter((row) => {
+        if (tableStatus === 'present') return row.present > 0
+        if (tableStatus === 'absent') return row.absent > 0
+        return true
+      })
+  }, [data?.studentBreakdown, studentSearch, tableStatus])
+
+  useEffect(() => {
+    if (batchId && !visibleBatches.some((batch) => batch.id === batchId)) {
+      patchFilters({ batchId: '', studentId: '' })
     }
+  }, [batchId, patchFilters, visibleBatches])
 
-    function resetScopedFilters(nextCentreId: string) {
-        setCentreId(nextCentreId)
-        if (!data) return
-        const first = nextCentreId === '' ? data.filters.batches[0] : data.filters.batches.find(b => b.centre_id === nextCentreId)
-        setBatchId(first?.id ?? ''); setStudentId('')
+  useEffect(() => {
+    const studentIds = new Set((data?.filters.students ?? []).map((student) => student.id))
+    if (studentId && !studentIds.has(studentId)) {
+      setFilter('studentId', '')
     }
+  }, [data?.filters.students, setFilter, studentId])
 
-    async function handleBatchChange(next: string) {
-        setBatchId(next); setStudentId('')
-        await loadData(buildParams({ batchId: next, studentId: '' }))
-    }
-
-    async function applyFilters() { await loadData(buildParams()) }
-
-    useEffect(() => { loadData() }, [])
-
-    const centreOpts: FilterOption[] = [{ value: 'all', label: 'All centres' }, ...(data?.filters.centres.map(c => ({ value: c.id, label: c.centre_name })) ?? [])]
-    const batchOpts: FilterOption[] = visibleBatches.map(b => ({ value: b.id, label: b.batch_name }))
-    const studentOpts: FilterOption[] = [{ value: 'all', label: 'All students' }, ...(data?.filters.students.map(s => ({ value: s.id, label: `${s.display_name}${s.student_code ? ` (${s.student_code})` : ''}` })) ?? [])]
-
-    const summary = data?.summary ?? { totalDays: 0, presentCount: 0, absentCount: 0, attendancePercent: null }
-
-    return (
-        <div className="space-y-6 animate-fade-in">
-            {/* Header */}
-            <div>
-                <h1 className="font-serif text-3xl tracking-tight">Attendance Analytics</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Track student attendance across batches with daily trends and individual breakdowns.</p>
+  return (
+    <div className="space-y-6">
+      <section className="relative overflow-hidden rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.20),transparent_32%),radial-gradient(circle_at_right,rgba(34,197,94,0.12),transparent_28%),linear-gradient(180deg,rgba(15,23,42,0.52),rgba(2,6,23,0.86))]" />
+        <div className="relative space-y-4">
+          <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Analytics</Badge>
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            <div className="max-w-3xl">
+              <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Attendance Intelligence</h1>
+              <p className="mt-3 text-base text-slate-300">Explore student, batch, or centre attendance with day-wise, month-wise, and year-wise views plus a detailed student breakdown.</p>
             </div>
-
-            {/* Filters */}
-            <FilterBar description="Refine by centre, batch, student, and date range." actions={
-                <>
-                    <Button onClick={applyFilters} disabled={loading}>{loading ? 'Loading…' : 'Apply filters'}</Button>
-                    <Button variant="outline" onClick={() => { setFromDate(undefined); setToDate(undefined) }}>Clear dates</Button>
-                </>
-            }>
-                <SelectFilter id="a-centre" label="Centre" value={centreId || 'all'} options={centreOpts} onChange={v => resetScopedFilters(v === 'all' ? '' : v)} />
-                <SelectFilter id="a-batch" label="Batch" value={batchId} options={batchOpts} placeholder="Select batch" onChange={handleBatchChange} />
-                <SelectFilter id="a-student" label="Student" value={studentId || 'all'} options={studentOpts} onChange={v => setStudentId(v === 'all' ? '' : v)} />
-                <DateFilter id="a-from" label="From" value={fromDate} onChange={setFromDate} />
-                <DateFilter id="a-to" label="To" value={toDate} onChange={setToDate} />
-            </FilterBar>
-
-            {/* Summary cards */}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <StatCard label="Total Days" value={summary.totalDays} icon={<CalendarDays className="h-5 w-5" />} />
-                <StatCard label="Present" value={summary.presentCount} icon={<CalendarCheck className="h-5 w-5" />} accent="success" />
-                <StatCard label="Absent" value={summary.absentCount} icon={<CalendarX className="h-5 w-5" />} accent={summary.absentCount > 0 ? 'danger' : 'default'} />
-                <StatCard label="Attendance %" value={pctLabel(summary.attendancePercent)} icon={<Percent className="h-5 w-5" />}
-                    accent={summary.attendancePercent !== null ? (summary.attendancePercent >= 85 ? 'success' : summary.attendancePercent >= 70 ? 'warning' : 'danger') : 'default'} />
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-4">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Date range</div>
+                <div className="mt-2 text-lg font-semibold text-white">{fromDate} {'->'} {toDate}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-4">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Year focus</div>
+                <div className="mt-2 text-lg font-semibold text-white">{year}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-slate-950/35 px-4 py-4">
+                <div className="text-[11px] uppercase tracking-[0.22em] text-slate-400">Student scope</div>
+                <div className="mt-2 text-lg font-semibold text-white">{studentId ? 'Selected student' : 'Batch / centre view'}</div>
+              </div>
             </div>
-
-            {/* Charts */}
-            <div className="grid gap-4 lg:grid-cols-3 lg:items-start">
-                <SectionCard title="Status Breakdown" description="Overall present vs absent ratio.">
-                    <StatusDonutChart summary={summary} />
-                </SectionCard>
-
-                <SectionCard title="Daily Attendance Trend" className="lg:col-span-2" description="Stacked bar chart showing present and absent counts per day.">
-                    <DailyTrendChart data={data?.dailyTrend ?? []} />
-                </SectionCard>
-            </div>
-
-            {/* Student Breakdown */}
-            <SectionCard title="Student Breakdown" description="Individual attendance ranked by percentage.">
-                <StudentBreakdownTable rows={data?.studentBreakdown ?? []} />
-            </SectionCard>
+          </div>
         </div>
-    )
+      </section>
+
+      <FilterBar
+        title="Attendance Filters"
+        description="Teacher scope is limited to assigned batches. Centre heads stay within their centre. CEO can view all centres."
+        gridClass="md:grid-cols-3 xl:grid-cols-7"
+        actions={
+           <>
+             <Button onClick={applyFilters} disabled={loading}>{loading ? 'Loading...' : 'Apply filters'}</Button>
+             <Button variant="outline" onClick={() => {
+               const defaultFrom = format(subDays(new Date(), 29), 'yyyy-MM-dd')
+               const defaultTo = format(new Date(), 'yyyy-MM-dd')
+               const defaultYear = String(new Date().getFullYear())
+               resetFilters()
+                setAppliedFilters({ centreId: '', batchId: '', studentId: '', month: '', from: defaultFrom, to: defaultTo, year: defaultYear })
+              }}>Reset range</Button>
+            </>
+          }
+       >
+        {data?.filters.centres && data.filters.centres.length > 1 && (
+          <SelectFilter id="attendance-centre" label="Centre" value={centreId || 'all'} options={centreOptions} onChange={(value) => {
+            const next = value === 'all' ? '' : value
+            patchFilters({ centreId: next, batchId: '', studentId: '' })
+          }} />
+        )}
+        <SelectFilter id="attendance-batch" label="Batch" value={batchId || 'all'} options={batchOptions} onChange={(value) => patchFilters({ batchId: value === 'all' ? '' : value, studentId: '' })} />
+        <SelectFilter id="attendance-student" label="Student" value={studentId || 'all'} options={studentOptions} onChange={(value) => setFilter('studentId', value === 'all' ? '' : value)} />
+        <div className="space-y-2">
+          <Label htmlFor="attendance-month">Month</Label>
+          <Input
+            id="attendance-month"
+            type="month"
+            value={month}
+            onChange={(event) => {
+              const nextMonth = event.target.value
+              if (!nextMonth) {
+                setFilter('month', '')
+                return
+              }
+              const monthStart = format(startOfMonth(new Date(`${nextMonth}-01T00:00:00`)), 'yyyy-MM-dd')
+              const monthEnd = format(endOfMonth(new Date(`${nextMonth}-01T00:00:00`)), 'yyyy-MM-dd')
+              patchFilters({ month: nextMonth, fromDate: monthStart, toDate: monthEnd, year: nextMonth.slice(0, 4) })
+            }}
+            max={format(new Date(), 'yyyy-MM')}
+          />
+        </div>
+        <DatePickerField id="attendance-from" label="From" value={fromDate} onChange={(value) => patchFilters({ fromDate: value, month: '' })} max={toDate || undefined} />
+        <DatePickerField id="attendance-to" label="To" value={toDate} onChange={(value) => patchFilters({ toDate: value, month: '' })} min={fromDate || undefined} max={format(new Date(), 'yyyy-MM-dd')} />
+        <div className="space-y-2">
+          <Label htmlFor="attendance-year">Year</Label>
+          <Input id="attendance-year" type="number" value={year} onChange={(event) => setFilter('year', event.target.value)} min="2000" max="2100" />
+        </div>
+      </FilterBar>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Tracked Days" value={data?.summary.totalDays ?? 0} icon={<CalendarDays className="h-5 w-5" />} />
+        <StatCard label="Present Records" value={data?.summary.presentCount ?? 0} icon={<CalendarCheck2 className="h-5 w-5" />} accent="success" />
+        <StatCard label="Absent Records" value={data?.summary.absentCount ?? 0} icon={<CalendarX2 className="h-5 w-5" />} accent="danger" />
+        <StatCard label="Attendance %" value={fmtPercent(data?.summary.attendancePercent ?? null)} icon={<Percent className="h-5 w-5" />} accent={(data?.summary.attendancePercent ?? 0) >= 85 ? 'success' : (data?.summary.attendancePercent ?? 0) >= 70 ? 'warning' : 'danger'} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr]">
+        <SectionCard title="Total Breakdown" description="Present vs absent totals for the current filtered scope.">
+          <DonutChart data={donutData} config={chartConfig} emptyMessage="No attendance records are available." />
+        </SectionCard>
+        <SectionCard title="Day-Wise Attendance" className="lg:col-span-2" description="Daily present and absent totals for the selected date range.">
+          <SimpleTrendChart title="Day-Wise Attendance" data={dailyTrend} />
+        </SectionCard>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1fr_1.3fr]">
+        <SectionCard title="Month-Wise Attendance" description="Monthly attendance totals for the selected date range.">
+          <SimpleTrendChart title="Month-Wise Attendance" data={monthlyTrend} />
+        </SectionCard>
+        <SectionCard
+          title="Yearly Attendance View"
+          description="Month-wise bars with an attendance-percentage line. Use the mode filter to focus on present, absent, or both."
+        >
+          <div className="mb-4 flex justify-end">
+            <div className="w-[220px]">
+              <SelectField
+                id="attendance-year-mode"
+                label="Bar mode"
+                value={yearMode}
+                onChange={(value) => setFilter('yearMode', value as 'present' | 'absent' | 'both')}
+                options={[
+                  { value: 'both', label: 'Present + absent' },
+                  { value: 'present', label: 'Present only' },
+                  { value: 'absent', label: 'Absent only' },
+                ]}
+              />
+            </div>
+          </div>
+          <YearlyChart data={data?.yearlyTrend ?? []} mode={yearMode} />
+        </SectionCard>
+      </div>
+
+      <SectionCard title="Student Stats Table" description="Useful when a batch or centre is selected and you need an individual student attendance breakdown.">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
+          <div className="max-w-sm space-y-2">
+            <Label htmlFor="attendance-student-search">Search students</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input id="attendance-student-search" value={studentSearch} onChange={(event) => setFilter('studentSearch', event.target.value)} className="pl-9" placeholder="Search by name or code" />
+            </div>
+          </div>
+          <div className="w-[180px]">
+            <SelectField
+              id="attendance-table-status"
+              label="Table filter"
+              value={tableStatus}
+              onChange={(value) => setFilter('tableStatus', value as 'all' | 'present' | 'absent')}
+              options={[
+                { value: 'all', label: 'All' },
+                { value: 'present', label: 'Present only' },
+                { value: 'absent', label: 'Absent only' },
+              ]}
+            />
+          </div>
+        </div>
+
+        {breakdownRows.length === 0 ? (
+          <EmptyState title="No student breakdown" message="No student attendance rows match the current filters." />
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-white/10">
+            <Table>
+              <TableHeader className="bg-slate-950/35">
+                <TableRow>
+                  <TableHead>#</TableHead>
+                  <TableHead>Student</TableHead>
+                  <TableHead className="text-center">Present</TableHead>
+                  <TableHead className="text-center">Absent</TableHead>
+                  <TableHead className="text-center">Total</TableHead>
+                  <TableHead className="text-right">Attendance %</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {breakdownRows.map((row, index) => (
+                  <TableRow key={row.student_id} className="hover:bg-white/5">
+                    <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                    <TableCell>
+                      <div className="font-medium">{row.student_name}</div>
+                      <div className="font-mono text-xs text-muted-foreground">{row.student_code || '-'}</div>
+                    </TableCell>
+                    <TableCell className="text-center tabular-nums text-sky-400">{row.present}</TableCell>
+                    <TableCell className="text-center tabular-nums text-rose-400">{row.absent}</TableCell>
+                    <TableCell className="text-center tabular-nums">{row.total}</TableCell>
+                    <TableCell className="text-right">
+                      <Badge variant="outline" className="border-sky-400/20 bg-sky-400/10 text-sky-300">{fmtPercent(row.percent)}</Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  )
 }

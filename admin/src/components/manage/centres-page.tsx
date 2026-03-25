@@ -6,9 +6,11 @@
  * Features: Adding, editing, and deactivating centres with location details.
  */
 
-import { useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { Plus, Pencil, Power } from 'lucide-react'
+import { fetchJson } from '@/lib/http/fetch-json'
+import { SelectField } from '@/components/shared/form/select-field'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardTitle, CardDescription } from '@/components/ui/card'
@@ -18,15 +20,18 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ManageDialog } from '@/components/manage/manage-dialog'
 import { useManageData } from '@/lib/hooks/use-manage-data'
-import { type Centre, type AppRole } from '@/lib/types/entities'
+import { type Centre } from '@/lib/types/entities'
 
-export function CentresPage({ role }: { role: AppRole }) {
+type StatusFilter = 'all' | 'active' | 'inactive'
+
+export function CentresPage() {
     const { data, loading, reload } = useManageData<{ centres: Centre[] }>({ endpoint: 'centres' })
-    const centres = data?.centres || []
 
     const [dialogOpen, setDialogOpen] = useState(false)
     const [saving, setSaving] = useState(false)
     const [editing, setEditing] = useState<Centre | null>(null)
+    const [search, setSearch] = useState('')
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
 
     // Form state
     const [code, setCode] = useState('')
@@ -35,6 +40,25 @@ export function CentresPage({ role }: { role: AppRole }) {
     const [city, setCity] = useState('')
     const [phone, setPhone] = useState('')
 
+    const filteredCentres = useMemo(() => {
+        const query = search.trim().toLowerCase()
+
+        return (data?.centres ?? []).filter((centre) => {
+            const matchesSearch = !query || [
+                centre.centre_code,
+                centre.centre_name,
+                centre.city ?? '',
+                centre.phone ?? '',
+            ].some((value) => value.toLowerCase().includes(query))
+
+            const matchesStatus =
+                statusFilter === 'all' ||
+                (statusFilter === 'active' && centre.is_active) ||
+                (statusFilter === 'inactive' && !centre.is_active)
+
+            return matchesSearch && matchesStatus
+        })
+    }, [data?.centres, search, statusFilter])
 
 
     function openAdd() {
@@ -53,42 +77,39 @@ export function CentresPage({ role }: { role: AppRole }) {
         setSaving(true)
         try {
             if (editing) {
-                const res = await fetch('/api/manage/centres', {
+                await fetchJson('/api/manage/centres', {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id: editing.id, centre_name: name, address, city, phone })
                 })
-                const data = await res.json()
-                if (!res.ok) throw new Error(data.error)
                 toast.success('Centre updated')
             } else {
-                const res = await fetch('/api/manage/centres', {
+                await fetchJson('/api/manage/centres', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ centre_code: code, centre_name: name, address, city, phone })
                 })
-                const data = await res.json()
-                if (!res.ok) throw new Error(data.error)
                 toast.success('Centre created')
             }
             setDialogOpen(false)
             await reload()
-        } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Unknown error') }
+        } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Failed to save centre changes') }
         finally { setSaving(false) }
     }
 
     async function toggleActive(c: Centre) {
+        const actionLabel = c.is_active ? 'deactivate' : 'activate'
+        if (!confirm(`Are you sure you want to ${actionLabel} ${c.centre_name}?`)) return
+
         try {
-            const res = await fetch('/api/manage/centres', {
+            await fetchJson('/api/manage/centres', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ id: c.id, is_active: !c.is_active })
             })
-            const data = await res.json()
-            if (!res.ok) throw new Error(data.error)
             toast.success(`Centre ${c.is_active ? 'deactivated' : 'activated'}`)
             await reload()
-        } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Unknown error') }
+        } catch (e: unknown) { toast.error(e instanceof Error ? e.message : 'Failed to update centre status') }
     }
 
     return (
@@ -96,19 +117,44 @@ export function CentresPage({ role }: { role: AppRole }) {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="font-serif text-3xl tracking-tight">Centre Management</h1>
-                    <p className="mt-1 text-sm text-muted-foreground">Add, edit, or deactivate coaching centres.</p>
+                    <p className="mt-1 text-sm text-muted-foreground">Search centres, review their current status, and manage add, edit, or deactivate actions from one place.</p>
                 </div>
                 <Button onClick={openAdd}><Plus className="h-4 w-4 mr-2" />Add Centre</Button>
             </div>
 
             <Card className="gap-0 py-0 overflow-hidden">
                 <div className="border-b bg-muted/30 px-5 py-3.5">
+                    <CardTitle className="text-base tracking-tight">Centre Filters</CardTitle>
+                    <CardDescription className="mt-0.5">Search by code, name, city, or phone and filter by status.</CardDescription>
+                </div>
+                <div className="grid gap-4 px-5 py-4 md:grid-cols-[1fr_220px]">
+                    <div className="space-y-2">
+                        <Label htmlFor="centre-search">Search</Label>
+                        <Input
+                            id="centre-search"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            placeholder="Search by code, name, city, or phone"
+                        />
+                    </div>
+                    <SelectField
+                        id="centre-status"
+                        label="Status"
+                        value={statusFilter}
+                        onChange={(value) => setStatusFilter(value as StatusFilter)}
+                        options={[{ value: 'all', label: 'All' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]}
+                    />
+                </div>
+            </Card>
+
+            <Card className="gap-0 py-0 overflow-hidden">
+                <div className="border-b bg-muted/30 px-5 py-3.5">
                     <CardTitle className="text-base tracking-tight">All Centres</CardTitle>
-                    <CardDescription className="mt-0.5">{centres.length} centre(s) found</CardDescription>
+                    <CardDescription className="mt-0.5">{filteredCentres.length} centre(s) found</CardDescription>
                 </div>
                 {loading ? (
                     <div className="animate-pulse h-40 bg-muted/20" />
-                ) : centres.length === 0 ? (
+                ) : filteredCentres.length === 0 ? (
                     <div className="p-8 text-center text-muted-foreground text-sm">No centres found.</div>
                 ) : (
                     <Table>
@@ -124,7 +170,7 @@ export function CentresPage({ role }: { role: AppRole }) {
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                            {centres.map((c, i) => (
+                            {filteredCentres.map((c, i) => (
                                 <TableRow key={c.id} className="transition-colors hover:bg-muted/30">
                                     <TableCell className="text-muted-foreground">{i + 1}</TableCell>
                                     <TableCell className="font-mono text-xs">{c.centre_code}</TableCell>
@@ -139,11 +185,9 @@ export function CentresPage({ role }: { role: AppRole }) {
                                     <TableCell className="text-right pr-4">
                                         <div className="flex justify-end gap-1">
                                             <Button variant="ghost" size="sm" onClick={() => openEdit(c)}><Pencil className="h-3.5 w-3.5" /></Button>
-                                            {role === 'ceo' && (
-                                                <Button variant="ghost" size="sm" onClick={() => toggleActive(c)}>
-                                                    <Power className={`h-3.5 w-3.5 ${c.is_active ? 'text-red-500' : 'text-emerald-500'}`} />
-                                                </Button>
-                                            )}
+                                            <Button variant="ghost" size="sm" onClick={() => toggleActive(c)} title={c.is_active ? 'Deactivate centre' : 'Activate centre'}>
+                                                <Power className={`h-3.5 w-3.5 ${c.is_active ? 'text-red-500' : 'text-emerald-500'}`} />
+                                            </Button>
                                         </div>
                                     </TableCell>
                                 </TableRow>

@@ -1,12 +1,24 @@
 /**
  * Batch Management API
- * GET   — Returns batches + centres/courses dropdowns. CEO sees all; centre_head sees assigned.
- * POST  — Creates a new batch with centre_id, course_id, batch_code, batch_name
- * PATCH — Updates batch details or toggles is_active (CEO only)
+ * GET   — Returns batches + centres dropdowns. CEO sees all; centre_head sees assigned.
+ * POST  — Creates a new batch with centre_id, batch_code, batch_name
+ * PATCH — Updates batch details or toggles is_active (centre_head only)
  */
 import { createClient } from '@/lib/supabase/server'
 import { withAuth, apiSuccess, apiError } from '@/lib/api/api-helpers'
 import { createBatchSchema, updateBatchSchema } from '@/lib/validations/manage'
+
+type BatchRow = {
+    id: string
+    centre_id: string
+    batch_code: string
+    batch_name: string
+    academic_year: string
+    is_active: boolean
+    created_at: string
+    updated_at: string
+    centres: { centre_name: string } | null
+}
 
 export const GET = withAuth(async (request, ctx) => {
     const supabase = await createClient()
@@ -19,18 +31,15 @@ export const GET = withAuth(async (request, ctx) => {
         const { data } = await supabase.from('centres').select('id, centre_name').eq('is_active', true).order('centre_name')
         centresData = data ?? []
     } else {
-        if (ctx.profile.centreIds.length === 0) return apiSuccess({ batches: [], centres: [], courses: [] })
+        if (ctx.profile.centreIds.length === 0) return apiSuccess({ batches: [], centres: [] })
         const { data } = await supabase.from('centres').select('id, centre_name').in('id', ctx.profile.centreIds).eq('is_active', true).order('centre_name')
         centresData = data ?? []
     }
 
-    // ── Courses dropdown ──
-    const { data: coursesData } = await supabase.from('courses').select('id, course_name').eq('is_active', true).order('course_name')
-
     // ── Batches query ──
     let query = supabase
         .from('batches')
-        .select('*, courses(course_name), centres(centre_name)')
+        .select('*, centres(centre_name)')
         .order('batch_name')
 
     if (ctx.profile.role === 'ceo') {
@@ -47,16 +56,19 @@ export const GET = withAuth(async (request, ctx) => {
     const { data: batches, error } = await query
     if (error) return apiError(error.message, 500)
 
-    const formatted = (batches ?? []).map(b => ({
+    const formatted = (batches ?? []).map((b: BatchRow) => ({
         ...b,
-        course_name: (b.courses as any)?.course_name ?? '-',
-        centre_name: (b.centres as any)?.centre_name ?? '-',
+        centre_name: b.centres?.centre_name ?? '-',
     }))
 
-    return apiSuccess({ batches: formatted, centres: centresData, courses: coursesData ?? [] })
+    return apiSuccess({ batches: formatted, centres: centresData })
 }, ['ceo', 'centre_head'])
 
 export const POST = withAuth(async (request, ctx) => {
+    if (ctx.profile.role !== 'centre_head') {
+        return apiError('Only centre heads can create batches.', 403)
+    }
+
     const body = await request.json()
     const parsed = createBatchSchema.safeParse(body)
 
@@ -64,7 +76,7 @@ export const POST = withAuth(async (request, ctx) => {
         return apiError(parsed.error.issues[0]?.message ?? 'Invalid input', 400)
     }
 
-    const { centre_id, course_id, batch_code, batch_name, academic_year } = parsed.data
+    const { centre_id, batch_code, batch_name, academic_year } = parsed.data
 
     const supabase = await createClient()
 
@@ -76,7 +88,6 @@ export const POST = withAuth(async (request, ctx) => {
         .from('batches')
         .insert({
             centre_id,
-            course_id,
             batch_code: batch_code.trim(),
             batch_name: batch_name.trim(),
             academic_year: academic_year.trim()
@@ -94,6 +105,10 @@ export const POST = withAuth(async (request, ctx) => {
 }, ['ceo', 'centre_head'])
 
 export const PATCH = withAuth(async (request, ctx) => {
+    if (ctx.profile.role !== 'centre_head') {
+        return apiError('Only centre heads can modify batches.', 403)
+    }
+
     const body = await request.json()
     const parsed = updateBatchSchema.safeParse(body)
 
@@ -101,7 +116,7 @@ export const PATCH = withAuth(async (request, ctx) => {
         return apiError(parsed.error.issues[0]?.message ?? 'Invalid input', 400)
     }
 
-    const { id, batch_name, course_id, academic_year, is_active } = parsed.data
+    const { id, batch_name, academic_year, is_active } = parsed.data
 
     const supabase = await createClient()
 
@@ -114,9 +129,8 @@ export const PATCH = withAuth(async (request, ctx) => {
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
     if (batch_name !== undefined) updates.batch_name = batch_name.trim()
-    if (course_id !== undefined) updates.course_id = course_id
     if (academic_year !== undefined) updates.academic_year = academic_year.trim()
-    if (is_active !== undefined && ctx.profile.role === 'ceo') updates.is_active = is_active
+    if (is_active !== undefined) updates.is_active = is_active
 
     const { error } = await supabase.from('batches').update(updates).eq('id', id)
     if (error) return apiError(error.message, 400)

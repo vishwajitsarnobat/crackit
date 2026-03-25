@@ -14,7 +14,7 @@ import { Calendar } from '@/components/ui/calendar'
 import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardTitle } from '@/components/ui/card'
 
 /* ── Generic select options ───────────────────────── */
 
@@ -87,9 +87,9 @@ type FilterBarProps = {
 
 export function FilterBar({ title = 'Filters', description, children, actions, gridClass = "md:grid-cols-5" }: FilterBarProps) {
     return (
-        <Card className="gap-4 border-border/60 py-0 overflow-hidden">
-            <div className="border-b bg-muted/30 px-5 py-3.5">
-                <CardTitle className="text-base tracking-tight">{title}</CardTitle>
+        <Card className="gap-4 overflow-hidden py-0">
+            <div className="border-b border-white/10 bg-slate-950/35 px-5 py-3.5">
+                <CardTitle className="text-base tracking-tight text-white">{title}</CardTitle>
                 {description && <CardDescription className="mt-1">{description}</CardDescription>}
             </div>
             <CardContent className="space-y-4 px-5 py-5">

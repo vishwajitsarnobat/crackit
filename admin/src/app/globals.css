@@ -4,36 +4,36 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: 150 20% 97%;
-  --foreground: 210 24% 12%;
-  --card: 0 0% 100%;
-  --card-foreground: 210 24% 12%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 210 24% 12%;
-  --primary: 162 72% 34%;
+  --background: 222 47% 7%;
+  --foreground: 210 25% 96%;
+  --card: 222 32% 14%;
+  --card-foreground: 210 25% 96%;
+  --popover: 222 32% 12%;
+  --popover-foreground: 210 25% 96%;
+  --primary: 199 89% 65%;
   --primary-foreground: 0 0% 100%;
-  --secondary: 160 18% 93%;
-  --secondary-foreground: 210 24% 12%;
-  --muted: 160 14% 93%;
-  --muted-foreground: 210 10% 46%;
-  --accent: 162 72% 34%;
-  --accent-foreground: 0 0% 100%;
+  --secondary: 221 26% 18%;
+  --secondary-foreground: 210 25% 96%;
+  --muted: 221 24% 18%;
+  --muted-foreground: 215 16% 66%;
+  --accent: 199 89% 65%;
+  --accent-foreground: 222 47% 7%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 98%;
-  --success: 152 69% 40%;
+  --success: 160 84% 39%;
   --success-foreground: 0 0% 100%;
-  --warning: 38 92% 50%;
-  --warning-foreground: 0 0% 100%;
-  --info: 217 91% 60%;
+  --warning: 38 92% 58%;
+  --warning-foreground: 222 47% 7%;
+  --info: 199 89% 65%;
   --info-foreground: 0 0% 100%;
-  --border: 160 12% 88%;
-  --input: 160 12% 88%;
-  --ring: 162 72% 34%;
-  --radius: 0.625rem;
-  --chart-1: 162 72% 34%;
-  --chart-2: 152 69% 40%;
-  --chart-3: 217 91% 60%;
-  --chart-4: 38 92% 50%;
+  --border: 219 20% 24%;
+  --input: 219 20% 24%;
+  --ring: 199 89% 65%;
+  --radius: 0.95rem;
+  --chart-1: 199 89% 65%;
+  --chart-2: 160 84% 39%;
+  --chart-3: 255 92% 76%;
+  --chart-4: 38 92% 58%;
   --chart-5: 0 72% 51%;
 }
 
@@ -116,6 +116,12 @@
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
+  background-image: radial-gradient(circle at top left, rgba(56, 189, 248, 0.08), transparent 28%), linear-gradient(180deg, rgba(15, 23, 42, 0.86), rgba(2, 6, 23, 1));
+  min-height: 100vh;
+}
+
+.app-shell-bg {
+  background-color: #020617;
 }
 
 /* Smooth transitions for interactive elements */

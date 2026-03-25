@@ -1,5 +1,5 @@
 /**
- * Data Entry Validation Schemas (Zod)
+ * Task Validation Schemas (Zod)
  * Schemas for: saveAttendance, createExam, saveMarks, togglePublish,
  * createContent, updateContent, saveExpenses, saveSalaries,
  * createInvoice, recordPayment, updateDiscount, saveStaffAttendance
@@ -46,20 +46,31 @@ export const togglePublishSchema = z.object({
     results_published: z.boolean(),
 });
 
+const contentUrlSchema = z.string().url("Must be a valid URL.").refine((value) => {
+    try {
+        const url = new URL(value)
+        return url.protocol === 'https:' || url.protocol === 'http:'
+    } catch {
+        return false
+    }
+}, "Only http and https links are allowed.")
+
 // ── Content ──
 
 export const createContentSchema = z.object({
     batch_id: z.string().uuid(),
     title: z.string().min(2, "Title is required."),
-    content_url: z.string().url("Must be a valid URL."),
-    content_type: z.enum(["video", "pdf", "notes"]),
+    content_url: contentUrlSchema,
+    content_type: z.enum(["video", "document"]),
+    remarks: z.string().optional().nullable(),
 });
 
 export const updateContentSchema = z.object({
     id: z.string().uuid(),
     title: z.string().min(2).optional(),
-    content_url: z.string().url().optional(),
-    content_type: z.enum(["video", "pdf", "notes"]).optional(),
+    content_url: contentUrlSchema.optional(),
+    content_type: z.enum(["video", "document"]).optional(),
+    remarks: z.string().optional().nullable(),
     is_published: z.boolean().optional(),
 });
 
@@ -71,7 +82,7 @@ export const saveExpensesSchema = z.object({
     expenses: z.array(
         z.object({
             category: z.enum(["rent", "electricity_bill", "stationery", "internet_bill", "miscellaneous"]),
-            amount: z.coerce.number().min(0, "Amount must be non-negative."),
+            amount: z.coerce.number().refine((value) => value !== 0, "Amount cannot be zero."),
             description: z.string().optional().nullable(),
         })
     ).min(1, "At least one expense required."),
@@ -84,33 +95,26 @@ export const saveSalariesSchema = z.object({
     month_year: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format."),
     salaries: z.array(
         z.object({
-            user_id: z.string().uuid(),
-            amount_due: z.coerce.number().min(0),
-            amount_paid: z.coerce.number().min(0),
+            salary_id: z.string().uuid(),
+            target_paid_amount: z.coerce.number().min(0),
             payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(),
+            description: z.string().optional().nullable(),
         })
     ).min(1, "At least one salary record required."),
 });
 
 // ── Fee Management ──
 
-export const createInvoiceSchema = z.object({
-    student_id: z.string().uuid(),
-    batch_id: z.string().uuid(),
-    month_year: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format."),
-    monthly_fee: z.coerce.number().positive("Monthly fee must be positive."),
-    amount_due: z.coerce.number().min(0),
-});
-
 export const recordPaymentSchema = z.object({
     student_invoice_id: z.string().uuid(),
     amount: z.coerce.number().positive("Payment amount must be positive."),
     payment_mode: z.enum(["cash", "online"]),
+    payment_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format.").optional().nullable(),
 });
 
 export const updateDiscountSchema = z.object({
-    id: z.string().uuid(),
-    amount_discount: z.coerce.number().min(0),
+    student_id: z.string().uuid(),
+    target_discount_total: z.coerce.number().int().min(0),
 });
 
 // ── Staff Attendance ──
@@ -126,4 +130,14 @@ export const saveStaffAttendanceSchema = z.object({
             out_time: z.string().optional().nullable(),
         })
     ).min(1, "At least one record required."),
+}).superRefine((value, ctx) => {
+    for (const [index, record] of value.records.entries()) {
+        if (record.status === 'partial' && (!record.in_time || !record.out_time)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                path: ['records', index],
+                message: 'Partial staff attendance requires both in_time and out_time.',
+            })
+        }
+    }
 });

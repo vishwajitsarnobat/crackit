@@ -1,32 +1,23 @@
 /**
  * Centre Management API
- * GET   — Returns all centres (CEO) or assigned centres (centre_head)
- * POST  — Creates a new centre with auto centre-head assignment
+ * GET   — Returns all centres for CEO use
+ * POST  — Creates a new centre
  * PATCH — Updates centre details or toggles is_active (CEO only)
  */
-import { type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { withAuth, apiSuccess, apiError } from '@/lib/api/api-helpers'
 import { createCentreSchema, updateCentreSchema } from '@/lib/validations/manage'
 
-export const GET = withAuth(async (request, ctx) => {
+export const GET = withAuth(async () => {
     const supabase = await createClient()
-
-    let query = supabase.from('centres').select('*').order('centre_name')
-
-    if (ctx.profile.role === 'centre_head') {
-        if (ctx.profile.centreIds.length === 0) return apiSuccess({ centres: [] })
-        query = query.in('id', ctx.profile.centreIds)
-    }
-
-    const { data, error } = await query
+    const { data, error } = await supabase.from('centres').select('*').order('centre_name')
     if (error) return apiError(error.message, 500)
 
     return apiSuccess({ centres: data ?? [] })
-}, ['ceo', 'centre_head'])
+}, ['ceo'])
 
-export const POST = withAuth(async (request, ctx) => {
+export const POST = withAuth(async (request) => {
     const body = await request.json()
     const parsed = createCentreSchema.safeParse(body)
     
@@ -57,16 +48,8 @@ export const POST = withAuth(async (request, ctx) => {
         return apiError(error.message, 400)
     }
 
-    if (ctx.profile.role === 'centre_head') {
-        await adminClient.from('user_centre_assignments').insert({
-            user_id: ctx.user.id,
-            centre_id: data.id,
-            is_active: true
-        })
-    }
-
     return apiSuccess({ centre: data })
-}, ['ceo', 'centre_head'])
+}, ['ceo'])
 
 export const PATCH = withAuth(async (request, ctx) => {
     const body = await request.json()
@@ -77,22 +60,6 @@ export const PATCH = withAuth(async (request, ctx) => {
     }
 
     const { id, centre_name, address, city, phone, is_active } = parsed.data
-
-    const supabase = await createClient()
-
-    if (ctx.profile.role === 'centre_head') {
-        const { data: assignment } = await supabase
-            .from('user_centre_assignments')
-            .select('id')
-            .eq('user_id', ctx.user.id)
-            .eq('centre_id', id)
-            .eq('is_active', true)
-            .single()
-        
-        if (!assignment) {
-            return apiError('You are not authorized to edit this centre.', 403)
-        }
-    }
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
     if (centre_name !== undefined) updates.centre_name = centre_name.trim()
@@ -107,4 +74,4 @@ export const PATCH = withAuth(async (request, ctx) => {
     if (error) return apiError(error.message, 400)
 
     return apiSuccess({ ok: true, centre: data })
-}, ['ceo', 'centre_head'])
+}, ['ceo'])

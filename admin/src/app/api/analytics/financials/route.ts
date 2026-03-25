@@ -1,191 +1,213 @@
 /**
  * Financial Analytics API
- * GET — Returns revenue, expenses, salaries, net profit, and trend data.
- *       Supports monthly or yearly view via month/year params.
- *       Includes expense breakdown chart data and fee collection status.
- *       Role-scoped: CEO/centre_head/accountant.
+ * GET — Returns KPI summary, sorted expense breakdown, yearly expense trend, salary summaries, and fee summaries.
  */
 import { NextResponse, type NextRequest } from 'next/server'
+import { endOfMonth, format, startOfMonth } from 'date-fns'
+
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentUserContext } from '@/lib/auth/current-user'
 
 type AllowedRole = 'ceo' | 'centre_head' | 'accountant'
+type CentreRow = { id: string; centre_name: string }
+type BatchRow = { id: string; batch_name: string; centre_id: string }
 
 function isAllowed(role: string | null): role is AllowedRole {
-    return role === 'ceo' || role === 'centre_head' || role === 'accountant'
-}
-
-/**
- * Build a YYYY-MM-DD string for the 1st of the given month.
- * Avoids Date→toISOString timezone pitfalls.
- */
-function monthStart(year: number, month: number): string {
-    return `${year}-${String(month + 1).padStart(2, '0')}-01`
+  return role === 'ceo' || role === 'centre_head' || role === 'accountant'
 }
 
 export async function GET(request: NextRequest) {
-    const supabase = await createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
+  const context = await getCurrentUserContext()
+  if (!context?.isActive || !isAllowed(context.role)) {
+    return NextResponse.json({ error: 'You are not allowed to view financial analytics.' }, { status: 403 })
+  }
 
-    const { data: profile } = await supabase.from('users').select('role_id, is_active').eq('id', user.id).single()
-    if (!profile?.is_active) return NextResponse.json({ error: 'Your account is not active.' }, { status: 403 })
+  const supabase = await createClient()
+  const { searchParams } = new URL(request.url)
+  const centreId = searchParams.get('centreId') || ''
+  const month = searchParams.get('month') || format(new Date(), 'yyyy-MM')
+  const year = Number(searchParams.get('year') || new Date().getFullYear())
 
-    const { data: roleData } = await supabase.from('roles').select('role_name').eq('id', profile.role_id).single()
-    if (!isAllowed(roleData?.role_name ?? null)) {
-        return NextResponse.json({ error: 'You are not allowed to view financial analytics.' }, { status: 403 })
-    }
+  let centres: CentreRow[] = []
+  if (context.role === 'ceo') {
+    const { data } = await supabase.from('centres').select('id, centre_name').eq('is_active', true).order('centre_name')
+    centres = (data ?? []) as CentreRow[]
+  } else {
+    const { data } = await supabase
+      .from('user_centre_assignments')
+      .select('centres!inner(id, centre_name)')
+      .eq('user_id', context.userId)
+      .eq('is_active', true)
+    centres = (data ?? []).map((row: { centres: CentreRow | CentreRow[] | null }) => (Array.isArray(row.centres) ? row.centres[0] : row.centres) as CentreRow).filter(Boolean)
+  }
 
-    const { searchParams } = new URL(request.url)
-    const centreId = searchParams.get('centreId')
-    const monthStr = searchParams.get('month')   // YYYY-MM  (monthly mode)
-    const yearStr = searchParams.get('year')      // YYYY     (yearly mode)
+  const allowedCentreIds = new Set(centres.map((centre) => centre.id))
+  if (centreId && !allowedCentreIds.has(centreId)) {
+    return NextResponse.json({ error: 'You are not allowed to view financial analytics for this centre.' }, { status: 403 })
+  }
 
-    // ── Determine date range ──────────────────────────────────────
-    // Yearly mode: Jan–Dec of given year
-    // Monthly mode (default): single month
-    let rangeStart: string   // inclusive
-    let rangeEnd: string     // inclusive
-    let viewMode: 'month' | 'year'
-
-    if (yearStr) {
-        const y = parseInt(yearStr)
-        rangeStart = `${y}-01-01`
-        rangeEnd = `${y}-12-01`
-        viewMode = 'year'
-    } else {
-        // Parse month string; default to current month
-        const now = new Date()
-        let year = now.getFullYear()
-        let month = now.getMonth() // 0-indexed
-        if (monthStr) {
-            const [yy, mm] = monthStr.split('-').map(Number)
-            if (yy && mm) { year = yy; month = mm - 1 }
-        }
-        rangeStart = monthStart(year, month)
-        rangeEnd = rangeStart
-        viewMode = 'month'
-    }
-
-    // 1. Centres
-    const { data: centresData, error: cErr } = await supabase
-        .from('centres').select('id, centre_name').eq('is_active', true).order('centre_name')
-    if (cErr) return NextResponse.json({ error: cErr.message }, { status: 400 })
-    const centres = centresData ?? []
-
-    const filterCentreId = centreId && centreId !== 'all' ? centreId : null
-
-    // 2. Expenses
-    let expQ = supabase.from('centre_expenses').select('*')
-        .gte('month_year', rangeStart).lte('month_year', rangeEnd)
-    if (filterCentreId) expQ = expQ.eq('centre_id', filterCentreId)
-    const { data: expensesData } = await expQ
-    const expenses = expensesData ?? []
-
-    // 3. Salaries
-    let salQ = supabase.from('staff_salaries').select('*, users(full_name), centres(centre_name)')
-        .gte('month_year', rangeStart).lte('month_year', rangeEnd)
-    if (filterCentreId) salQ = salQ.eq('centre_id', filterCentreId)
-    const { data: salariesData } = await salQ
-    const salaries = salariesData ?? []
-
-    // 4. Invoices
-    let invQ = supabase.from('student_invoices').select(`
-        id, amount_due, amount_paid, payment_status, month_year,
-        students(id, student_code, parent_name, admission_form_data, users(full_name)),
-        batches(id, batch_name, centre_id)
-    `).gte('month_year', rangeStart).lte('month_year', rangeEnd)
-
-    const { data: invRaw } = await invQ
-    const allInvoices = invRaw ?? []
-
-    // Filter invoices by centre (nested via batch)
-    const invoices = filterCentreId
-        ? allInvoices.filter(i => (i.batches as any)?.centre_id === filterCentreId)
-        : allInvoices
-
-    // ── Summary metrics ──────────────────────────────────────────
-    const totalExpenses = expenses.reduce((sum, e) => sum + Number(e.amount), 0)
-    const totalSalariesPaid = salaries.reduce((sum, s) => sum + Number(s.amount_paid), 0)
-    const totalRevenue = invoices.reduce((sum, i) => sum + Number(i.amount_paid), 0)
-    const expectedRevenue = invoices.reduce((sum, i) => sum + Number(i.amount_due), 0)
-
-    const pendingReceivables = invoices
-        .filter(i => i.payment_status === 'pending' || i.payment_status === 'partial' || i.payment_status === 'overdue')
-        .reduce((sum, i) => sum + (Number(i.amount_due) - Number(i.amount_paid)), 0)
-
-    const netProfit = totalRevenue - (totalExpenses + totalSalariesPaid)
-
-    // ── Monthly trend (for yearly view) ──────────────────────────
-    const monthlyTrend: { month: string; revenue: number; expenses: number; salaries: number; profit: number }[] = []
-    if (viewMode === 'year') {
-        const months = new Set<string>()
-        for (const e of expenses) months.add(e.month_year)
-        for (const s of salaries) months.add(s.month_year)
-        for (const i of invoices) months.add(i.month_year)
-
-        const sorted = [...months].sort()
-        for (const m of sorted) {
-            const mExp = expenses.filter(e => e.month_year === m).reduce((s, e) => s + Number(e.amount), 0)
-            const mSal = salaries.filter(s => s.month_year === m).reduce((s, sal) => s + Number(sal.amount_paid), 0)
-            const mRev = invoices.filter(i => i.month_year === m).reduce((s, i) => s + Number(i.amount_paid), 0)
-            monthlyTrend.push({ month: m, revenue: mRev, expenses: mExp, salaries: mSal, profit: mRev - (mExp + mSal) })
-        }
-    }
-
-    // ── Expense breakdown chart ──────────────────────────────────
-    const expenseBreakdown = Object.entries(
-        expenses.reduce((acc, exp) => {
-            acc[exp.category] = (acc[exp.category] || 0) + Number(exp.amount)
-            return acc
-        }, {} as Record<string, number>)
-    ).map(([name, value]) => ({ name, value }))
-
-    // ── Fee collection status chart ──────────────────────────────
-    const collectionStatus = invoices.reduce((acc, inv) => {
-        acc[inv.payment_status] = (acc[inv.payment_status] || 0) + 1
-        return acc
-    }, {} as Record<string, number>)
-
+  const scopedCentreId = centreId || centres[0]?.id || ''
+  if (!scopedCentreId) {
     return NextResponse.json({
-        viewMode,
-        filters: { centres },
-        summary: {
-            totalRevenue,
-            totalExpenses,
-            totalSalariesPaid,
-            netProfit,
-            pendingReceivables,
-            expectedRevenue
-        },
-        visualizations: {
-            expenseBreakdown,
-            collectionStatus
-        },
-        monthlyTrend,
-        tables: {
-            expenses,
-            salaries: salaries.map(s => ({
-                ...s,
-                staff_name: (s.users as any)?.full_name ?? 'Unknown',
-                centre_name: (s.centres as any)?.centre_name ?? 'Unknown'
-            })),
-            invoices: invoices.map(i => {
-                const stu = i.students as any
-                const userInfo = Array.isArray(stu?.users) ? stu.users[0] : stu?.users
-                const fullName = userInfo?.full_name ?? null
-                const formName = stu?.admission_form_data && typeof stu.admission_form_data === 'object'
-                    ? (stu.admission_form_data as Record<string, unknown>).student_name : null
-                const studentName = fullName
-                    ?? (typeof formName === 'string' ? formName : null)
-                    ?? (stu?.parent_name ? `Ward of ${stu.parent_name}` : null)
-                    ?? (stu?.student_code ? `Student ${stu.student_code}` : 'Unknown')
-                return {
-                    ...i,
-                    student_name: studentName,
-                    student_code: stu?.student_code ?? null,
-                    batch_name: (i.batches as any)?.batch_name ?? 'Unknown'
-                }
-            })
-        }
+      filters: { centres: [], batches: [] },
+      summary: { totalCollected: 0, pendingDues: 0, totalExpenses: 0, salaryPaid: 0 },
+      expenseBreakdown: [],
+      yearlyExpenseTrend: [],
+      salarySummaries: [],
+      feeSummaries: [],
     })
+  }
+
+  const { data: batchData, error: batchError } = await supabase
+    .from('batches')
+    .select('id, batch_name, centre_id')
+    .eq('centre_id', scopedCentreId)
+    .eq('is_active', true)
+    .order('batch_name')
+
+  if (batchError) return NextResponse.json({ error: batchError.message }, { status: 400 })
+  const batches = (batchData ?? []) as BatchRow[]
+
+  const monthStart = startOfMonth(new Date(`${month}-01T00:00:00`))
+  const monthStartStr = format(monthStart, 'yyyy-MM-dd')
+  const monthEndStr = format(endOfMonth(monthStart), 'yyyy-MM-dd')
+
+  const { data: expenseRows, error: expenseError } = await supabase
+    .from('centre_expenses')
+    .select('id, centre_id, month_year, category, amount, description, entered_by, created_at')
+    .eq('centre_id', scopedCentreId)
+    .eq('month_year', monthStartStr)
+
+  if (expenseError) return NextResponse.json({ error: expenseError.message }, { status: 400 })
+
+  const { data: salaryRows, error: salaryError } = await supabase
+    .from('staff_salaries')
+    .select('id, user_id, centre_id, month_year, amount_due, amount_paid, status, payment_date, assignment_snapshot, users(full_name)')
+    .eq('centre_id', scopedCentreId)
+    .lte('month_year', monthEndStr)
+    .order('month_year', { ascending: false })
+
+  if (salaryError) return NextResponse.json({ error: salaryError.message }, { status: 400 })
+
+  const { data: invoiceRows, error: invoiceError } = await supabase
+    .from('student_invoices')
+    .select('id, student_id, batch_id, month_year, amount_due, amount_paid, amount_discount, payment_status, batches!inner(batch_name, centre_id), students!inner(student_code, current_points, users!inner(full_name))')
+    .in('batch_id', batches.map((batch) => batch.id))
+    .lte('month_year', monthEndStr)
+    .order('month_year', { ascending: false })
+
+  if (invoiceError) return NextResponse.json({ error: invoiceError.message }, { status: 400 })
+
+  const totalCollected = (invoiceRows ?? []).filter((row: { month_year: string }) => row.month_year === monthStartStr).reduce((sum: number, row: { amount_paid: number }) => sum + Number(row.amount_paid), 0)
+  const pendingDues = (invoiceRows ?? []).reduce((sum: number, row: { amount_due: number; amount_paid: number; amount_discount: number }) => sum + Math.max(0, Number(row.amount_due) - Number(row.amount_paid) - Number(row.amount_discount)), 0)
+  const totalExpenses = (expenseRows ?? []).reduce((sum: number, row: { amount: number }) => sum + Number(row.amount), 0)
+  const salaryPaid = (salaryRows ?? []).filter((row: { month_year: string }) => row.month_year === monthStartStr).reduce((sum: number, row: { amount_paid: number }) => sum + Number(row.amount_paid), 0)
+
+  const expenseBreakdownMap = new Map<string, number>()
+  for (const row of (expenseRows ?? []) as Array<{ category: string; amount: number }>) {
+    expenseBreakdownMap.set(row.category, (expenseBreakdownMap.get(row.category) ?? 0) + Number(row.amount))
+  }
+  const expenseBreakdown = Array.from(expenseBreakdownMap.entries())
+    .map(([category, amount]) => ({ category, amount }))
+    .sort((left, right) => Math.abs(right.amount) - Math.abs(left.amount))
+
+  const { data: yearlyExpenseRows, error: yearlyExpenseError } = await supabase
+    .from('centre_expenses')
+    .select('month_year, amount')
+    .eq('centre_id', scopedCentreId)
+    .gte('month_year', `${year}-01-01`)
+    .lte('month_year', `${year}-12-31`)
+    .order('month_year', { ascending: true })
+
+  if (yearlyExpenseError) return NextResponse.json({ error: yearlyExpenseError.message }, { status: 400 })
+
+  const yearMap = new Map<string, number>()
+  for (let monthIndex = 1; monthIndex <= 12; monthIndex += 1) {
+    yearMap.set(`${year}-${String(monthIndex).padStart(2, '0')}`, 0)
+  }
+  for (const row of (yearlyExpenseRows ?? []) as Array<{ month_year: string; amount: number }>) {
+    const key = row.month_year.slice(0, 7)
+    yearMap.set(key, (yearMap.get(key) ?? 0) + Number(row.amount))
+  }
+  const yearlyExpenseTrend = Array.from(yearMap.entries()).map(([monthKey, amount]) => ({
+    month: monthKey,
+    expense: amount,
+    running_total: Array.from(yearMap.entries()).filter(([key]) => key <= monthKey).reduce((sum, [, value]) => sum + value, 0),
+  }))
+
+  const salarySummaryMap = new Map<string, {
+    teacher_id: string
+    teacher_name: string
+    paid_till: string | null
+    pending_months: string[]
+    total_pending_amount: number
+    batch_names: string[]
+  }>()
+
+  for (const row of (salaryRows ?? []) as Array<{ user_id: string; month_year: string; amount_due: number; amount_paid: number; status: string; assignment_snapshot: Array<{ batch_name: string }>; users: { full_name: string | null } | null }>) {
+    const existing = salarySummaryMap.get(row.user_id) ?? {
+      teacher_id: row.user_id,
+      teacher_name: row.users?.full_name ?? 'Unknown',
+      paid_till: null,
+      pending_months: [],
+      total_pending_amount: 0,
+      batch_names: [],
+    }
+
+    if (row.status === 'paid') {
+      if (!existing.paid_till || row.month_year > existing.paid_till) existing.paid_till = row.month_year
+    } else {
+      existing.pending_months.push(row.month_year)
+      existing.total_pending_amount += Math.max(0, Number(row.amount_due) - Number(row.amount_paid))
+    }
+
+    for (const assignment of row.assignment_snapshot ?? []) {
+      if (!existing.batch_names.includes(assignment.batch_name)) existing.batch_names.push(assignment.batch_name)
+    }
+
+    salarySummaryMap.set(row.user_id, existing)
+  }
+
+  const feeSummaryMap = new Map<string, {
+    student_id: string
+    student_name: string
+    student_code: string | null
+    paid_till: string | null
+    pending_months: string[]
+    total_pending_amount: number
+    batch_names: string[]
+  }>()
+
+  for (const row of (invoiceRows ?? []) as Array<{ student_id: string; month_year: string; amount_due: number; amount_paid: number; amount_discount: number; payment_status: string; batches: { batch_name: string } | { batch_name: string }[] | null; students: { student_code: string | null; users: { full_name: string | null } | null } | { student_code: string | null; users: { full_name: string | null } | null }[] | null }>) {
+    const studentInfo = Array.isArray(row.students) ? row.students[0] : row.students
+    const batchInfo = Array.isArray(row.batches) ? row.batches[0] : row.batches
+    const existing = feeSummaryMap.get(row.student_id) ?? {
+      student_id: row.student_id,
+      student_name: studentInfo?.users?.full_name ?? 'Unknown',
+      student_code: studentInfo?.student_code ?? null,
+      paid_till: null,
+      pending_months: [],
+      total_pending_amount: 0,
+      batch_names: [],
+    }
+
+    if (row.payment_status === 'paid') {
+      if (!existing.paid_till || row.month_year > existing.paid_till) existing.paid_till = row.month_year
+    } else {
+      existing.pending_months.push(row.month_year)
+      existing.total_pending_amount += Math.max(0, Number(row.amount_due) - Number(row.amount_paid) - Number(row.amount_discount))
+    }
+    if (batchInfo?.batch_name && !existing.batch_names.includes(batchInfo.batch_name)) existing.batch_names.push(batchInfo.batch_name)
+
+    feeSummaryMap.set(row.student_id, existing)
+  }
+
+  return NextResponse.json({
+    filters: { centres, batches },
+    summary: { totalCollected, pendingDues, totalExpenses, salaryPaid },
+    expenseBreakdown,
+    yearlyExpenseTrend,
+    salarySummaries: Array.from(salarySummaryMap.values()).sort((left, right) => left.teacher_name.localeCompare(right.teacher_name)),
+    feeSummaries: Array.from(feeSummaryMap.values()).sort((left, right) => left.student_name.localeCompare(right.student_name)),
+  })
 }

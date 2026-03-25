@@ -6,6 +6,43 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
+type RoleRow = {
+    role_name: string | null;
+    display_name: string | null;
+};
+
+type ProfileRow = {
+    id: string;
+    full_name: string | null;
+    email: string | null;
+    phone: string | null;
+    profile_photo_url: string | null;
+    is_active: boolean | null;
+    created_at: string;
+    roles: RoleRow | RoleRow[] | null;
+};
+
+type CentreRow = {
+    id: string;
+    centre_name: string;
+    centre_code: string;
+};
+
+type CentreAssignmentRow = {
+    is_primary: boolean | null;
+    centres: CentreRow | CentreRow[] | null;
+};
+
+function resolveRole(roles: ProfileRow['roles']) {
+    if (Array.isArray(roles)) return roles[0] ?? null;
+    return roles;
+}
+
+function resolveCentre(centre: CentreAssignmentRow['centres']) {
+    if (Array.isArray(centre)) return centre[0] ?? null;
+    return centre;
+}
+
 export async function GET() {
     try {
         const supabase = await createClient()
@@ -28,6 +65,8 @@ export async function GET() {
             return NextResponse.json({ error: 'Profile not found.' }, { status: 404 })
         }
 
+        const typedProfile = profile as ProfileRow
+
         // Fetch centre assignments
         const { data: centresData } = await supabase
             .from('user_centre_assignments')
@@ -35,23 +74,32 @@ export async function GET() {
             .eq('user_id', user.id)
             .eq('is_active', true)
 
-        const centres = (centresData ?? []).map(c => ({
-            id: (c.centres as any).id,
-            name: (c.centres as any).centre_name,
-            code: (c.centres as any).centre_code,
-            isPrimary: c.is_primary
-        }))
+        const centres = ((centresData ?? []) as CentreAssignmentRow[])
+            .map((assignment) => {
+                const centre = resolveCentre(assignment.centres)
+                if (!centre) return null
+
+                return {
+                    id: centre.id,
+                    name: centre.centre_name,
+                    code: centre.centre_code,
+                    isPrimary: assignment.is_primary === true,
+                }
+            })
+            .filter((centre): centre is { id: string; name: string; code: string; isPrimary: boolean } => Boolean(centre))
+
+        const role = resolveRole(typedProfile.roles)
 
         return NextResponse.json({
-            id: profile.id,
-            fullName: profile.full_name,
-            email: profile.email,
-            phone: profile.phone ?? '',
-            photoUrl: profile.profile_photo_url,
-            isActive: profile.is_active,
-            createdAt: profile.created_at,
-            roleName: (profile.roles as any)?.role_name,
-            roleDisplayName: (profile.roles as any)?.display_name,
+            id: typedProfile.id,
+            fullName: typedProfile.full_name,
+            email: typedProfile.email,
+            phone: typedProfile.phone ?? '',
+            photoUrl: typedProfile.profile_photo_url,
+            isActive: typedProfile.is_active === true,
+            createdAt: typedProfile.created_at,
+            roleName: role?.role_name,
+            roleDisplayName: role?.display_name,
             centres
         })
 

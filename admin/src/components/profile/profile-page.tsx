@@ -6,7 +6,8 @@
  * Features: Client-side fetching of profile data and update form.
  */
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format } from 'date-fns'
 import { toast } from 'sonner'
 import { User, Mail, Phone, Shield, Building, Calendar, Loader2 } from 'lucide-react'
@@ -32,60 +33,64 @@ type ProfileData = {
     centres: Centre[]
 }
 
+function getErrorMessage(error: unknown, fallback: string) {
+    return error instanceof Error ? error.message : fallback
+}
+
 export function ProfilePageClient() {
-    const [profile, setProfile] = useState<ProfileData | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [saving, setSaving] = useState(false)
+    const queryClient = useQueryClient()
 
     // Form state
-    const [fullName, setFullName] = useState('')
-    const [phone, setPhone] = useState('')
+    const [fullNameDraft, setFullNameDraft] = useState<string | null>(null)
+    const [phoneDraft, setPhoneDraft] = useState<string | null>(null)
 
-    async function loadProfile() {
-        setLoading(true)
-        try {
+    const profileQuery = useQuery({
+        queryKey: ['profile'],
+        queryFn: async () => {
             const res = await fetch('/api/profile')
             const data = await res.json()
             if (!res.ok) throw new Error(data.error || 'Failed to load profile')
+            return data as ProfileData
+        },
+        staleTime: 60_000,
+    })
 
-            setProfile(data)
-            setFullName(data.fullName || '')
-            setPhone(data.phone || '')
-        } catch (error: any) {
-            toast.error(error.message)
-        } finally {
-            setLoading(false)
-        }
-    }
-
-    useEffect(() => {
-        loadProfile()
-    }, [])
-
-    async function handleSave(e: React.FormEvent) {
-        e.preventDefault()
-        setSaving(true)
-
-        try {
+    const saveMutation = useMutation({
+        mutationFn: async () => {
             const res = await fetch('/api/profile', {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ fullName, phone })
             })
             const data = await res.json()
-
             if (!res.ok) throw new Error(data.error || 'Failed to update profile')
-            
+            return data
+        },
+        onSuccess: async () => {
             toast.success('Profile updated successfully')
-            // Refresh local state
-            if (profile) setProfile({ ...profile, fullName, phone })
-
-        } catch (error: any) {
-            toast.error(error.message)
-        } finally {
-            setSaving(false)
+            await queryClient.invalidateQueries({ queryKey: ['profile'] })
+        },
+        onError: (error: unknown) => {
+            toast.error(getErrorMessage(error, 'Failed to update profile'))
         }
+    })
+
+    useEffect(() => {
+        if (profileQuery.error) {
+            toast.error(getErrorMessage(profileQuery.error, 'Failed to load profile'))
+        }
+    }, [profileQuery.error])
+
+    async function handleSave(e: React.FormEvent) {
+        e.preventDefault()
+        await saveMutation.mutateAsync()
     }
+
+    const profile = profileQuery.data ?? null
+    const loading = profileQuery.isPending || profileQuery.isFetching
+    const saving = saveMutation.isPending
+    const fullName = fullNameDraft ?? profile?.fullName ?? ''
+    const phone = phoneDraft ?? profile?.phone ?? ''
 
     if (loading) {
         return (
@@ -188,7 +193,7 @@ export function ProfilePageClient() {
                                     <Input 
                                         id="fullName" 
                                         value={fullName} 
-                                        onChange={e => setFullName(e.target.value)} 
+                                        onChange={e => setFullNameDraft(e.target.value)} 
                                         required
                                     />
                                 </div>
@@ -201,7 +206,7 @@ export function ProfilePageClient() {
                                         id="phone" 
                                         type="tel"
                                         value={phone} 
-                                        onChange={e => setPhone(e.target.value)} 
+                                        onChange={e => setPhoneDraft(e.target.value)} 
                                         placeholder="+91..."
                                     />
                                 </div>

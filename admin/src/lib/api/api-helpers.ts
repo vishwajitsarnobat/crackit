@@ -14,6 +14,23 @@ import {NextResponse, type NextRequest} from "next/server";
 import {type AppRole} from "@/lib/auth/current-user";
 import { createClient } from "../supabase/server";
 
+type ProfileRow = {
+    is_active: boolean | null;
+    roles: { role_name: AppRole | null } | { role_name: AppRole | null }[] | null;
+};
+
+type CentreAssignmentRow = {
+    centre_id: string | null;
+};
+
+function resolveRoleName(roles: ProfileRow["roles"]): AppRole | null {
+    if (Array.isArray(roles)) {
+        return roles[0]?.role_name ?? null;
+    }
+
+    return roles?.role_name ?? null;
+}
+
 // only centreIds is extra as compared to CurrentUserContext
 export type ApiContext = {
     user: {id: string};
@@ -65,13 +82,15 @@ export function withAuth(handler: RouteHandler, allowedRoles?: AppRole[]) {
                 return apiError("No entry in users table found.", 403);
             }
 
-            if (!profile.is_active) {
+            const typedProfile = profile as ProfileRow;
+
+            if (typedProfile.is_active !== true) {
                 return apiError("Your account is not active.", 403);
             }
 
-            const roleName = (profile.roles as any)?.role_name as AppRole | undefined;
+            const roleName = resolveRoleName(typedProfile.roles);
 
-            if (roleName === undefined) {
+            if (roleName === null) {
                 return apiError("Your role is not configured.", 403);
             }
 
@@ -101,7 +120,9 @@ export function withAuth(handler: RouteHandler, allowedRoles?: AppRole[]) {
                 }
 
                 // we get user centre_id map, we need only the centre_id
-                centreIds = (assignments ?? []).map((a) => a.centre_id); // creates array, not set
+                centreIds = ((assignments ?? []) as CentreAssignmentRow[])
+                    .map((assignment) => assignment.centre_id)
+                    .filter((centreId): centreId is string => Boolean(centreId));
 
                 // Enforce that centre heads/teachers/accountants must have at least one assigned centre
                 if (
@@ -121,7 +142,7 @@ export function withAuth(handler: RouteHandler, allowedRoles?: AppRole[]) {
             const ctx: ApiContext = {
                 user: {id: user.id},
                 profile: {
-                    isActive: profile.is_active,
+                    isActive: typedProfile.is_active === true,
                     role: roleName,
                     centreIds,
                 },

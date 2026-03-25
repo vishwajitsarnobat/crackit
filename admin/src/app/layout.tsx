@@ -5,7 +5,7 @@
 
 import type { Metadata } from 'next'
 import { DM_Sans, Instrument_Serif } from 'next/font/google'
-import { ThemeProvider } from '@/components/theme-provider'
+import { AppProviders } from '@/components/app-providers'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
 
@@ -23,6 +23,11 @@ const instrumentSerif = Instrument_Serif({
 export const metadata: Metadata = {
   title: 'Crack It - Admin',
   description: 'Crack It Coaching Institute Management',
+  icons: {
+    icon: '/crackit-icon.svg',
+    shortcut: '/crackit-icon.svg',
+    apple: '/crackit-icon.svg',
+  },
 }
 
 export default function RootLayout({
@@ -33,18 +38,13 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${dmSans.variable} ${instrumentSerif.variable} font-sans antialiased`}
+        className={`${dmSans.variable} ${instrumentSerif.variable} font-sans antialiased app-shell-bg`}
       >
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
+        <AppProviders>
           {children}
 
           <Toaster />
-        </ThemeProvider>
+        </AppProviders>
       </body>
     </html>
   )

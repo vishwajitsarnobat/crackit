@@ -72,24 +72,24 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="w-full max-w-[420px]">
+    <div className="w-full max-w-[460px]">
       <div className="mb-8">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-400/15 bg-sky-500/12 text-sky-300">
           <LogIn className="h-6 w-6" />
         </div>
-        <h1 className="font-serif text-3xl tracking-tight text-foreground">
+        <h1 className="font-serif text-3xl tracking-tight text-white">
           Welcome back
         </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          Sign in to your admin account
+        <p className="mt-2 text-sm text-slate-400">
+          Sign in to continue into the CrackIt management workspace.
         </p>
       </div>
 
-      <div className="rounded-2xl border bg-card p-8 shadow-sm transition-shadow hover:shadow-md">
+      <div className="rounded-[28px] border border-white/10 bg-slate-900/45 p-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl transition-colors hover:bg-white/5">
         <div className="space-y-5">
 
           <div className="space-y-2">
-            <Label htmlFor="email" className="text-sm font-medium">
+            <Label htmlFor="email" className="text-sm font-medium text-slate-200">
               Email address
             </Label>
             <Input
@@ -105,7 +105,7 @@ export default function LoginPage() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="password" className="text-sm font-medium">
+            <Label htmlFor="password" className="text-sm font-medium text-slate-200">
               Password
             </Label>
             <div className="relative">
@@ -124,7 +124,7 @@ export default function LoginPage() {
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
               >
                 {showPassword
                   ? <EyeOff className="h-4 w-4" />
@@ -135,7 +135,7 @@ export default function LoginPage() {
           </div>
 
           <Button
-            className="w-full h-11 font-medium bg-primary text-primary-foreground hover:bg-primary/90"
+            className="h-11 w-full font-medium"
             onClick={handleLogin}
             disabled={loading}
           >
@@ -151,13 +151,13 @@ export default function LoginPage() {
 
         </div>
 
-        <Separator className="my-6" />
+        <Separator className="my-6 bg-white/10" />
 
-        <p className="text-center text-sm text-muted-foreground">
+        <p className="text-center text-sm text-slate-400">
           Need access?{' '}
           <Link
             href="/signup"
-            className="font-medium text-primary underline underline-offset-4 hover:text-primary/80 transition-colors"
+            className="font-medium text-sky-300 underline underline-offset-4 transition-colors hover:text-sky-200"
           >
             Request an account
           </Link>

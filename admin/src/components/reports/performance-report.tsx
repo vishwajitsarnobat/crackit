@@ -1,120 +1,158 @@
 'use client'
 
-/**
- * Performance Report Component
- * UI for generating and downloading performance reports.
- * Allows users to select a batch and specific exam, then download the results as PDF or Excel.
- */
+import { useMemo, useState } from 'react'
+import { Download, Search, TrendingUp } from 'lucide-react'
+import { format, subMonths } from 'date-fns'
 
-import { useState, useCallback, useEffect } from 'react'
-import { toast } from 'sonner'
-import { FileText, FileSpreadsheet } from 'lucide-react'
-
+import { DatePickerField } from '@/components/shared/form/date-picker-field'
+import { SelectField } from '@/components/shared/form/select-field'
+import { ManageDialog } from '@/components/manage/manage-dialog'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardTitle, CardDescription } from '@/components/ui/card'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Card, CardDescription, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { AppRole, Exam } from '@/lib/types/entities'
+import type { AppRole } from '@/lib/types/entities'
+import { useScopedFilters } from '@/lib/hooks/use-scoped-filters'
+import { useReportStudents } from '@/lib/hooks/use-report-students'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
-type BatchOption = { id: string; batch_name: string; batch_code: string; centre_name: string }
+type StudentResult = {
+  id: string
+  student_code: string | null
+  student_name: string
+  exams_count: number
+  average_percentage: number
+  top_percentage: number
+}
 
 export function PerformanceReport({ role }: { role: AppRole }) {
-    const [batches, setBatches] = useState<BatchOption[]>([])
-    const [selectedBatch, setSelectedBatch] = useState('')
-    const [exams, setExams] = useState<Exam[]>([])
-    const [selectedExam, setSelectedExam] = useState('')
-    const [loading, setLoading] = useState(true)
+  const [centreId, setCentreId] = useState('')
+  const [batchId, setBatchId] = useState('')
+  const [query, setQuery] = useState('')
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [selectedStudentId, setSelectedStudentId] = useState('')
+  const [fromDate, setFromDate] = useState(format(subMonths(new Date(), 1), 'yyyy-MM-dd'))
+  const [toDate, setToDate] = useState(format(new Date(), 'yyyy-MM-dd'))
 
-    useEffect(() => {
-        async function load() {
-            const res = await fetch('/api/data-entry/marks')
-            const json = await res.json()
-            if (res.ok) setBatches(json.batches ?? [])
-            setLoading(false)
-        }
-        load()
-    }, [])
+  const filtersQuery = useScopedFilters()
+  const studentsQuery = useReportStudents<StudentResult>({
+    endpoint: '/api/reports/performance',
+    query,
+    centreId,
+    batchId,
+    fromDate,
+    toDate,
+  })
 
-    const loadExams = useCallback(async (batchId: string) => {
-        setSelectedExam('')
-        const res = await fetch(`/api/data-entry/marks?batch_id=${batchId}`)
-        const json = await res.json()
-        if (res.ok) setExams(json.exams ?? [])
-    }, [])
+  useQueryErrorToast(filtersQuery.error, 'Failed to load performance report filters')
 
-    useEffect(() => {
-        if (selectedBatch) loadExams(selectedBatch)
-    }, [selectedBatch, loadExams])
+  const centres = useMemo(() => filtersQuery.data?.centres ?? [], [filtersQuery.data?.centres])
+  const batches = useMemo(() => filtersQuery.data?.batches ?? [], [filtersQuery.data?.batches])
+  const students = studentsQuery.data?.students ?? []
+  const loading = studentsQuery.isPending || studentsQuery.isFetching
 
-    function downloadReport(fmt: 'pdf' | 'excel') {
-        if (!selectedBatch || !selectedExam) { toast.error('Select batch and exam'); return }
-        const params = new URLSearchParams({ batch_id: selectedBatch, exam_id: selectedExam, format: fmt })
-        window.open(`/api/reports/performance?${params}`, '_blank')
-    }
+  const visibleBatches = useMemo(
+    () => batches.filter((batch) => !centreId || batch.centre_id === centreId),
+    [batches, centreId],
+  )
 
-    const selectedExamObj = exams.find(e => e.id === selectedExam)
+  useQueryErrorToast(studentsQuery.error, 'Search failed')
 
-    return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="font-serif text-3xl tracking-tight">Performance Report</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Download exam results and student performance analysis.</p>
-            </div>
+  function openDownloadPrompt(studentId: string) {
+    setSelectedStudentId(studentId)
+    setDialogOpen(true)
+  }
 
-            <div className="flex flex-wrap items-end gap-4">
-                <div className="space-y-2 min-w-[220px]">
-                    <Label>Batch</Label>
-                    <Select value={selectedBatch} onValueChange={setSelectedBatch}>
-                        <SelectTrigger><SelectValue placeholder="Select batch…" /></SelectTrigger>
-                        <SelectContent>
-                            {batches.map(b => (
-                                <SelectItem key={b.id} value={b.id}>{b.batch_name} — {b.centre_name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                {selectedBatch && (
-                    <div className="space-y-2 min-w-[220px]">
-                        <Label>Exam</Label>
-                        <Select value={selectedExam} onValueChange={setSelectedExam}>
-                            <SelectTrigger><SelectValue placeholder="Select exam…" /></SelectTrigger>
-                            <SelectContent>
-                                {exams.map(e => (
-                                    <SelectItem key={e.id} value={e.id}>{e.exam_name} ({e.exam_date})</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-                )}
-            </div>
+  function downloadReport() {
+    if (!selectedStudentId) return
+    const params = new URLSearchParams({ student_id: selectedStudentId, from: fromDate, to: toDate, format: 'pdf' })
+    window.open(`/api/reports/performance?${params.toString()}`, '_blank')
+    setDialogOpen(false)
+  }
 
-            {selectedExamObj && (
-                <Card className="gap-0 py-0 overflow-hidden">
-                    <div className="border-b bg-muted/30 px-5 py-3.5 flex items-center justify-between">
-                        <div>
-                            <CardTitle className="text-base tracking-tight">Download Report</CardTitle>
-                            <CardDescription className="mt-0.5">{selectedExamObj.exam_name} — Total: {selectedExamObj.total_marks} marks</CardDescription>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <Button variant="outline" size="sm" onClick={() => downloadReport('pdf')}>
-                                <FileText className="h-3.5 w-3.5 mr-1.5" />Download PDF
-                            </Button>
-                            <Button variant="outline" size="sm" onClick={() => downloadReport('excel')}>
-                                <FileSpreadsheet className="h-3.5 w-3.5 mr-1.5" />Download Excel
-                            </Button>
-                        </div>
-                    </div>
-                    <div className="p-6 text-sm text-muted-foreground">
-                        <p>This report includes marks for all enrolled students.</p>
-                        <ul className="mt-2 list-disc list-inside space-y-1">
-                            <li>Individual marks and percentage</li>
-                            <li>Pass / Fail status (based on passing marks if set)</li>
-                            <li>Students ranked by marks (highest first)</li>
-                            <li>Absent students listed at the end</li>
-                        </ul>
-                    </div>
-                </Card>
-            )}
+  return (
+    <div className="space-y-6">
+      <section className="rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+        <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Reports</Badge>
+        <div className="mt-4 max-w-3xl">
+          <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Performance Reports</h1>
+          <p className="mt-3 text-base text-slate-300">Browse performance cards immediately, refine them with centre, batch, or search filters, and download a detailed academic report.</p>
         </div>
-    )
+      </section>
+
+      <Card className="gap-0 overflow-hidden border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+        <div className="border-b bg-slate-950/35 px-5 py-3.5">
+          <CardTitle className="text-white">Report Filters</CardTitle>
+          <CardDescription className="text-slate-400">Student cards load immediately for the selected date range, and the final date range is confirmed again before PDF download.</CardDescription>
+        </div>
+        <div className="grid gap-4 px-5 py-5 md:grid-cols-[220px_240px_180px_180px_1fr]">
+          {role === 'ceo' && (
+            <SelectField id="performance-report-centre" label="Centre" value={centreId || 'all'} onChange={(value) => { setCentreId(value === 'all' ? '' : value); setBatchId('') }} options={[{ value: 'all', label: 'All centres' }, ...centres.map((centre) => ({ value: centre.id, label: centre.centre_name }))]} placeholder="All centres" />
+          )}
+
+          <SelectField id="performance-report-batch" label="Batch" value={batchId || 'all'} onChange={(value) => setBatchId(value === 'all' ? '' : value)} options={[{ value: 'all', label: 'All batches' }, ...visibleBatches.map((batch) => ({ value: batch.id, label: batch.batch_name }))]} placeholder="All batches" />
+
+          <DatePickerField id="performance-from" label="From" value={fromDate} onChange={setFromDate} max={toDate || undefined} />
+
+          <DatePickerField id="performance-to" label="To" value={toDate} onChange={setToDate} min={fromDate || undefined} max={format(new Date(), 'yyyy-MM-dd')} />
+
+          <div className="space-y-2">
+            <Label htmlFor="performance-report-search">Search Student</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input id="performance-report-search" value={query} onChange={(event) => setQuery(event.target.value)} className="pl-9" placeholder="Student name or code" />
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {students.length > 0 ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {students.map((student) => (
+            <Card key={student.id} className="border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+              <div className="flex items-start justify-between gap-4 px-6 pt-6">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-400/15 bg-slate-950/55 text-sky-300">
+                  <TrendingUp className="h-5 w-5" />
+                </div>
+                <Badge variant="outline" className="border-sky-400/20 bg-sky-400/10 text-sky-300">Avg {student.average_percentage.toFixed(1)}%</Badge>
+              </div>
+              <div className="px-6 pb-6 pt-4">
+                <div className="text-xl font-semibold text-white">{student.student_name}</div>
+                <div className="mt-1 font-mono text-xs text-slate-400">{student.student_code || 'No code assigned'}</div>
+                <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/35 p-4 text-sm text-slate-300">
+                  <div className="flex items-center justify-between"><span>Exams count</span><span className="font-medium text-white">{student.exams_count}</span></div>
+                  <div className="mt-2 flex items-center justify-between"><span>Average %</span><span className="font-medium text-white">{student.average_percentage.toFixed(1)}%</span></div>
+                  <div className="mt-2 flex items-center justify-between"><span>Top %</span><span className="font-medium text-white">{student.top_percentage.toFixed(1)}%</span></div>
+                </div>
+                <div className="mt-5 flex justify-end">
+                  <Button onClick={() => openDownloadPrompt(student.id)}>
+                    <Download className="mr-2 h-4 w-4" />Download Report
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card className="border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+          <div className="p-10 text-center text-sm text-slate-400">{loading ? 'Loading performance report cards...' : 'No performance report cards match the current filters.'}</div>
+        </Card>
+      )}
+
+      <ManageDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title="Choose Report Date Range"
+        description="Confirm the date range before downloading the performance report PDF."
+        onSubmit={downloadReport}
+        submitLabel="Download PDF"
+      >
+        <div className="grid gap-4 md:grid-cols-2">
+          <DatePickerField id="performance-dialog-from" label="From" value={fromDate} onChange={setFromDate} max={toDate || undefined} />
+          <DatePickerField id="performance-dialog-to" label="To" value={toDate} onChange={setToDate} min={fromDate || undefined} max={format(new Date(), 'yyyy-MM-dd')} />
+        </div>
+      </ManageDialog>
+    </div>
+  )
 }

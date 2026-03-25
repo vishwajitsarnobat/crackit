@@ -1,227 +1,255 @@
 'use client'
 
-/**
- * Content Library Page Component
- * Allows teachers and admins to upload/link educational content (videos, PDFs, notes) for a batch.
- * Features: Adding YouTube links or Google Drive PDFs, toggling publish status, viewing uploaded content.
- */
-
-import { useState, useCallback, useEffect } from 'react'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ExternalLink, FileText, Plus, Search, Video } from 'lucide-react'
 import { toast } from 'sonner'
-import { Plus, Eye, EyeOff, ExternalLink, Video, FileText, StickyNote } from 'lucide-react'
 
-import { Button } from '@/components/ui/button'
-import { Card, CardTitle, CardDescription } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { TaskBatchSelector } from '@/components/data-entry/shared/task-batch-selector'
+import { fetchJson } from '@/lib/http/fetch-json'
+import { ManageDialog } from '@/components/manage/manage-dialog'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { ManageDialog } from '@/components/manage/manage-dialog'
-import type { AppRole, ContentItem } from '@/lib/types/entities'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Textarea } from '@/components/ui/textarea'
+import type { ContentItem } from '@/lib/types/entities'
+import { useTaskBatches } from '@/lib/hooks/use-task-batches'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
-type BatchOption = { id: string; batch_name: string; batch_code: string; centre_name: string }
-
-const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-    video: Video,
-    pdf: FileText,
-    notes: StickyNote,
+const TYPE_ICONS: Record<ContentItem['content_type'], React.ComponentType<{ className?: string }>> = {
+  video: Video,
+  document: FileText,
 }
 
-const TYPE_COLORS: Record<string, string> = {
-    video: 'bg-violet-500/10 text-violet-600 border-violet-200',
-    pdf: 'bg-blue-500/10 text-blue-600 border-blue-200',
-    notes: 'bg-amber-500/10 text-amber-600 border-amber-200',
+const TYPE_COLORS: Record<ContentItem['content_type'], string> = {
+  video: 'bg-violet-500/10 text-violet-600 border-violet-200',
+  document: 'bg-blue-500/10 text-blue-600 border-blue-200',
 }
 
-export function ContentPage({ role }: { role: AppRole }) {
-    const [batches, setBatches] = useState<BatchOption[]>([])
-    const [selectedBatch, setSelectedBatch] = useState('')
-    const [content, setContent] = useState<ContentItem[]>([])
-    const [loading, setLoading] = useState(true)
-    const [saving, setSaving] = useState(false)
+export function ContentPage() {
+  const queryClient = useQueryClient()
+  const [selectedBatchId, setSelectedBatchId] = useState('')
+  const [contentSearch, setContentSearch] = useState('')
 
-    // Add dialog state
-    const [dialogOpen, setDialogOpen] = useState(false)
-    const [title, setTitle] = useState('')
-    const [contentUrl, setContentUrl] = useState('')
-    const [contentType, setContentType] = useState<'video' | 'pdf' | 'notes'>('video')
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [title, setTitle] = useState('')
+  const [contentUrl, setContentUrl] = useState('')
+  const [contentType, setContentType] = useState<'video' | 'document'>('video')
+  const [remarks, setRemarks] = useState('')
 
-    useEffect(() => {
-        async function load() {
-            const res = await fetch('/api/data-entry/content')
-            const json = await res.json()
-            if (res.ok) setBatches(json.batches ?? [])
-            setLoading(false)
-        }
-        load()
-    }, [])
+  const batchesQuery = useTaskBatches('/api/data-entry/content', 'content')
 
-    const loadContent = useCallback(async (batchId: string) => {
-        setLoading(true)
-        try {
-            const res = await fetch(`/api/data-entry/content?batch_id=${batchId}`)
-            const json = await res.json()
-            if (res.ok) setContent(json.content ?? [])
-        } finally {
-            setLoading(false)
-        }
-    }, [])
+  const contentQuery = useQuery({
+    queryKey: ['task-content-items', selectedBatchId || 'default'],
+    queryFn: () => fetchJson<{ content: ContentItem[] }>(`/api/data-entry/content?batch_id=${selectedBatchId || batchesQuery.data?.batches?.[0]?.id || ''}`, { errorPrefix: 'Load content items' }),
+    enabled: Boolean(selectedBatchId || batchesQuery.data?.batches?.[0]?.id),
+    staleTime: 30_000,
+  })
 
-    useEffect(() => {
-        if (selectedBatch) loadContent(selectedBatch)
-    }, [selectedBatch, loadContent])
+  useQueryErrorToast(batchesQuery.error, 'Failed to load batches')
+  useQueryErrorToast(contentQuery.error, 'Failed to load content')
 
-    async function handleAdd() {
-        setSaving(true)
-        try {
-            const res = await fetch('/api/data-entry/content', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ batch_id: selectedBatch, title, content_url: contentUrl, content_type: contentType }),
-            })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error)
-            toast.success('Content added')
-            setDialogOpen(false)
-            setTitle(''); setContentUrl(''); setContentType('video')
-            loadContent(selectedBatch)
-        } catch (e: unknown) {
-            toast.error(e instanceof Error ? e.message : 'Failed to add')
-        } finally {
-            setSaving(false)
-        }
-    }
+  const batches = useMemo(() => batchesQuery.data?.batches ?? [], [batchesQuery.data?.batches])
+  const effectiveSelectedBatchId = selectedBatchId || batches[0]?.id || ''
+  const content = useMemo(() => contentQuery.data?.content ?? [], [contentQuery.data?.content])
+  const loadingBatches = batchesQuery.isPending || batchesQuery.isFetching
+  const loadingContent = contentQuery.isPending || contentQuery.isFetching
 
-    async function togglePublish(item: ContentItem) {
-        try {
-            const res = await fetch('/api/data-entry/content', {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: item.id, is_published: !item.is_published }),
-            })
-            if (!res.ok) { const json = await res.json(); throw new Error(json.error) }
-            toast.success(item.is_published ? 'Content unpublished' : 'Content published')
-            loadContent(selectedBatch)
-        } catch (e: unknown) {
-            toast.error(e instanceof Error ? e.message : 'Failed to toggle')
-        }
-    }
+  const addMutation = useMutation({
+    mutationFn: () => fetchJson('/api/data-entry/content', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        batch_id: effectiveSelectedBatchId,
+        title,
+        content_url: contentUrl,
+        content_type: contentType,
+        remarks,
+      }),
+    }),
+    onSuccess: async () => {
+      toast.success('Content added')
+      setDialogOpen(false)
+      setTitle('')
+      setContentUrl('')
+      setContentType('video')
+      setRemarks('')
+      await queryClient.invalidateQueries({ queryKey: ['task-content-items', effectiveSelectedBatchId] })
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to add content')
+    },
+  })
 
-    return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="font-serif text-3xl tracking-tight">Content Library</h1>
-                    <p className="mt-1 text-sm text-muted-foreground">Upload PDF notes and link YouTube video URLs for students.</p>
-                </div>
-            </div>
+  const togglePublishMutation = useMutation({
+    mutationFn: (item: ContentItem) => fetchJson('/api/data-entry/content', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: item.id, is_published: !item.is_published }),
+    }),
+    onSuccess: async (_, item) => {
+      toast.success(item.is_published ? 'Content unpublished' : 'Content published')
+      await queryClient.invalidateQueries({ queryKey: ['task-content-items', effectiveSelectedBatchId] })
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to update content status')
+    },
+  })
 
-            <div className="flex flex-wrap items-end gap-4">
-                <div className="space-y-2 min-w-[220px]">
-                    <Label>Batch</Label>
-                    <Select value={selectedBatch} onValueChange={setSelectedBatch}>
-                        <SelectTrigger><SelectValue placeholder="Select batch…" /></SelectTrigger>
-                        <SelectContent>
-                            {batches.map(b => (
-                                <SelectItem key={b.id} value={b.id}>{b.batch_name} — {b.centre_name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                {selectedBatch && (
-                    <Button onClick={() => setDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Add Content</Button>
-                )}
-            </div>
-
-            {selectedBatch && (
-                <Card className="gap-0 py-0 overflow-hidden">
-                    <div className="border-b bg-muted/30 px-5 py-3.5">
-                        <CardTitle className="text-base tracking-tight">Content Items</CardTitle>
-                        <CardDescription className="mt-0.5">{content.length} item(s)</CardDescription>
-                    </div>
-                    {loading ? (
-                        <div className="animate-pulse h-40 bg-muted/20" />
-                    ) : content.length === 0 ? (
-                        <div className="p-8 text-center text-muted-foreground text-sm">No content added for this batch yet.</div>
-                    ) : (
-                        <Table>
-                            <TableHeader className="bg-muted/50">
-                                <TableRow>
-                                    <TableHead className="w-12">#</TableHead>
-                                    <TableHead>Title</TableHead>
-                                    <TableHead className="text-center">Type</TableHead>
-                                    <TableHead>Uploaded By</TableHead>
-                                    <TableHead className="text-center">Status</TableHead>
-                                    <TableHead className="text-right pr-4">Actions</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {content.map((item, i) => {
-                                    const TypeIcon = TYPE_ICONS[item.content_type] || FileText
-                                    return (
-                                        <TableRow key={item.id} className="transition-colors hover:bg-muted/30">
-                                            <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                                            <TableCell className="font-medium max-w-[250px] truncate">{item.title}</TableCell>
-                                            <TableCell className="text-center">
-                                                <Badge variant="outline" className={TYPE_COLORS[item.content_type] || ''}>
-                                                    <TypeIcon className="h-3 w-3 mr-1" />{item.content_type}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell className="text-muted-foreground text-sm">{item.uploader_name || '—'}</TableCell>
-                                            <TableCell className="text-center">
-                                                <Badge variant="outline" className={item.is_published ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-amber-500/10 text-amber-600 border-amber-200'}>
-                                                    {item.is_published ? 'Published' : 'Draft'}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell className="text-right pr-4">
-                                                <div className="flex justify-end gap-1">
-                                                    <Button variant="ghost" size="sm" asChild>
-                                                        <a href={item.content_url} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3.5 w-3.5" /></a>
-                                                    </Button>
-                                                    <Button variant="ghost" size="sm" onClick={() => togglePublish(item)}>
-                                                        {item.is_published ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                                                    </Button>
-                                                </div>
-                                            </TableCell>
-                                        </TableRow>
-                                    )
-                                })}
-                            </TableBody>
-                        </Table>
-                    )}
-                </Card>
-            )}
-
-            <ManageDialog
-                open={dialogOpen}
-                onOpenChange={setDialogOpen}
-                title="Add Content"
-                description="Link a YouTube video or PDF for this batch's students."
-                onSubmit={handleAdd}
-                saving={saving}
-                submitLabel="Add"
-            >
-                <div className="space-y-2">
-                    <Label>Title *</Label>
-                    <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Chapter 3 — Thermodynamics" required />
-                </div>
-                <div className="space-y-2">
-                    <Label>URL *</Label>
-                    <Input value={contentUrl} onChange={e => setContentUrl(e.target.value)} placeholder="https://youtube.com/watch?v=… or https://drive.google.com/…" required />
-                </div>
-                <div className="space-y-2">
-                    <Label>Type *</Label>
-                    <Select value={contentType} onValueChange={v => setContentType(v as 'video' | 'pdf' | 'notes')}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="video">Video</SelectItem>
-                            <SelectItem value="pdf">PDF</SelectItem>
-                            <SelectItem value="notes">Notes</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-            </ManageDialog>
-        </div>
+  const filteredContent = useMemo(() => {
+    const query = contentSearch.trim().toLowerCase()
+    if (!query) return content
+    return content.filter((item) =>
+      [item.title, item.content_type, item.remarks ?? '', item.uploader_name ?? ''].some((value) =>
+        value.toLowerCase().includes(query),
+      ),
     )
+  }, [content, contentSearch])
+
+  const selectedBatch = useMemo(
+    () => batches.find((batch) => batch.id === effectiveSelectedBatchId) ?? null,
+    [batches, effectiveSelectedBatchId],
+  )
+
+  async function handleAdd() {
+    await addMutation.mutateAsync()
+  }
+
+  async function togglePublish(item: ContentItem) {
+    await togglePublishMutation.mutateAsync(item)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-serif text-3xl tracking-tight">Task Content Library</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Choose an assigned batch, review uploaded content, and add document or video links with remarks.</p>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
+        <TaskBatchSelector
+          title="Assigned Batches"
+          description="Select a batch to view its content library."
+          batches={batches}
+          selectedBatchId={effectiveSelectedBatchId}
+          onSelect={setSelectedBatchId}
+          loading={loadingBatches}
+          emptyMessage="No assigned batches found."
+          searchPlaceholder="Search batches"
+        />
+
+        <Card className="gap-0 overflow-hidden py-0">
+          <div className="border-b bg-muted/30 px-5 py-3.5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <CardTitle className="text-base tracking-tight">Batch Content</CardTitle>
+                <CardDescription className="mt-0.5">{selectedBatch ? `Content uploaded for ${selectedBatch.batch_name}` : 'Select a batch to view content items.'}</CardDescription>
+              </div>
+              {effectiveSelectedBatchId && (
+                <Button onClick={() => setDialogOpen(true)}>
+                  <Plus className="mr-2 h-4 w-4" />Add Content
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {!effectiveSelectedBatchId ? (
+            <div className="flex min-h-[420px] items-center justify-center p-10 text-center text-sm text-muted-foreground">
+              Select a batch to review its content library.
+            </div>
+          ) : (
+            <div className="space-y-4 px-5 py-5">
+              <div className="relative max-w-sm">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input value={contentSearch} onChange={(event) => setContentSearch(event.target.value)} className="pl-9" placeholder="Search content items" />
+              </div>
+
+              {loadingContent ? (
+                <div className="h-56 animate-pulse rounded-xl bg-muted/20" />
+              ) : filteredContent.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-10 text-center text-sm text-muted-foreground">No content has been added for this batch yet.</div>
+              ) : (
+                <div className="space-y-3">
+                  {filteredContent.map((item) => {
+                    const TypeIcon = TYPE_ICONS[item.content_type]
+
+                    return (
+                      <div key={item.id} className="rounded-xl border bg-background p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <div className="font-medium">{item.title}</div>
+                            <div className="mt-1 text-sm text-muted-foreground">{item.remarks || 'No remarks provided.'}</div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Badge variant="outline" className={TYPE_COLORS[item.content_type]}>
+                              <TypeIcon className="mr-1 h-3 w-3" />{item.content_type}
+                            </Badge>
+                            <Badge variant="outline" className={item.is_published ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-amber-500/10 text-amber-600 border-amber-200'}>
+                              {item.is_published ? 'Published' : 'Draft'}
+                            </Badge>
+                          </div>
+                        </div>
+                        <div className="mt-3 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                          <div>Uploaded by: <span className="font-medium text-foreground">{item.uploader_name || 'Unknown'}</span></div>
+                          <div>Created: <span className="font-medium text-foreground">{item.created_at.slice(0, 10)}</span></div>
+                        </div>
+                        <div className="mt-4 flex flex-wrap justify-end gap-2">
+                          <Button variant="outline" size="sm" asChild>
+                            <a href={item.content_url} target="_blank" rel="noopener noreferrer">
+                              <ExternalLink className="mr-1.5 h-3.5 w-3.5" />Open Link
+                            </a>
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => void togglePublish(item)}>
+                            {item.is_published ? 'Unpublish' : 'Publish'}
+                          </Button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      <ManageDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title="Add Content"
+        description="Choose the content type, paste the link, and add remarks to explain what students should use it for."
+        onSubmit={handleAdd}
+        saving={addMutation.isPending}
+        submitLabel="Add Content"
+      >
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="content-title">Title *</Label>
+            <Input id="content-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Chapter 3 Thermodynamics" required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="content-url">Link *</Label>
+                <Input id="content-url" value={contentUrl} onChange={(event) => setContentUrl(event.target.value)} placeholder="https://..." required />
+          </div>
+          <div className="space-y-2">
+            <Label>Type *</Label>
+            <Select value={contentType} onValueChange={(value) => setContentType(value as 'video' | 'document')}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="video">Video</SelectItem>
+                <SelectItem value="document">Document</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="content-remarks">Remarks / Description</Label>
+            <Textarea id="content-remarks" rows={3} value={remarks} onChange={(event) => setRemarks(event.target.value)} placeholder="How should students use this content?" />
+          </div>
+        </div>
+      </ManageDialog>
+    </div>
+  )
 }

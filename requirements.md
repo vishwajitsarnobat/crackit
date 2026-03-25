@@ -1,29 +1,29 @@
 ## 1. Dashboard Page
-- A main section, visible at the top.
+- A main section, visible in navigation section.
 - Gives quick navigation to pages.
 - Page is for everyone, ceo, centre_head, teacher, accountant.
 
 ## 2. Approval Page
-- A main section visible at the top.
+- A main section visible in navigation section.
 - Shows pending, rejected and approved approvals.
 - Page is for ceo and centre_head. ceo can view all the requests, centre_head will only see requests for his specific centre.
 
 ## 3. Analytics Page
-- A main section visible at the top, holds all the pages having analytics involved.
-### a) Attendance
+- A main section visible in navigation section, holds all the pages having analytics involved.
+### a) Attendance Analysis
 - Visible to ceo, centre_head and teacher. A filter at the top for filtering the students. Teacher can view students of their own batches, centre_head can view students/batches of his centre, ceo can see all the students/batches/centres.
 - It has day wise and month wise attendance viusalization. It has total break down pie chart/donut chart. It has yearly bar graph which has monthwise bars, traced by a line. It has KPI cards. Bar graph has filter for present, absent and both.
 - Batch, Students, months, year, etc. are the filters available. The flexibility is between viewing student or batch or centre attendance against custom dates range.
 - Explicit filter will be for yearly attendance which will show that bar + line graph for selected student/students in filter.
 - Individual student stats table at the bottom showing individual student attendance in table, useful when batch/centre is selected. Filter for present, absent, all.
 
-### b) Performace
+### b) Performance Analysis
 - Visible to ceo, centre_head and teacher. A filter at the top for filtering the students. Teacher can view students of their own batches, centre_head can view students/batches of his centre, ceo can see all the students/batches.
 - It has filter for batch, student, subject. Centre wise filter shouldn't be provided as the subjects differ across batches. Bar + Line graph traces student performance, overall and subject wise.
 - A detailed table showing individual students marks for each subject present at the bottom of the page, useful when group of students are selected and we need to view individual student performance in detail.
 - Comparison will be both rank wise and consistency wise.
 
-### c) Staff Attendance
+### c) Staff Attendance Analysis
 - Visible to ceo, centre_head and teacher. A filter at the top for filtering the teacher. Teacher can view only his attendance stats, so he won't have filter for filtering the batches and centres. centre_head can view teachers/batches of his centre, ceo can see all the teachers/batches/centres.
 - Apart from what attendance analysis for student had, the teachers have 3 categories of attendance, present, absent and partial. When attendance is partial, the entry and exit time is provided.
 - It has day wise and month wise attendance viusalization. It has total break down pie chart/donut chart. It has yearly bar graph which has monthwise bars, traced by a line. It has KPI cards. Bar graph has filter for present, absent and partial, all 3 together.
@@ -31,7 +31,7 @@
 - Explicit filter will be for yearly attendance which will show that bar + line graph for selected teacher/centre/batch in filter.
 - Individual teacher stats table at the bottom showing individual teacher attendance in table, useful when batch/centre is selected. Filter for partial, present, all and absent.
 
-### d) Financials
+### d) Financials Analysis
 - Visible to ceo, accountant and centre_head.
 - ceo can view all centres, accountant and centre_head can view only for his center.
 - Filter for time range (month and year). KPI cards showing prominent information. Expense breakdown using sorted bar chart.
@@ -41,7 +41,7 @@
 - No visualization for specific fees and salaries section, it is being showed in expense breakdown and overall expense of centre already. This design helps to keep the financials page clean and intuitive.
 
 ## 4. Manage Page
-- A main page visible at the top.
+- A main page visible in navigation section.
 ### a) Centre Management
 - Access only to CEO. By default all centres will be visible in a table with proper info. Searches and filter will affect that.
 - The ceo can search and view all the centres, filter them into active and inactive.
@@ -73,7 +73,7 @@
 CEO have read and write access to centres, read access to batches, enrollments. Centre head has read and write access to batches and enrollments and no access to centres management.
 
 ## 5. Tasks (Initially named as data-entry, need to rename)
-- A main section visible at the top of page.
+- A main section visible in navigation section.
 ### a) Attendance
 - Visible only to teachers.
 - When this section is opened, all the batches assigned to the teacher are visible, search availale. Clicking on any batch will prompt to select a date. Once a date is selected, all the student list in that batch is visible, each student name is right next to checkbox, teacher checkboxes the present student, rest are automatically marked absent. If teacher selects a date whose attendance is already marked, the page opens with the already checked boxes as checked, so that the teacher can make whateever changes needed in that only.
@@ -109,10 +109,10 @@ CEO have read and write access to centres, read access to batches, enrollments. 
 - If already marked date is opened it will be shown in the state as it was when modified last time and changes will be facilitated.
 
 ## 6. Reports
-- A main section visible on top
+- A main section visible in navigation section.
 ### a) Student profile
 - Accessible to centre head for his center and ceo has access to all students. CEO has center wise, batch wise filter and search option. Centre head has batch wise filter and search option.
-- When opened, all student profile cards will be visible with basic info and download button. Once clicked on download button, full profile will be downloaded of student in form of pdf.
+- When opened, all student profile cards will be visible with basic info and download button. Once clicked on download button, full profile will be downloaded of student in form of pdf only, no other format.
 
 ### b) Attendance
 - Accessible to centre head for his center and ceo has access to all students. CEO has center wise, batch wise filter and search option. Centre head has batch wise filter and search option.
@@ -124,7 +124,7 @@ CEO have read and write access to centres, read access to batches, enrollments. 
 
 ## Others
 1. Add app icon.
-2. Add fading photo of crackit from top to bottom.
+2. Add fading photo of related image from top to bottom.
 3. All charts with proper legends.
 4. My research revealed that manual use of ts leads to slower DOM, I am suggested to use State Managers and availables frameworks for that, to increase speed and reduce code.
 5. Make changes if needed to main database schema. But finally I should have single file defining the whole schema and just needed mandatory data entry. No other even test data entry file should be present, because it will be done through UI only.
@@ -133,23 +133,47 @@ CEO have read and write access to centres, read access to batches, enrollments. 
 8. The read and write access should be exactly how I have told, it should also resonate with the database, of not specific changes needs to be made.
 9. Delete all views from database.
 10. Keep only necessary triggers like automatic salary and fee creation.
+11. Currently the navigation to sections is from the horizontal UI at the top. We want it into vertical fashion as given in the attached image. In face the entire UI redesigning has to be inspired by the attached images for reference.
+12. The graphs should be intuitive and interactive.
+13. Use zustand for client state and tanstack query for server state. This part needs major changes. This has to be done to reduce code and manage performance more efficiently.
 
-## UI redesign
+You make a fair point! Looking closely at the overlapping elements, the gradients on the hero cards, and the floating widgets, there is absolutely a subtle, modern glass effect happening there. 
 
-Apply a modern 'Obsidian Glass' aesthetic to myproject. The goal is to create a high-end, immersive management interface with a 'Luminous Void' theme. Please implement the following design patterns:
+Here is the revised prompt formatted with simple markdown, integrating both light and dark modes while preserving the color palette and glassmorphic details.
 
-Background & Atmosphere:
-Use a deep bg-slate-950 base.
-Add a fixed, full-screen background image (e.g., architectural or academic) with opacity-40.
-Apply a 'deep fade' overlay using a bg-gradient-to-b from-transparent via-slate-950/80 to-slate-950.
+## UI Re-design
 
-Glassmorphic Components:
-Style all primary cards and containers with bg-slate-900/40, backdrop-blur-xl, and a subtle border border-white/10.
-Use rounded corners (rounded-2xl) and deep, soft shadows (shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]).
+### Core Color Palette 
+- Primary (Soft Green): #94C691. Use for active sidebar items, soft background highlights, and subtle dark mode glows.
+- Secondary (Dark Forest Green): #2D4B2A. Use for primary buttons and prominent headings in light mode, or deep contrast card backgrounds in dark mode.
+- Tertiary (Bright Cyan): #04E7FE. Use sparingly for high-visibility actions (like Export buttons) and glowing notifications across both modes.
+- Light Mode Neutral: #F0F4EF. Use for the main application background to provide soft contrast against white cards.
+- Dark Mode Neutral: Deep slate or green-tinted dark gray (e.g., #0B120F). Use for the main application background to make neon accents pop.
 
-Typography & Colors:
-Use vibrant accent colors for key actions and data points (e.g., text-sky-400 or text-blue-400).
+### Background & Atmosphere
+- Base Themes: Implement robust toggles for both a clean, airy Light Mode and a deep, immersive Dark Mode.
+- Glassmorphism: Apply subtle frosted effects using backdrop-blur (e.g., backdrop-blur-md) on overlapping elements, sticky headers, and floating widgets.
+- Light Mode Glass: Use semi-transparent white fills (e.g., bg-white/70) paired with very faint white borders to create frosted depth.
+- Dark Mode Glass: Use semi-transparent dark fills (e.g., bg-slate-900/40) combined with subtle light borders (e.g., border-white/10) to create a glowing glass effect.
 
-Interactive Elements:
-Add subtle hover effects like hover:bg-white/5 and transition-all duration-300.
-Ensure navigation elements have a clear 'active' state with accent color glows.z
+### Component Architecture & Card Styling
+- Container Shapes: Use generous, pill-like rounding for all components and widgets (rounded-2xl or rounded-3xl).
+- Light Mode Cards: Solid or frosted white cards with soft, diffuse drop shadows to float above the neutral background.
+- Dark Mode Cards: Deep, semi-transparent dark cards with soft inner shadows or subtle colored drop shadows to establish visual hierarchy.
+- Layout: Utilize a bento-box grid layout for dashboard elements, ensuring consistent spacing and padding.
+
+### Typography & Data Visualization
+- Headings: Bold, clean sans-serif typography.
+- Light Mode Text: Secondary Dark Green (#2D4B2A) or deep charcoal for primary text, with slate tones for secondary descriptions.
+- Dark Mode Text: Pure white or light gray for primary text, with muted light greens or grays for secondary descriptions.
+- Data Accents: Use the Primary Green (#94C691) or Tertiary Cyan (#04E7FE) to highlight positive growth, trends, and key metrics.
+
+### Implementation Guidelines
+- The sample images for UI are available in the /ui folder, containing the exact palette and inspiration.
+- Abstract and reuse all UI components (cards, buttons, typography hierarchy) everywhere for strict visual consistency.
+- Ensure the UI is intuitive and logical to use, utilizing ample spacing and clear visual grouping.
+
+## Database
+- First file contains entire schema of the database along with data entry for crucial tables. Crucial means without which the database won't work. There should be 100% bijection between requirements and databse.
+- In second file, there will be a lot of data entry. Few centres, batches for each centres, each batch has enough students, enough exams for each batch, performace, attendance, fees, salaries, expenses, etc. This heavy data entry will test the database and website. 
+- Finally, DOCUMENTATION.md has the documentation for our database.

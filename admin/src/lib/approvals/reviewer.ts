@@ -84,16 +84,13 @@ export function canReviewRequest(
     centreId: string | null,
 ) {
     if (reviewer.role === "ceo") {
-        return (
-            requestedRole === "centre_head" || requestedRole === "accountant"
-        );
+        return ["ceo", "centre_head", "teacher", "accountant", "student"].includes(requestedRole);
     }
 
     if (reviewer.role === "centre_head") {
         return (
             (requestedRole === "teacher" ||
-                requestedRole === "student" ||
-                requestedRole === "accountant") &&
+                requestedRole === "student") &&
             !!centreId &&
             reviewer.centreIds.includes(centreId)
         );

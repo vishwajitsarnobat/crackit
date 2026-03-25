@@ -1,207 +1,226 @@
 /**
  * Staff Attendance Analytics API
- * GET — Returns staff attendance data: daily trend, per-teacher breakdown, summary.
- *       Supports filters: centreId, teacherId, from/to date range.
- *       Role-scoped: CEO/centre_head sees all staff, teacher sees own data only.
+ * GET — Returns scoped filters, KPI summary, daily/monthly/yearly charts, and teacher breakdown.
  */
 import { NextResponse, type NextRequest } from 'next/server'
+import { eachMonthOfInterval, endOfMonth, format, startOfMonth, subDays } from 'date-fns'
+
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUserContext } from '@/lib/auth/current-user'
-import { format, eachDayOfInterval } from 'date-fns'
+
+type AllowedRole = 'ceo' | 'centre_head' | 'teacher'
+type CentreRow = { id: string; centre_name: string }
+type BatchRow = { id: string; batch_name: string; centre_id: string }
+type TeacherRow = { id: string; full_name: string }
+type StaffAttendanceRow = { user_id: string; centre_id: string; attendance_date: string; status: 'present' | 'absent' | 'partial'; in_time: string | null; out_time: string | null }
+
+function isAllowed(role: string | null): role is AllowedRole {
+  return role === 'ceo' || role === 'centre_head' || role === 'teacher'
+}
+
+function emptyResponse(centres: CentreRow[], batches: BatchRow[], teachers: TeacherRow[]) {
+  return {
+    filters: { centres, batches, teachers },
+    summary: { totalDays: 0, presentCount: 0, absentCount: 0, partialCount: 0, attendancePercent: null },
+    dailyTrend: [],
+    monthlyTrend: [],
+    yearlyTrend: [],
+    teacherBreakdown: [],
+  }
+}
 
 export async function GET(request: NextRequest) {
-    try {
-        const context = await getCurrentUserContext()
+  const context = await getCurrentUserContext()
+  if (!context?.isActive || !isAllowed(context.role)) {
+    return NextResponse.json({ error: 'You are not allowed to view staff attendance analytics.' }, { status: 403 })
+  }
 
-        if (!context || !context.isActive) {
-            return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
-        }
+  const supabase = await createClient()
+  const { searchParams } = new URL(request.url)
+  const centreId = searchParams.get('centreId') || ''
+  const batchId = searchParams.get('batchId') || ''
+  const teacherId = searchParams.get('teacherId') || ''
+  const fromDate = searchParams.get('from') || format(subDays(new Date(), 29), 'yyyy-MM-dd')
+  const toDate = searchParams.get('to') || format(new Date(), 'yyyy-MM-dd')
+  const year = Number(searchParams.get('year') || new Date().getFullYear())
 
-        const allowedRoles = ['ceo', 'centre_head', 'teacher']
-        if (!context.role || !allowedRoles.includes(context.role)) {
-            return NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
-        }
+  let centres: CentreRow[] = []
+  if (context.role === 'ceo') {
+    const { data } = await supabase.from('centres').select('id, centre_name').eq('is_active', true).order('centre_name')
+    centres = (data ?? []) as CentreRow[]
+  } else if (context.role === 'centre_head') {
+    const { data } = await supabase
+      .from('user_centre_assignments')
+      .select('centres!inner(id, centre_name)')
+      .eq('user_id', context.userId)
+      .eq('is_active', true)
+    centres = (data ?? []).map((row: { centres: CentreRow | CentreRow[] | null }) => (Array.isArray(row.centres) ? row.centres[0] : row.centres) as CentreRow).filter(Boolean)
+  } else {
+    const { data } = await supabase
+      .from('teacher_batch_assignments')
+      .select('batches!inner(centres!inner(id, centre_name))')
+      .eq('user_id', context.userId)
+      .eq('is_active', true)
 
-        const { searchParams } = new URL(request.url)
-        const filterCentreId = searchParams.get('centreId') || null
-        const filterTeacherId = searchParams.get('teacherId') || null
-        const fromDate = searchParams.get('from') || null
-        const toDate = searchParams.get('to') || null
-
-        const supabase = await createClient()
-
-        // 1. Determine which centres this user can view
-        let accessibleCentreIds: string[] = []
-        if (context.role === 'ceo') {
-            const { data } = await supabase.from('centres').select('id, centre_name').eq('is_active', true).order('centre_name')
-            accessibleCentreIds = (data ?? []).map(c => c.id)
-        } else {
-            const { data } = await supabase.from('user_centre_assignments').select('centre_id').eq('user_id', context.userId).eq('is_active', true)
-            accessibleCentreIds = (data ?? []).map(c => c.centre_id)
-        }
-
-        // Apply centre filter
-        let centresToQuery = accessibleCentreIds
-        if (filterCentreId && accessibleCentreIds.includes(filterCentreId)) {
-            centresToQuery = [filterCentreId]
-        }
-
-        // Fetch centres for dropdown
-        const { data: centresData } = await supabase
-            .from('centres')
-            .select('id, centre_name')
-            .in('id', accessibleCentreIds)
-            .order('centre_name')
-
-        const centres = centresData ?? []
-
-        const emptyRes = () => ({
-            filters: { centres, teachers: [], selectedTeacherId: filterTeacherId },
-            summary: { totalDays: 0, presentCount: 0, absentCount: 0, partialCount: 0, attendancePercent: null as number | null },
-            dailyTrend: [] as { date: string; present: number; absent: number; partial: number }[],
-            teacherBreakdown: [] as { user_id: string; teacher_name: string; present: number; absent: number; partial: number; total: number; percent: number | null }[],
-        })
-
-        if (centresToQuery.length === 0) {
-            return NextResponse.json(emptyRes())
-        }
-
-        // 2. Fetch teachers assigned to these centres
-        const { data: teacherAssignments } = await supabase
-            .from('user_centre_assignments')
-            .select('user_id')
-            .in('centre_id', centresToQuery)
-            .eq('is_active', true)
-
-        const allTeacherIds = [...new Set((teacherAssignments ?? []).map(a => a.user_id))]
-
-        // Filter to only users with teacher role
-        let teacherQuery = supabase
-            .from('users')
-            .select('id, full_name, role_id, roles!inner(role_name)')
-            .in('id', allTeacherIds)
-            .eq('is_active', true)
-
-        const { data: teacherUsers } = await teacherQuery
-        const teachers = (teacherUsers ?? [])
-            .filter(u => (u.roles as any)?.role_name === 'teacher')
-            .map(u => ({ id: u.id, full_name: u.full_name }))
-            .sort((a, b) => (a.full_name ?? '').localeCompare(b.full_name ?? ''))
-
-        const teacherIds = teachers.map(t => t.id)
-
-        // If user is a teacher, restrict to their own data
-        const queryTeacherIds = context.role === 'teacher' ? [context.userId] : (filterTeacherId && teacherIds.includes(filterTeacherId) ? [filterTeacherId] : teacherIds)
-
-        if (queryTeacherIds.length === 0) {
-            return NextResponse.json(emptyRes())
-        }
-
-        // 3. Query staff attendance records
-        let query = supabase
-            .from('staff_attendance')
-            .select(`
-                id, attendance_date, status, in_time, out_time, user_id, centre_id,
-                users!user_id ( full_name ),
-                centres!centre_id ( centre_name )
-            `)
-            .in('centre_id', centresToQuery)
-            .in('user_id', queryTeacherIds)
-            .order('attendance_date', { ascending: false })
-
-        if (fromDate) query = query.gte('attendance_date', fromDate)
-        if (toDate) query = query.lte('attendance_date', toDate)
-
-        const { data: attendanceData, error } = await query
-
-        if (error) {
-            return NextResponse.json({ error: error.message }, { status: 500 })
-        }
-
-        const records = attendanceData ?? []
-
-        // 4. Summary
-        let presentCount = 0
-        let absentCount = 0
-        let partialCount = 0
-
-        records.forEach(r => {
-            if (r.status === 'present') presentCount++
-            else if (r.status === 'absent') absentCount++
-            else if (r.status === 'partial') partialCount++
-        })
-
-        const totalDays = presentCount + absentCount + partialCount
-        const attendancePercent = totalDays > 0 ? Math.round((presentCount / totalDays) * 1000) / 10 : null
-
-        // 5. Daily trend
-        if (records.length > 0) {
-            const dates = records.map(r => r.attendance_date).sort()
-            const startStr = fromDate || dates[0] // Oldest record
-            const endStr = toDate || dates[dates.length - 1] // Newest record
-
-            const startObj = new Date(startStr + 'T00:00:00')
-            const endObj = new Date(endStr + 'T00:00:00')
-
-            const days = startObj <= endObj ? eachDayOfInterval({ start: startObj, end: endObj }) : []
-
-            var dailyTrend = days.map(day => {
-                const dateStr = format(day, 'yyyy-MM-dd')
-                const dayRecords = records.filter(r => r.attendance_date === dateStr)
-                return {
-                    date: dateStr,
-                    present: dayRecords.filter(r => r.status === 'present').length,
-                    absent: dayRecords.filter(r => r.status === 'absent').length,
-                    partial: dayRecords.filter(r => r.status === 'partial').length,
-                }
-            })
-        } else {
-            var dailyTrend: { date: string; present: number; absent: number; partial: number }[] = []
-        }
-
-        // 6. Teacher breakdown
-        const teacherMap = new Map<string, { present: number; absent: number; partial: number; name: string }>()
-        for (const t of teachers) {
-            teacherMap.set(t.id, { present: 0, absent: 0, partial: 0, name: t.full_name ?? 'Unknown' })
-        }
-        // For teacher role, populate their own name
-        if (context.role === 'teacher' && !teacherMap.has(context.userId)) {
-            const { data: self } = await supabase.from('users').select('full_name').eq('id', context.userId).single()
-            teacherMap.set(context.userId, { present: 0, absent: 0, partial: 0, name: self?.full_name ?? 'Unknown' })
-        }
-
-        records.forEach(r => {
-            const t = teacherMap.get(r.user_id)
-            if (!t) return
-            if (r.status === 'present') t.present++
-            else if (r.status === 'absent') t.absent++
-            else if (r.status === 'partial') t.partial++
-        })
-
-        const teacherBreakdown = Array.from(teacherMap.entries()).map(([uid, stats]) => {
-            const total = stats.present + stats.absent + stats.partial
-            return {
-                user_id: uid,
-                teacher_name: stats.name,
-                present: stats.present,
-                absent: stats.absent,
-                partial: stats.partial,
-                total,
-                percent: total > 0 ? Math.round((stats.present / total) * 1000) / 10 : null
-            }
-        }).sort((a, b) => (b.percent ?? 0) - (a.percent ?? 0))
-
-        return NextResponse.json({
-            filters: { centres, teachers, selectedTeacherId: filterTeacherId },
-            summary: { totalDays, presentCount, absentCount, partialCount, attendancePercent },
-            dailyTrend,
-            teacherBreakdown,
-        })
-
-    } catch (error) {
-        return NextResponse.json(
-            { error: error instanceof Error ? error.message : 'Unexpected error' },
-            { status: 500 }
-        )
+    const centreMap = new Map<string, CentreRow>()
+    for (const row of (data ?? []) as Array<{ batches: { centres: CentreRow | CentreRow[] | null } | { centres: CentreRow | CentreRow[] | null }[] | null }>) {
+      const batch = Array.isArray(row.batches) ? row.batches[0] : row.batches
+      const centre = Array.isArray(batch?.centres) ? batch?.centres[0] : batch?.centres
+      if (centre) centreMap.set(centre.id, centre)
     }
+    centres = Array.from(centreMap.values()).sort((left, right) => left.centre_name.localeCompare(right.centre_name))
+  }
+
+  const allowedCentreIds = new Set(centres.map((centre) => centre.id))
+  if (centreId && !allowedCentreIds.has(centreId)) {
+    return NextResponse.json({ error: 'You are not allowed to view staff attendance analytics for this centre.' }, { status: 403 })
+  }
+
+  let batches: BatchRow[] = []
+  if (context.role === 'teacher') {
+    const { data } = await supabase
+      .from('teacher_batch_assignments')
+      .select('batches!inner(id, batch_name, centre_id)')
+      .eq('user_id', context.userId)
+      .eq('is_active', true)
+    batches = (data ?? []).map((row: { batches: BatchRow | BatchRow[] | null }) => (Array.isArray(row.batches) ? row.batches[0] : row.batches) as BatchRow).filter(Boolean)
+  } else {
+    let query = supabase.from('batches').select('id, batch_name, centre_id').eq('is_active', true).order('batch_name')
+    if (context.role === 'centre_head') query = query.in('centre_id', centres.map((centre) => centre.id))
+    const { data } = await query
+    batches = (data ?? []) as BatchRow[]
+  }
+
+  const filteredBatches = centreId ? batches.filter((batch) => batch.centre_id === centreId) : batches
+  if (batchId && !filteredBatches.some((batch) => batch.id === batchId)) {
+    return NextResponse.json({ error: 'You are not allowed to view staff attendance analytics for this batch.' }, { status: 403 })
+  }
+  const activeBatchIds = batchId ? filteredBatches.filter((batch) => batch.id === batchId).map((batch) => batch.id) : filteredBatches.map((batch) => batch.id)
+
+  let teachers: TeacherRow[] = []
+  if (context.role === 'teacher') {
+    const { data } = await supabase.from('users').select('id, full_name').eq('id', context.userId).single()
+    teachers = data ? [data as TeacherRow] : []
+  } else {
+    let assignmentQuery = supabase
+      .from('teacher_batch_assignments')
+      .select('user_id, users!inner(id, full_name), batches!inner(id, centre_id)')
+      .eq('is_active', true)
+
+    if (activeBatchIds.length > 0) assignmentQuery = assignmentQuery.in('batch_id', activeBatchIds)
+    const { data } = await assignmentQuery
+    const teacherMap = new Map<string, TeacherRow>()
+    for (const row of (data ?? []) as Array<{ user_id: string; users: TeacherRow | TeacherRow[] | null }>) {
+      const user = Array.isArray(row.users) ? row.users[0] : row.users
+      if (user) teacherMap.set(row.user_id, user)
+    }
+    teachers = Array.from(teacherMap.values()).sort((left, right) => left.full_name.localeCompare(right.full_name))
+  }
+
+  const activeTeacherIds = teacherId ? teachers.filter((teacher) => teacher.id === teacherId).map((teacher) => teacher.id) : teachers.map((teacher) => teacher.id)
+  if (teacherId && activeTeacherIds.length === 0) {
+    return NextResponse.json({ error: 'You are not allowed to view staff attendance analytics for this teacher.' }, { status: 403 })
+  }
+  if (activeTeacherIds.length === 0) return NextResponse.json(emptyResponse(centres, filteredBatches, teachers))
+
+  let attendanceQuery = supabase
+    .from('staff_attendance')
+    .select('user_id, centre_id, attendance_date, status, in_time, out_time')
+    .in('user_id', activeTeacherIds)
+    .gte('attendance_date', fromDate)
+    .lte('attendance_date', toDate)
+
+  if (context.role !== 'teacher') {
+    const centreIds = centreId ? [centreId] : centres.map((centre) => centre.id)
+    if (centreIds.length > 0) attendanceQuery = attendanceQuery.in('centre_id', centreIds)
+  }
+
+  const { data: attendanceData, error: attendanceError } = await attendanceQuery
+  if (attendanceError) return NextResponse.json({ error: attendanceError.message }, { status: 400 })
+  const rows = (attendanceData ?? []) as StaffAttendanceRow[]
+
+  const presentCount = rows.filter((row) => row.status === 'present').length
+  const absentCount = rows.filter((row) => row.status === 'absent').length
+  const partialCount = rows.filter((row) => row.status === 'partial').length
+  const totalRows = presentCount + absentCount + partialCount
+  const attendancePercent = totalRows > 0 ? Number(((presentCount / totalRows) * 100).toFixed(1)) : null
+
+  const dailyMap = new Map<string, { date: string; present: number; absent: number; partial: number }>()
+  for (const row of rows) {
+    const existing = dailyMap.get(row.attendance_date) ?? { date: row.attendance_date, present: 0, absent: 0, partial: 0 }
+    existing[row.status] += 1
+    dailyMap.set(row.attendance_date, existing)
+  }
+
+  const monthlyMap = new Map<string, { month: string; present: number; absent: number; partial: number }>()
+  for (const row of rows) {
+    const monthKey = row.attendance_date.slice(0, 7)
+    const existing = monthlyMap.get(monthKey) ?? { month: monthKey, present: 0, absent: 0, partial: 0 }
+    existing[row.status] += 1
+    monthlyMap.set(monthKey, existing)
+  }
+
+  const yearStart = startOfMonth(new Date(year, 0, 1))
+  const yearEnd = endOfMonth(new Date(year, 11, 1))
+  let yearlyQuery = supabase
+    .from('staff_attendance')
+    .select('user_id, centre_id, attendance_date, status, in_time, out_time')
+    .in('user_id', activeTeacherIds)
+    .gte('attendance_date', format(yearStart, 'yyyy-MM-dd'))
+    .lte('attendance_date', format(yearEnd, 'yyyy-MM-dd'))
+
+  if (context.role !== 'teacher') {
+    const centreIds = centreId ? [centreId] : centres.map((centre) => centre.id)
+    if (centreIds.length > 0) yearlyQuery = yearlyQuery.in('centre_id', centreIds)
+  }
+
+  const { data: yearlyData, error: yearlyError } = await yearlyQuery
+  if (yearlyError) return NextResponse.json({ error: yearlyError.message }, { status: 400 })
+  const yearlyRows = (yearlyData ?? []) as StaffAttendanceRow[]
+
+  const yearlyMap = new Map<string, { month: string; present: number; absent: number; partial: number; percent: number | null }>()
+  for (const monthDate of eachMonthOfInterval({ start: yearStart, end: yearEnd })) {
+    const key = format(monthDate, 'yyyy-MM')
+    yearlyMap.set(key, { month: key, present: 0, absent: 0, partial: 0, percent: null })
+  }
+  for (const row of yearlyRows) {
+    const key = row.attendance_date.slice(0, 7)
+    const existing = yearlyMap.get(key)
+    if (!existing) continue
+    existing[row.status] += 1
+  }
+  for (const month of yearlyMap.values()) {
+    const total = month.present + month.absent + month.partial
+    month.percent = total > 0 ? Number(((month.present / total) * 100).toFixed(1)) : null
+  }
+
+  const teacherMap = new Map(activeTeacherIds.map((teacherKey) => [teacherKey, { present: 0, absent: 0, partial: 0 }]))
+  for (const row of rows) {
+    const existing = teacherMap.get(row.user_id) ?? { present: 0, absent: 0, partial: 0 }
+    existing[row.status] += 1
+    teacherMap.set(row.user_id, existing)
+  }
+
+  const teacherNameMap = new Map(teachers.map((teacher) => [teacher.id, teacher.full_name]))
+  const teacherBreakdown = Array.from(teacherMap.entries()).map(([teacherKey, stats]) => {
+    const total = stats.present + stats.absent + stats.partial
+    return {
+      user_id: teacherKey,
+      teacher_name: teacherNameMap.get(teacherKey) ?? 'Unknown',
+      present: stats.present,
+      absent: stats.absent,
+      partial: stats.partial,
+      total,
+      percent: total > 0 ? Number(((stats.present / total) * 100).toFixed(1)) : null,
+    }
+  }).sort((left, right) => (right.percent ?? 0) - (left.percent ?? 0))
+
+  return NextResponse.json({
+    filters: { centres, batches: filteredBatches, teachers },
+    summary: { totalDays: new Set(rows.map((row) => row.attendance_date)).size, presentCount, absentCount, partialCount, attendancePercent },
+    dailyTrend: Array.from(dailyMap.values()).sort((left, right) => left.date.localeCompare(right.date)),
+    monthlyTrend: Array.from(monthlyMap.values()).sort((left, right) => left.month.localeCompare(right.month)),
+    yearlyTrend: Array.from(yearlyMap.values()),
+    teacherBreakdown,
+  })
 }

@@ -1,213 +1,300 @@
 'use client'
 
-/**
- * Staff Attendance Page Component
- * Allows centre heads and admins to log daily attendance for their staff members.
- * Features: Marking staff as Present, Absent, or Partial with In/Out timestamps.
- */
-
-import { useState, useCallback, useEffect } from 'react'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { format, subDays } from 'date-fns'
+import { Clock, Search, Users } from 'lucide-react'
 import { toast } from 'sonner'
-import { Save, Clock } from 'lucide-react'
-import { format } from 'date-fns'
 
-import { Button } from '@/components/ui/button'
-import { Card, CardTitle, CardDescription } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { DatePickerField } from '@/components/shared/form/date-picker-field'
+import { SelectField } from '@/components/shared/form/select-field'
+import { fetchJson } from '@/lib/http/fetch-json'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import type { AppRole } from '@/lib/types/entities'
+import type { Batch } from '@/lib/types/entities'
+import { useScopedFilters } from '@/lib/hooks/use-scoped-filters'
+import { useTaskCentres } from '@/lib/hooks/use-task-centres'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
-type CentreOption = { id: string; centre_name: string; centre_code: string }
+type BatchOption = Pick<Batch, 'id' | 'batch_name' | 'centre_id'>
 type StaffRow = {
-    user_id: string
-    staff_name: string
-    role: string
-    status: 'present' | 'absent' | 'partial' | null
-    in_time: string
-    out_time: string
+  user_id: string
+  staff_name: string
+  role: string
+  status: 'present' | 'absent' | 'partial' | null
+  in_time: string | null
+  out_time: string | null
+  previous_day_status: 'present' | 'absent' | 'partial' | null
+  previous_day_in_time: string | null
+  previous_day_out_time: string | null
 }
 
 const STATUS_OPTIONS = [
-    { value: 'present', label: 'Present', color: 'bg-emerald-500/10 text-emerald-600 border-emerald-200' },
-    { value: 'absent', label: 'Absent', color: 'bg-red-500/10 text-red-600 border-red-200' },
-    { value: 'partial', label: 'Partial', color: 'bg-amber-500/10 text-amber-600 border-amber-200' },
-]
+  { value: 'present', label: 'Present', color: 'bg-emerald-500/10 text-emerald-600 border-emerald-200' },
+  { value: 'absent', label: 'Absent', color: 'bg-red-500/10 text-red-600 border-red-200' },
+  { value: 'partial', label: 'Partial', color: 'bg-amber-500/10 text-amber-600 border-amber-200' },
+] as const
 
-export function StaffAttendancePage({ role }: { role: AppRole }) {
-    const [centres, setCentres] = useState<CentreOption[]>([])
-    const [selectedCentre, setSelectedCentre] = useState('')
-    const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
-    const [staff, setStaff] = useState<StaffRow[]>([])
-    const [loading, setLoading] = useState(true)
-    const [saving, setSaving] = useState(false)
+export function StaffAttendancePage() {
+  const queryClient = useQueryClient()
+  const [selectedCentre, setSelectedCentre] = useState('')
+  const [selectedBatch, setSelectedBatch] = useState('all')
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
+  const [teacherSearch, setTeacherSearch] = useState('')
+  const [selectedTeacherId, setSelectedTeacherId] = useState('')
+  const scopedFiltersQuery = useScopedFilters()
 
-    useEffect(() => {
-        async function load() {
-            const res = await fetch('/api/data-entry/staff-attendance')
-            const json = await res.json()
-            if (res.ok) setCentres(json.centres ?? [])
-            setLoading(false)
+  const centresQuery = useTaskCentres('/api/data-entry/staff-attendance', 'staff-attendance')
+
+  const centres = useMemo(() => centresQuery.data?.centres ?? [], [centresQuery.data?.centres])
+  const batches = useMemo(() => (scopedFiltersQuery.data?.batches ?? []) as BatchOption[], [scopedFiltersQuery.data?.batches])
+  const effectiveSelectedCentre = selectedCentre || centres[0]?.id || ''
+
+  const teachersQuery = useQuery({
+    queryKey: ['task-staff-attendance-teachers', effectiveSelectedCentre, selectedDate, selectedBatch],
+    queryFn: () => {
+      const params = new URLSearchParams({ centre_id: effectiveSelectedCentre, date: selectedDate })
+      if (selectedBatch && selectedBatch !== 'all') params.set('batch_id', selectedBatch)
+      return fetchJson<{ staff: StaffRow[] }>(`/api/data-entry/staff-attendance?${params.toString()}`, { errorPrefix: 'Load teacher attendance roster' })
+    },
+    enabled: Boolean(effectiveSelectedCentre && selectedDate),
+    staleTime: 15_000,
+  })
+
+  const saveMutation = useMutation({
+    mutationFn: (teacher: StaffRow) => fetchJson('/api/data-entry/staff-attendance', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        centre_id: effectiveSelectedCentre,
+        attendance_date: selectedDate,
+        records: [{
+          user_id: teacher.user_id,
+          status: teacher.status,
+          in_time: teacher.in_time,
+          out_time: teacher.out_time,
+        }],
+      }),
+    }),
+    onSuccess: async () => {
+      toast.success('Staff attendance saved')
+      await queryClient.invalidateQueries({ queryKey: ['task-staff-attendance-teachers', effectiveSelectedCentre, selectedDate, selectedBatch] })
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to save staff attendance')
+    },
+  })
+
+  useQueryErrorToast(centresQuery.error, 'Failed to load centres')
+  useQueryErrorToast(scopedFiltersQuery.error, 'Failed to load staff-attendance batches')
+  useQueryErrorToast(teachersQuery.error, 'Failed to load teacher attendance')
+
+  const teachers = useMemo(() => teachersQuery.data?.staff ?? [], [teachersQuery.data?.staff])
+  const loadingCentres = centresQuery.isPending || centresQuery.isFetching
+  const loadingTeachers = teachersQuery.isPending || teachersQuery.isFetching
+  const saving = saveMutation.isPending
+
+  const visibleBatches = useMemo(
+    () => batches.filter((batch) => !selectedCentre || batch.centre_id === selectedCentre),
+    [batches, selectedCentre],
+  )
+  const effectiveSelectedBatch = selectedBatch !== 'all' && !visibleBatches.some((batch) => batch.id === selectedBatch)
+    ? 'all'
+    : selectedBatch
+
+  const filteredTeachers = useMemo(() => {
+    const query = teacherSearch.trim().toLowerCase()
+    if (!query) return teachers
+    return teachers.filter((teacher) => teacher.staff_name.toLowerCase().includes(query))
+  }, [teacherSearch, teachers])
+
+  const effectiveSelectedTeacherId = selectedTeacherId && filteredTeachers.some((teacher) => teacher.user_id === selectedTeacherId)
+    ? selectedTeacherId
+    : (filteredTeachers[0]?.user_id ?? '')
+
+  const selectedTeacher = useMemo(
+    () => filteredTeachers.find((teacher) => teacher.user_id === effectiveSelectedTeacherId) ?? filteredTeachers[0] ?? null,
+    [effectiveSelectedTeacherId, filteredTeachers],
+  )
+
+  const previousDaySummary = useMemo(() => {
+    const previousDate = format(subDays(new Date(selectedDate), 1), 'yyyy-MM-dd')
+    return `Previous-day reference: choose ${previousDate} to inspect or edit that day's saved status.`
+  }, [selectedDate])
+
+  function updateTeacher(field: 'status' | 'in_time' | 'out_time', value: string) {
+    if (!selectedTeacher) return
+
+    setTeachers((previous) => previous.map((teacher) => {
+      if (teacher.user_id !== selectedTeacher.user_id) return teacher
+
+      if (field === 'status') {
+        const status = value as StaffRow['status']
+        return {
+          ...teacher,
+          status,
+          in_time: status === 'partial' ? teacher.in_time : null,
+          out_time: status === 'partial' ? teacher.out_time : null,
         }
-        load()
-    }, [])
+      }
 
-    const loadStaff = useCallback(async (centreId: string, date: string) => {
-        if (!centreId || !date) return
-        setLoading(true)
-        try {
-            const res = await fetch(`/api/data-entry/staff-attendance?centre_id=${centreId}&date=${date}`)
-            const json = await res.json()
-            if (res.ok) {
-                setStaff((json.staff ?? []).map((s: any) => ({
-                    user_id: s.user_id,
-                    staff_name: s.staff_name,
-                    role: s.role ?? '',
-                    status: s.status,
-                    in_time: s.in_time ?? '',
-                    out_time: s.out_time ?? '',
-                })))
-            }
-        } finally {
-            setLoading(false)
-        }
-    }, [])
+      return { ...teacher, [field]: value || null }
+    }))
+  }
 
-    useEffect(() => {
-        if (selectedCentre && selectedDate) loadStaff(selectedCentre, selectedDate)
-    }, [selectedCentre, selectedDate, loadStaff])
+  async function handleSave() {
+    if (!selectedTeacher || !effectiveSelectedCentre) return
+    await saveMutation.mutateAsync(selectedTeacher)
+  }
 
-    function updateStaff(userId: string, field: keyof StaffRow, value: string | null) {
-        setStaff(prev => prev.map(s => {
-            if (s.user_id !== userId) return s
-            if (field === 'status') {
-                return { ...s, status: value as StaffRow['status'] }
-            }
-            return { ...s, [field]: value ?? '' }
-        }))
-    }
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-serif text-3xl tracking-tight">Task Staff Attendance</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Select a teacher card, choose a date, and mark present, absent, or partial attendance with mandatory timing for partial days.</p>
+      </div>
 
-    async function handleSave() {
-        const unmarked = staff.filter(s => !s.status)
-        if (unmarked.length > 0) {
-            toast.error(`${unmarked.length} staff member(s) not marked yet.`)
-            return
-        }
-
-        setSaving(true)
-        try {
-            const res = await fetch('/api/data-entry/staff-attendance', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    centre_id: selectedCentre,
-                    attendance_date: selectedDate,
-                    records: staff.map(s => ({
-                        user_id: s.user_id,
-                        status: s.status,
-                        in_time: s.in_time || null,
-                        out_time: s.out_time || null,
-                    })),
-                }),
-            })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error)
-            toast.success(`Attendance saved for ${json.count} staff members`)
-        } catch (e: unknown) {
-            toast.error(e instanceof Error ? e.message : 'Failed to save')
-        } finally {
-            setSaving(false)
-        }
-    }
-
-    return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="font-serif text-3xl tracking-tight">Staff Attendance</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Daily attendance logging for teachers — supports present, absent, and partial (late arrival / early departure).</p>
-            </div>
-
-            <div className="flex flex-wrap items-end gap-4">
-                <div className="space-y-2 min-w-[220px]">
-                    <Label>Centre</Label>
-                    <Select value={selectedCentre} onValueChange={setSelectedCentre}>
-                        <SelectTrigger><SelectValue placeholder="Select centre…" /></SelectTrigger>
-                        <SelectContent>
-                            {centres.map(c => (
-                                <SelectItem key={c.id} value={c.id}>{c.centre_name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                <div className="space-y-2">
-                    <Label>Date</Label>
-                    <Input type="date" value={selectedDate} onChange={e => setSelectedDate(e.target.value)} max={format(new Date(), 'yyyy-MM-dd')} className="w-[180px]" />
-                </div>
-            </div>
-
-            {selectedCentre && (
-                <Card className="gap-0 py-0 overflow-hidden">
-                    <div className="border-b bg-muted/30 px-5 py-3.5 flex items-center justify-between">
-                        <div>
-                            <CardTitle className="text-base tracking-tight flex items-center gap-2"><Clock className="h-4 w-4" />Staff Roster</CardTitle>
-                            <CardDescription className="mt-0.5">{staff.length} staff member(s)</CardDescription>
-                        </div>
-                        <Button size="sm" onClick={handleSave} disabled={saving || staff.length === 0}>
-                            <Save className="h-3.5 w-3.5 mr-1.5" />{saving ? 'Saving…' : 'Save'}
-                        </Button>
-                    </div>
-                    {loading ? (
-                        <div className="animate-pulse h-40 bg-muted/20" />
-                    ) : staff.length === 0 ? (
-                        <div className="p-8 text-center text-muted-foreground text-sm">No staff assigned to this centre.</div>
-                    ) : (
-                        <Table>
-                            <TableHeader className="bg-muted/50">
-                                <TableRow>
-                                    <TableHead className="w-12">#</TableHead>
-                                    <TableHead>Staff Name</TableHead>
-                                    <TableHead>Role</TableHead>
-                                    <TableHead className="w-[140px] text-center">Status</TableHead>
-                                    <TableHead className="w-[120px]">In Time</TableHead>
-                                    <TableHead className="w-[120px]">Out Time</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {staff.map((s, i) => {
-                                    const statusConfig = STATUS_OPTIONS.find(o => o.value === s.status)
-                                    return (
-                                        <TableRow key={s.user_id}>
-                                            <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                                            <TableCell className="font-medium">{s.staff_name}</TableCell>
-                                            <TableCell className="text-muted-foreground capitalize text-sm">{s.role}</TableCell>
-                                            <TableCell className="text-center">
-                                                <Select value={s.status ?? ''} onValueChange={v => updateStaff(s.user_id, 'status', v)}>
-                                                    <SelectTrigger className="w-[120px] mx-auto">
-                                                        <SelectValue placeholder="Select…" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        {STATUS_OPTIONS.map(opt => (
-                                                            <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                                                        ))}
-                                                    </SelectContent>
-                                                </Select>
-                                            </TableCell>
-                                            <TableCell>
-                                                <Input type="time" value={s.in_time} onChange={e => updateStaff(s.user_id, 'in_time', e.target.value)} disabled={s.status === 'absent'} />
-                                            </TableCell>
-                                            <TableCell>
-                                                <Input type="time" value={s.out_time} onChange={e => updateStaff(s.user_id, 'out_time', e.target.value)} disabled={s.status === 'absent'} />
-                                            </TableCell>
-                                        </TableRow>
-                                    )
-                                })}
-                            </TableBody>
-                        </Table>
-                    )}
-                </Card>
-            )}
+      <div className="grid gap-4 md:grid-cols-[240px_220px_180px_1fr]">
+        <SelectField
+          id="staff-attendance-centre"
+          label="Centre"
+          value={effectiveSelectedCentre}
+          onChange={(value) => {
+            setSelectedCentre(value)
+            setSelectedBatch('all')
+            setSelectedTeacherId('')
+          }}
+          options={centres.map((centre) => ({ value: centre.id, label: centre.centre_name }))}
+          placeholder={loadingCentres ? 'Loading centres...' : 'Select centre'}
+        />
+        <SelectField
+          id="staff-attendance-batch"
+          label="Batch"
+          value={effectiveSelectedBatch}
+          onChange={setSelectedBatch}
+          options={[{ value: 'all', label: 'All batches' }, ...visibleBatches.map((batch) => ({ value: batch.id, label: batch.batch_name }))]}
+          placeholder="All batches"
+        />
+        <DatePickerField id="staff-attendance-date" label="Date" value={selectedDate} onChange={setSelectedDate} max={format(new Date(), 'yyyy-MM-dd')} />
+        <div className="space-y-2">
+          <Label htmlFor="teacher-search">Search Teacher</Label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input id="teacher-search" value={teacherSearch} onChange={(event) => setTeacherSearch(event.target.value)} className="pl-9" placeholder="Search teacher name" />
+          </div>
         </div>
-    )
+      </div>
+
+      {effectiveSelectedCentre && (
+        <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+          <Card className="gap-0 overflow-hidden py-0">
+            <div className="border-b bg-muted/30 px-5 py-3.5">
+              <CardTitle className="text-base tracking-tight">Teacher Cards</CardTitle>
+              <CardDescription className="mt-0.5">Previous-day context is available by switching the date input above.</CardDescription>
+            </div>
+            <div className="max-h-[700px] overflow-y-auto">
+              {loadingTeachers ? (
+                <div className="h-56 animate-pulse bg-muted/20" />
+              ) : filteredTeachers.length === 0 ? (
+                <div className="flex flex-col items-center justify-center p-10 text-center text-sm text-muted-foreground">
+                  <Users className="mb-3 h-8 w-8 opacity-20" />
+                  No teachers found for this centre.
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {filteredTeachers.map((teacher) => {
+                    const statusConfig = STATUS_OPTIONS.find((option) => option.value === teacher.status)
+
+                    return (
+                      <button
+                        key={teacher.user_id}
+                        type="button"
+                        onClick={() => setSelectedTeacherId(teacher.user_id)}
+                      className={`w-full px-5 py-4 text-left transition-colors hover:bg-muted/30 ${effectiveSelectedTeacherId === teacher.user_id ? 'bg-muted/40' : ''}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="font-medium">{teacher.staff_name}</div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {teacher.previous_day_status
+                                ? `Previous day: ${teacher.previous_day_status}${teacher.previous_day_status === 'partial' && teacher.previous_day_in_time && teacher.previous_day_out_time ? ` (${teacher.previous_day_in_time}-${teacher.previous_day_out_time})` : ''}`
+                                : 'Previous day: no record saved'}
+                            </div>
+                          </div>
+                          <Badge variant="outline" className={statusConfig?.color ?? 'bg-muted/50 text-muted-foreground'}>
+                            {teacher.status ?? 'Not marked'}
+                          </Badge>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <Card className="gap-0 overflow-hidden py-0">
+            <div className="border-b bg-muted/30 px-5 py-3.5">
+              <CardTitle className="flex items-center gap-2 text-base tracking-tight">
+                <Clock className="h-4 w-4" />Teacher Attendance Detail
+              </CardTitle>
+              <CardDescription className="mt-0.5">{previousDaySummary}</CardDescription>
+            </div>
+
+            {!selectedTeacher ? (
+              <div className="p-10 text-center text-sm text-muted-foreground">Select a teacher card to mark attendance for the chosen date.</div>
+            ) : (
+              <div className="space-y-5 px-5 py-5">
+                <div className="rounded-xl border bg-muted/20 p-4">
+                  <div className="text-xl font-semibold">{selectedTeacher.staff_name}</div>
+                  <div className="mt-1 text-sm text-muted-foreground">Date: {selectedDate}</div>
+                </div>
+
+                <div className="max-w-[220px]">
+                  <SelectField
+                    id="staff-attendance-status"
+                    label="Status"
+                    value={selectedTeacher.status ?? ''}
+                    onChange={(value) => updateTeacher('status', value)}
+                    options={STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                    placeholder="Select attendance status"
+                  />
+                </div>
+
+                {selectedTeacher.status === 'partial' && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="in-time">Entry Time *</Label>
+                      <Input id="in-time" type="time" value={selectedTeacher.in_time ?? ''} onChange={(event) => updateTeacher('in_time', event.target.value)} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="out-time">Exit Time *</Label>
+                      <Input id="out-time" type="time" value={selectedTeacher.out_time ?? ''} onChange={(event) => updateTeacher('out_time', event.target.value)} />
+                    </div>
+                  </div>
+                )}
+
+                {selectedTeacher.status && (
+                  <div className="rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+                    {selectedTeacher.status === 'partial'
+                      ? 'Partial attendance requires both entry and exit times.'
+                      : 'If this date was marked earlier, the form opens with the last saved status so it can be updated safely.'}
+                  </div>
+                )}
+
+                <div className="flex justify-end">
+                  <Button onClick={handleSave} disabled={saving || !selectedTeacher.status}>
+                    {saving ? 'Saving...' : 'Save Attendance'}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+    </div>
+  )
 }

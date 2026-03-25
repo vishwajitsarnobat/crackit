@@ -24,7 +24,7 @@ import { toast } from 'sonner'
 type Role = 'ceo' | 'centre_head' | 'teacher' | 'accountant'
 type Centre = { id: string; centre_name: string }
 
-const CENTRE_ROLES: Role[] = ['centre_head', 'teacher']
+const CENTRE_ROLES: Role[] = ['centre_head', 'teacher', 'accountant']
 
 const ROLE_LABELS: Record<Role, string> = {
   ceo: 'CEO',
@@ -37,7 +37,7 @@ const ROLE_DESCRIPTIONS: Record<Role, string> = {
   ceo: 'Full institute access - approved by existing CEO',
   centre_head: 'Manage your centre - approved by CEO',
   teacher: 'Teach batches - approved by your centre head',
-  accountant: 'Manage fees - approved by CEO',
+  accountant: 'Manage centre finances - approved by CEO',
 }
 
 export default function SignupPage() {

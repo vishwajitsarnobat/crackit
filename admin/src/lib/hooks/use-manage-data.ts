@@ -1,76 +1,72 @@
 /**
  * Manage Data Fetching Hook (client-side)
- * - useManageData<T>(endpoint, initialFilters) — fetches from /api/manage/{endpoint},
- *   handles loading state, and provides reload(filters) for re-fetching with new filters.
- *   Uses useRef for filters to prevent infinite re-render loops in useEffect.
+ * - useManageData<T>(endpoint, initialFilters) — fetches from /api/manage/{endpoint}
+ *   through TanStack Query and keeps filter changes query-key aware.
  */
 
-import {useState, useCallback, useEffect, useRef} from "react";
+import { useCallback, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+
+import { fetchJson } from '@/lib/http/fetch-json'
+
+type ManageFilters = Record<string, string>
 
 type UseManageDataOptions = {
-    endpoint: string;
-    initialFilters?: Record<string, string>;
-};
+  endpoint: string
+  initialFilters?: ManageFilters
+}
 
-export function useManageData<T>({
-    endpoint,
-    initialFilters = {},
-}: UseManageDataOptions) {
-    // useState hold state or simply data that triggers UI update on change
-    const [data, setData] = useState<T | null>(null);
-    const [loading, setLoading] = useState(true);
-    // useRef hold persistent data, but do not trigger re-render on change
-    const filtersRef = useRef(initialFilters);
+function normalizeFilters(filters: ManageFilters) {
+  return Object.fromEntries(
+    Object.entries(filters)
+      .filter(([, value]) => value && value !== 'all')
+      .sort(([left], [right]) => left.localeCompare(right)),
+  )
+}
 
-    // useCalback defines functions which won't restart from scratch on changes, until
-    // the mention dependencies change, it avoids infinite loops in useEffect
-    // useCallback(()=>{function}, [dependencies])
-    const fetchData = useCallback(
-        async (filters?: Record<string, string>) => {
-            if (filters) {
-                filtersRef.current = filters;
-            }
-            const currentFilters = filtersRef.current;
-            setLoading(true);
-            try {
-                const params = new URLSearchParams();
-                for (const [key, value] of Object.entries(currentFilters)) {
-                    if (value && value !== "all") {
-                        params.set(key, value);
-                    }
-                }
+async function fetchManageData<T>(endpoint: string, filters: ManageFilters) {
+  const params = new URLSearchParams()
 
-                const res = await fetch(`/api/manage/${endpoint}?${params}`);
-                const json = await res.json();
-                if (!res.ok)
-                    throw new Error(json.error || "Failed to fetch data");
+  for (const [key, value] of Object.entries(filters)) {
+    params.set(key, value)
+  }
 
-                setData(json);
-            } catch (error: unknown) {
-                console.error(
-                    "[useManageData]",
-                    error instanceof Error
-                        ? error.message
-                        : "Unexpected server error",
-                );
+  return fetchJson<T>(`/api/manage/${endpoint}?${params.toString()}`, {
+    errorPrefix: `[useManageData] ${endpoint}`,
+  })
+}
 
-                setData(null);
-            } finally {
-                setLoading(false);
-            }
-        },
-        [endpoint],
-    );
+export function useManageData<T>({ endpoint, initialFilters = {} }: UseManageDataOptions) {
+  const queryClient = useQueryClient()
+  const [filters, setFilters] = useState<ManageFilters>(() => normalizeFilters(initialFilters))
 
-    // runs the function defined here, restarts the function run only when the mentioned
-    // dependecies change. useEffect(()=>function, [dependencies])
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
+  const queryKey = useMemo(() => ['manage-data', endpoint, filters] as const, [endpoint, filters])
 
-    return {
-        data,
-        loading,
-        reload: fetchData, // alias, reference
-    };
+  const query = useQuery<T>({
+    queryKey,
+    queryFn: () => fetchManageData<T>(endpoint, filters),
+    staleTime: 30_000,
+  })
+
+  const reload = useCallback(async (nextFilters?: ManageFilters) => {
+    if (nextFilters) {
+      const normalized = normalizeFilters(nextFilters)
+      setFilters(normalized)
+
+      await queryClient.invalidateQueries({
+        queryKey: ['manage-data', endpoint],
+      })
+      return
+    }
+
+    await query.refetch()
+  }, [endpoint, query, queryClient])
+
+  return {
+    data: query.data ?? null,
+    loading: query.isPending || query.isFetching,
+    reload,
+    error: query.error,
+    filters,
+  }
 }

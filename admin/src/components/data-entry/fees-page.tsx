@@ -1,353 +1,495 @@
 'use client'
 
-/**
- * Fee Management Page Component
- * Allows accountants and admins to generate monthly invoices and record fee payments for students.
- * Features: Invoice creation, partial/full payment recording, receipt generation, and status tracking (Paid, Overdue, etc.).
- */
-
-import { useState, useCallback, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { CreditCard, Search } from 'lucide-react'
 import { toast } from 'sonner'
-import { Plus, CreditCard, Receipt } from 'lucide-react'
-import { format } from 'date-fns'
+import { format } from 'date-fns';
 
-import { Button } from '@/components/ui/button'
-import { Card, CardTitle, CardDescription } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { ManageDialog } from '@/components/manage/manage-dialog'
+import { DatePickerField } from '@/components/shared/form/date-picker-field'
+import { SelectField } from '@/components/shared/form/select-field'
+import { fetchJson } from '@/lib/http/fetch-json'
 import { Badge } from '@/components/ui/badge'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ManageDialog } from '@/components/manage/manage-dialog'
-import type { AppRole, StudentInvoice, FeeTransaction } from '@/lib/types/entities'
+import type { FeeTransaction, InvoiceRewardAllocation, StudentInvoice } from '@/lib/types/entities'
 
 type BatchOption = { id: string; batch_name: string; batch_code: string; centre_name: string }
 
-const STATUS_COLORS: Record<string, string> = {
-    pending: 'bg-amber-500/10 text-amber-600 border-amber-200',
-    partial: 'bg-blue-500/10 text-blue-600 border-blue-200',
-    paid: 'bg-emerald-500/10 text-emerald-600 border-emerald-200',
-    overdue: 'bg-red-500/10 text-red-600 border-red-200',
+type StudentFeeSummary = {
+  student_id: string
+  student_name: string
+  student_code: string | null
+  current_points: number
+  paidTill: string | null
+  invoices: StudentInvoice[]
+  pendingAmount: number
+  pendingMonths: number
 }
 
-export function FeesPage({ role }: { role: AppRole }) {
-    const [batches, setBatches] = useState<BatchOption[]>([])
-    const [selectedBatch, setSelectedBatch] = useState('')
-    const [selectedMonth, setSelectedMonth] = useState('')
-    const [statusFilter, setStatusFilter] = useState('all')
-    const [invoices, setInvoices] = useState<StudentInvoice[]>([])
-    const [transactions, setTransactions] = useState<FeeTransaction[]>([])
-    const [selectedInvoice, setSelectedInvoice] = useState<StudentInvoice | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [saving, setSaving] = useState(false)
+const STATUS_COLORS: Record<StudentInvoice['payment_status'], string> = {
+  pending: 'bg-amber-500/10 text-amber-600 border-amber-200',
+  partial: 'bg-blue-500/10 text-blue-600 border-blue-200',
+  paid: 'bg-emerald-500/10 text-emerald-600 border-emerald-200',
+  overdue: 'bg-red-500/10 text-red-600 border-red-200',
+}
 
-    // Create invoice dialog
-    const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false)
-    const [invStudentId, setInvStudentId] = useState('')
-    const [invMonthYear, setInvMonthYear] = useState(format(new Date(), 'yyyy-MM'))
-    const [invMonthlyFee, setInvMonthlyFee] = useState('')
-    const [invAmountDue, setInvAmountDue] = useState('')
+export function FeesPage() {
+  const queryClient = useQueryClient()
+  const [selectedBatch, setSelectedBatch] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [selectedStudentId, setSelectedStudentId] = useState('')
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState('')
 
-    // Record payment dialog
-    const [payDialogOpen, setPayDialogOpen] = useState(false)
-    const [payAmount, setPayAmount] = useState('')
-    const [payMode, setPayMode] = useState<'cash' | 'online'>('cash')
+  const [payDialogOpen, setPayDialogOpen] = useState(false)
+  const [payAmount, setPayAmount] = useState('')
+  const [payMode, setPayMode] = useState<'cash' | 'online'>('cash')
+  const [payDate, setPayDate] = useState('')
+  const [discountTarget, setDiscountTarget] = useState('0')
 
-    useEffect(() => {
-        async function load() {
-            const res = await fetch('/api/data-entry/fees')
-            const json = await res.json()
-            if (res.ok) setBatches(json.batches ?? [])
-            setLoading(false)
+  const batchesQuery = useQuery({
+    queryKey: ['task-fee-batches'],
+    queryFn: () => fetchJson<{ batches: BatchOption[] }>('/api/data-entry/fees', { errorPrefix: 'Load fee batches' }),
+    staleTime: 60_000,
+  })
+
+  const batches = useMemo(() => batchesQuery.data?.batches ?? [], [batchesQuery.data?.batches])
+  const effectiveSelectedBatch = selectedBatch || batches[0]?.id || ''
+
+  const invoicesQuery = useQuery({
+    queryKey: ['task-fee-invoices', effectiveSelectedBatch, statusFilter],
+    queryFn: () => {
+      const params = new URLSearchParams({ batch_id: effectiveSelectedBatch })
+      if (statusFilter !== 'all') params.set('status', statusFilter)
+      return fetchJson<{ invoices: StudentInvoice[] }>(`/api/data-entry/fees?${params.toString()}`, { errorPrefix: 'Load fee invoices' })
+    },
+    enabled: Boolean(effectiveSelectedBatch),
+    staleTime: 30_000,
+  })
+
+  const detailQuery = useQuery({
+    queryKey: ['task-fee-details', selectedInvoiceId],
+    queryFn: () => fetchJson<{ transactions: FeeTransaction[]; reward_allocations: InvoiceRewardAllocation[] }>(`/api/data-entry/fees?invoice_id=${selectedInvoiceId}`, { errorPrefix: 'Load fee payments' }),
+    enabled: Boolean(selectedInvoiceId),
+    staleTime: 15_000,
+  })
+
+  const recordPaymentMutation = useMutation({
+    mutationFn: () => fetchJson<{ transaction?: { receipt_number?: string } }>('/api/data-entry/fees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        student_invoice_id: selectedInvoiceId,
+        amount: parseFloat(payAmount),
+        payment_mode: payMode,
+        payment_date: payDate || null,
+      }),
+    }),
+    onSuccess: async (json) => {
+      toast.success(`Payment recorded · Receipt: ${json.transaction?.receipt_number || 'Generated'}`)
+      setPayDialogOpen(false)
+      setPayAmount('')
+      setPayDate('')
+      await queryClient.invalidateQueries({ queryKey: ['task-fee-invoices', effectiveSelectedBatch, statusFilter] })
+      await queryClient.invalidateQueries({ queryKey: ['task-fee-details', selectedInvoiceId] })
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to record payment')
+    },
+  })
+
+  const rewardMutation = useMutation({
+    mutationFn: (targetDiscountTotal: number) => fetchJson('/api/data-entry/fees', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ student_id: effectiveSelectedStudentId, target_discount_total: targetDiscountTotal }),
+    }),
+    onSuccess: async () => {
+      toast.success('Reward-point allocation updated across pending invoices')
+      await queryClient.invalidateQueries({ queryKey: ['task-fee-invoices', effectiveSelectedBatch, statusFilter] })
+      if (selectedInvoiceId) {
+        await queryClient.invalidateQueries({ queryKey: ['task-fee-details', selectedInvoiceId] })
+      }
+    },
+    onError: (error: unknown) => {
+      toast.error(error instanceof Error ? error.message : 'Failed to update reward discount')
+    },
+  })
+
+  useEffect(() => {
+    if (batchesQuery.error) {
+      toast.error(batchesQuery.error instanceof Error ? batchesQuery.error.message : 'Failed to load batches')
+    }
+  }, [batchesQuery.error])
+
+  useEffect(() => {
+    if (invoicesQuery.error) {
+      toast.error(invoicesQuery.error instanceof Error ? invoicesQuery.error.message : 'Failed to load invoices')
+    }
+  }, [invoicesQuery.error])
+
+  useEffect(() => {
+    if (detailQuery.error) {
+      toast.error(detailQuery.error instanceof Error ? detailQuery.error.message : 'Failed to load payment history')
+    }
+  }, [detailQuery.error])
+
+  const invoices = useMemo(() => invoicesQuery.data?.invoices ?? [], [invoicesQuery.data?.invoices])
+  const transactions = detailQuery.data?.transactions ?? []
+  const rewardAllocations = detailQuery.data?.reward_allocations ?? []
+  const loading = batchesQuery.isPending || batchesQuery.isFetching || invoicesQuery.isPending || invoicesQuery.isFetching
+  const detailsLoading = detailQuery.isPending || detailQuery.isFetching
+  const saving = recordPaymentMutation.isPending || rewardMutation.isPending
+
+  const studentSummaries = useMemo(() => {
+    const grouped = new Map<string, StudentFeeSummary>()
+
+    for (const invoice of invoices) {
+      const existing = grouped.get(invoice.student_id) ?? {
+        student_id: invoice.student_id,
+        student_name: invoice.student_name,
+        student_code: invoice.student_code,
+        current_points: invoice.current_points,
+        paidTill: null,
+        invoices: [],
+        pendingAmount: 0,
+        pendingMonths: 0,
+      }
+
+      existing.current_points = invoice.current_points
+      existing.invoices.push(invoice)
+
+      if (invoice.payment_status === 'paid') {
+        if (!existing.paidTill || invoice.month_year > existing.paidTill) {
+          existing.paidTill = invoice.month_year
         }
-        load()
-    }, [])
+      } else {
+        existing.pendingAmount += invoice.payable_amount
+        existing.pendingMonths += 1
+      }
 
-    const loadInvoices = useCallback(async () => {
-        if (!selectedBatch) return
-        setLoading(true)
-        try {
-            const params = new URLSearchParams({ batch_id: selectedBatch })
-            if (selectedMonth) params.set('month_year', `${selectedMonth}-01`)
-            if (statusFilter !== 'all') params.set('status', statusFilter)
-
-            const res = await fetch(`/api/data-entry/fees?${params}`)
-            const json = await res.json()
-            if (res.ok) setInvoices(json.invoices ?? [])
-        } finally {
-            setLoading(false)
-        }
-    }, [selectedBatch, selectedMonth, statusFilter])
-
-    useEffect(() => {
-        if (selectedBatch) loadInvoices()
-    }, [selectedBatch, loadInvoices])
-
-    async function loadTransactions(inv: StudentInvoice) {
-        setSelectedInvoice(inv)
-        const res = await fetch(`/api/data-entry/fees?invoice_id=${inv.id}`)
-        const json = await res.json()
-        if (res.ok) setTransactions(json.transactions ?? [])
+      grouped.set(invoice.student_id, existing)
     }
 
-    async function handleCreateInvoice() {
-        setSaving(true)
-        try {
-            const res = await fetch('/api/data-entry/fees', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    student_id: invStudentId,
-                    batch_id: selectedBatch,
-                    month_year: `${invMonthYear}-01`,
-                    monthly_fee: parseFloat(invMonthlyFee),
-                    amount_due: parseFloat(invAmountDue || invMonthlyFee),
-                }),
-            })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error)
-            toast.success('Invoice created')
-            setInvoiceDialogOpen(false)
-            setInvStudentId(''); setInvMonthlyFee(''); setInvAmountDue('')
-            loadInvoices()
-        } catch (e: unknown) {
-            toast.error(e instanceof Error ? e.message : 'Failed to create invoice')
-        } finally {
-            setSaving(false)
-        }
+    return Array.from(grouped.values())
+      .filter((student) => {
+        const query = search.trim().toLowerCase()
+        if (!query) return true
+        return student.student_name.toLowerCase().includes(query)
+          || (student.student_code ?? '').toLowerCase().includes(query)
+      })
+      .sort((left, right) => left.student_name.localeCompare(right.student_name))
+  }, [invoices, search])
+
+  const effectiveSelectedStudentId = selectedStudentId && studentSummaries.some((student) => student.student_id === selectedStudentId)
+    ? selectedStudentId
+    : (studentSummaries[0]?.student_id ?? '')
+
+  const selectedStudent = useMemo(
+    () => studentSummaries.find((student) => student.student_id === effectiveSelectedStudentId) ?? null,
+    [effectiveSelectedStudentId, studentSummaries],
+  )
+
+  const effectiveSelectedInvoiceId = (() => {
+    if (!selectedStudent) return ''
+    if (selectedInvoiceId && selectedStudent.invoices.some((invoice) => invoice.id === selectedInvoiceId)) {
+      return selectedInvoiceId
     }
+    return selectedStudent.invoices.find((invoice) => invoice.payment_status !== 'paid')?.id ?? selectedStudent.invoices[0]?.id ?? ''
+  })()
 
-    async function handleRecordPayment() {
-        if (!selectedInvoice) return
-        setSaving(true)
-        try {
-            const res = await fetch('/api/data-entry/fees', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    student_invoice_id: selectedInvoice.id,
-                    amount: parseFloat(payAmount),
-                    payment_mode: payMode,
-                }),
-            })
-            const json = await res.json()
-            if (!res.ok) throw new Error(json.error)
-            toast.success(`Payment recorded · Receipt: ${json.transaction?.receipt_number || 'Generated'}`)
-            setPayDialogOpen(false)
-            setPayAmount('')
-            loadTransactions(selectedInvoice)
-            loadInvoices()
-        } catch (e: unknown) {
-            toast.error(e instanceof Error ? e.message : 'Failed to record payment')
-        } finally {
-            setSaving(false)
-        }
-    }
+  const selectedInvoice = useMemo(
+    () => selectedStudent?.invoices.find((invoice) => invoice.id === effectiveSelectedInvoiceId)
+      ?? selectedStudent?.invoices[0]
+      ?? null,
+    [effectiveSelectedInvoiceId, selectedStudent],
+  )
 
-    return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="font-serif text-3xl tracking-tight">Fee Management</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Generate invoices, record fee payments, and track payment status.</p>
-            </div>
+  const selectedStudentRewardAllocation = useMemo(
+    () => selectedStudent?.invoices.reduce((sum, invoice) => sum + invoice.amount_discount, 0) ?? 0,
+    [selectedStudent],
+  )
 
-            <div className="flex flex-wrap items-end gap-4">
-                <div className="space-y-2 min-w-[220px]">
-                    <Label>Batch</Label>
-                    <Select value={selectedBatch} onValueChange={setSelectedBatch}>
-                        <SelectTrigger><SelectValue placeholder="Select batch…" /></SelectTrigger>
-                        <SelectContent>
-                            {batches.map(b => (
-                                <SelectItem key={b.id} value={b.id}>{b.batch_name} — {b.centre_name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-                <div className="space-y-2">
-                    <Label>Month</Label>
-                    <Input type="month" value={selectedMonth} onChange={e => setSelectedMonth(e.target.value)} className="w-[180px]" />
-                </div>
-                <div className="space-y-2 min-w-[150px]">
-                    <Label>Status</Label>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">All</SelectItem>
-                            <SelectItem value="pending">Pending</SelectItem>
-                            <SelectItem value="partial">Partial</SelectItem>
-                            <SelectItem value="paid">Paid</SelectItem>
-                            <SelectItem value="overdue">Overdue</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-                {selectedBatch && (
-                    <Button onClick={() => setInvoiceDialogOpen(true)}><Plus className="h-4 w-4 mr-2" />Create Invoice</Button>
-                )}
-            </div>
+  const selectedStudentRawPending = useMemo(
+    () => selectedStudent?.invoices.reduce((sum, invoice) => sum + Math.max(0, invoice.amount_due - invoice.amount_paid), 0) ?? 0,
+    [selectedStudent],
+  )
 
-            {selectedBatch && (
-                <Tabs defaultValue="invoices" className="space-y-4">
-                    <TabsList>
-                        <TabsTrigger value="invoices" className="flex items-center gap-1.5"><Receipt className="h-3.5 w-3.5" />Invoices</TabsTrigger>
-                        <TabsTrigger value="payments" className="flex items-center gap-1.5" disabled={!selectedInvoice}><CreditCard className="h-3.5 w-3.5" />Payments</TabsTrigger>
-                    </TabsList>
+  const currentAllocationBreakdown = useMemo(
+    () => (selectedStudent?.invoices ?? [])
+      .filter((invoice) => invoice.amount_discount > 0)
+      .map((invoice) => ({ month_year: invoice.month_year, amount_discount: invoice.amount_discount })),
+    [selectedStudent],
+  )
 
-                    <TabsContent value="invoices">
-                        <Card className="gap-0 py-0 overflow-hidden">
-                            <div className="border-b bg-muted/30 px-5 py-3.5">
-                                <CardTitle className="text-base tracking-tight">Student Invoices</CardTitle>
-                                <CardDescription className="mt-0.5">{invoices.length} invoice(s)</CardDescription>
-                            </div>
-                            {loading ? (
-                                <div className="animate-pulse h-40 bg-muted/20" />
-                            ) : invoices.length === 0 ? (
-                                <div className="p-8 text-center text-muted-foreground text-sm">No invoices found.</div>
-                            ) : (
-                                <Table>
-                                    <TableHeader className="bg-muted/50">
-                                        <TableRow>
-                                            <TableHead className="w-12">#</TableHead>
-                                            <TableHead>Student</TableHead>
-                                            <TableHead>Month</TableHead>
-                                            <TableHead className="text-right">Due (₹)</TableHead>
-                                            <TableHead className="text-right">Paid (₹)</TableHead>
-                                            <TableHead className="text-right">Discount (₹)</TableHead>
-                                            <TableHead className="text-center">Status</TableHead>
-                                            <TableHead className="text-right pr-4">Actions</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {invoices.map((inv, i) => (
-                                            <TableRow key={inv.id} className="transition-colors hover:bg-muted/30">
-                                                <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                                                <TableCell>
-                                                    <div className="font-medium">{inv.student_name}</div>
-                                                    <div className="text-xs text-muted-foreground font-mono">{inv.student_code || ''}</div>
-                                                </TableCell>
-                                                <TableCell className="tabular-nums">{inv.month_year?.slice(0, 7)}</TableCell>
-                                                <TableCell className="text-right tabular-nums">₹{Number(inv.amount_due).toLocaleString('en-IN')}</TableCell>
-                                                <TableCell className="text-right tabular-nums">₹{Number(inv.amount_paid).toLocaleString('en-IN')}</TableCell>
-                                                <TableCell className="text-right tabular-nums">₹{Number(inv.amount_discount).toLocaleString('en-IN')}</TableCell>
-                                                <TableCell className="text-center">
-                                                    <Badge variant="outline" className={STATUS_COLORS[inv.payment_status] || ''}>
-                                                        {inv.payment_status}
-                                                    </Badge>
-                                                </TableCell>
-                                                <TableCell className="text-right pr-4">
-                                                    <div className="flex justify-end gap-1">
-                                                        <Button variant="ghost" size="sm" onClick={() => { loadTransactions(inv); }}>View</Button>
-                                                        <Button variant="ghost" size="sm" onClick={() => { setSelectedInvoice(inv); setPayDialogOpen(true) }}>
-                                                            <CreditCard className="h-3.5 w-3.5 mr-1" />Pay
-                                                        </Button>
-                                                    </div>
-                                                </TableCell>
-                                            </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
-                            )}
-                        </Card>
-                    </TabsContent>
+  const discountInputValue = discountTarget === '' ? String(selectedStudentRewardAllocation) : discountTarget
 
-                    <TabsContent value="payments">
-                        {selectedInvoice && (
-                            <Card className="gap-0 py-0 overflow-hidden">
-                                <div className="border-b bg-muted/30 px-5 py-3.5">
-                                    <CardTitle className="text-base tracking-tight">Payment History — {selectedInvoice.student_name}</CardTitle>
-                                    <CardDescription className="mt-0.5">Invoice: {selectedInvoice.month_year?.slice(0, 7)} | Due: ₹{Number(selectedInvoice.amount_due).toLocaleString('en-IN')}</CardDescription>
-                                </div>
-                                {transactions.length === 0 ? (
-                                    <div className="p-8 text-center text-muted-foreground text-sm">No payments recorded yet.</div>
-                                ) : (
-                                    <Table>
-                                        <TableHeader className="bg-muted/50">
-                                            <TableRow>
-                                                <TableHead>#</TableHead>
-                                                <TableHead>Receipt No.</TableHead>
-                                                <TableHead>Date</TableHead>
-                                                <TableHead className="text-right">Amount (₹)</TableHead>
-                                                <TableHead className="text-center">Mode</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {transactions.map((t, i) => (
-                                                <TableRow key={t.id}>
-                                                    <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                                                    <TableCell className="font-mono text-xs">{t.receipt_number}</TableCell>
-                                                    <TableCell className="tabular-nums">{t.payment_date}</TableCell>
-                                                    <TableCell className="text-right tabular-nums font-medium">₹{Number(t.amount).toLocaleString('en-IN')}</TableCell>
-                                                    <TableCell className="text-center">
-                                                        <Badge variant="outline" className={t.payment_mode === 'online' ? 'bg-blue-500/10 text-blue-600 border-blue-200' : 'bg-emerald-500/10 text-emerald-600 border-emerald-200'}>
-                                                            {t.payment_mode}
-                                                        </Badge>
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                )}
-                            </Card>
-                        )}
-                    </TabsContent>
-                </Tabs>
-            )}
+  async function handleRecordPayment() {
+    if (!selectedInvoice) return
+    await recordPaymentMutation.mutateAsync()
+  }
 
-            {/* Create Invoice Dialog */}
-            <ManageDialog
-                open={invoiceDialogOpen}
-                onOpenChange={setInvoiceDialogOpen}
-                title="Create Invoice"
-                description="Generate a fee invoice for a student."
-                onSubmit={handleCreateInvoice}
-                saving={saving}
-                submitLabel="Create"
-            >
-                <div className="space-y-2">
-                    <Label>Student ID *</Label>
-                    <Input value={invStudentId} onChange={e => setInvStudentId(e.target.value)} placeholder="Student UUID" required />
-                </div>
-                <div className="space-y-2">
-                    <Label>Month *</Label>
-                    <Input type="month" value={invMonthYear} onChange={e => setInvMonthYear(e.target.value)} required />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                    <div className="space-y-2">
-                        <Label>Monthly Fee (₹) *</Label>
-                        <Input type="number" min={0} value={invMonthlyFee} onChange={e => setInvMonthlyFee(e.target.value)} placeholder="e.g. 5000" required />
-                    </div>
-                    <div className="space-y-2">
-                        <Label>Amount Due (₹)</Label>
-                        <Input type="number" min={0} value={invAmountDue} onChange={e => setInvAmountDue(e.target.value)} placeholder="Same as fee if blank" />
-                    </div>
-                </div>
-            </ManageDialog>
+  async function applyRewardDiscount(nextDiscount: string) {
+    if (!selectedStudent) return
 
-            {/* Record Payment Dialog */}
-            <ManageDialog
-                open={payDialogOpen}
-                onOpenChange={setPayDialogOpen}
-                title="Record Payment"
-                description={selectedInvoice ? `Recording payment for ${selectedInvoice.student_name} — ${selectedInvoice.month_year?.slice(0, 7)}` : ''}
-                onSubmit={handleRecordPayment}
-                saving={saving}
-                submitLabel="Record"
-            >
-                <div className="space-y-2">
-                    <Label>Amount (₹) *</Label>
-                    <Input type="number" min={1} value={payAmount} onChange={e => setPayAmount(e.target.value)} placeholder="e.g. 5000" required />
-                </div>
-                <div className="space-y-2">
-                    <Label>Payment Mode *</Label>
-                    <Select value={payMode} onValueChange={v => setPayMode(v as 'cash' | 'online')}>
-                        <SelectTrigger><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="cash">Cash</SelectItem>
-                            <SelectItem value="online">Online</SelectItem>
-                        </SelectContent>
-                    </Select>
-                </div>
-            </ManageDialog>
+    const target = parseFloat(nextDiscount) || 0
+    await rewardMutation.mutateAsync(target)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="font-serif text-3xl tracking-tight">Task Fees</h1>
+        <p className="mt-1 text-sm text-muted-foreground">Review student fee cards, open month-wise invoice history, and collect full or partial payments with reward-point offsets.</p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-[240px_180px_1fr]">
+        <SelectField id="fees-batch" label="Batch" value={effectiveSelectedBatch} onChange={setSelectedBatch} options={batches.map((batch) => ({ value: batch.id, label: `${batch.batch_name} - ${batch.centre_name}` }))} placeholder="Select batch" />
+        <SelectField id="fees-status" label="Status" value={statusFilter} onChange={setStatusFilter} options={[{ value: 'all', label: 'All' }, { value: 'pending', label: 'Pending' }, { value: 'partial', label: 'Partial' }, { value: 'paid', label: 'Paid' }, { value: 'overdue', label: 'Overdue' }]} />
+        <div className="space-y-2">
+          <Label htmlFor="student-search">Search Student</Label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input id="student-search" value={search} onChange={(event) => setSearch(event.target.value)} className="pl-9" placeholder="Search student name or code" />
+          </div>
         </div>
-    )
+      </div>
+
+      {effectiveSelectedBatch && (
+        <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
+          <Card className="gap-0 overflow-hidden py-0">
+            <div className="border-b bg-muted/30 px-5 py-3.5">
+              <CardTitle className="text-base tracking-tight">Student Fee Cards</CardTitle>
+              <CardDescription className="mt-0.5">{studentSummaries.length} student card(s)</CardDescription>
+            </div>
+            <div className="max-h-[700px] overflow-y-auto">
+              {loading ? (
+                <div className="h-56 animate-pulse bg-muted/20" />
+              ) : studentSummaries.length === 0 ? (
+                <div className="p-10 text-center text-sm text-muted-foreground">No student invoices match the current batch and status filter.</div>
+              ) : (
+                <div className="divide-y">
+                  {studentSummaries.map((student) => (
+                    <button
+                      key={student.student_id}
+                      type="button"
+                      onClick={() => { setSelectedStudentId(student.student_id); setSelectedInvoiceId(''); setDiscountTarget('') }}
+                      className={`w-full px-5 py-4 text-left transition-colors hover:bg-muted/30 ${effectiveSelectedStudentId === student.student_id ? 'bg-muted/40' : ''}`}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium">{student.student_name}</div>
+                          <div className="font-mono text-xs text-muted-foreground">{student.student_code || '-'}</div>
+                        </div>
+                        <Badge variant="outline" className={student.pendingMonths > 0 ? 'bg-amber-500/10 text-amber-600 border-amber-200' : 'bg-emerald-500/10 text-emerald-600 border-emerald-200'}>
+                          {student.pendingMonths > 0 ? `${student.pendingMonths} pending` : 'Up to date'}
+                        </Badge>
+                      </div>
+                      <div className="mt-4 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                        <div>Paid till: <span className="font-medium text-foreground">{student.paidTill ? student.paidTill.slice(0, 7) : 'Not paid yet'}</span></div>
+                        <div>Pending: <span className="font-medium text-foreground">Rs {student.pendingAmount.toLocaleString('en-IN')}</span></div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <Card className="gap-0 overflow-hidden py-0">
+            <div className="border-b bg-muted/30 px-5 py-3.5">
+              <CardTitle className="text-base tracking-tight">Student Fee Detail</CardTitle>
+              <CardDescription className="mt-0.5">Month-wise invoice history, reward discount visibility, and payment records.</CardDescription>
+            </div>
+
+            {!selectedStudent ? (
+              <div className="p-10 text-center text-sm text-muted-foreground">Select a student card to review fee months and payments.</div>
+            ) : (
+              <div className="space-y-5 px-5 py-5">
+                <div className="flex flex-wrap items-start justify-between gap-4 rounded-xl border bg-muted/20 p-4">
+                  <div>
+                    <div className="text-xl font-semibold">{selectedStudent.student_name}</div>
+                    <div className="mt-1 font-mono text-sm text-muted-foreground">{selectedStudent.student_code || '-'}</div>
+                  </div>
+                    <div className="grid gap-2 text-sm sm:grid-cols-2">
+                      <div className="rounded-lg border bg-background px-3 py-2">
+                        <div className="text-muted-foreground">Reward points</div>
+                        <div className="font-medium">{selectedStudent.current_points}</div>
+                      </div>
+                      <div className="rounded-lg border bg-background px-3 py-2">
+                        <div className="text-muted-foreground">Reward applied</div>
+                        <div className="font-medium">Rs {selectedStudentRewardAllocation.toLocaleString('en-IN')}</div>
+                      </div>
+                      <div className="rounded-lg border bg-background px-3 py-2">
+                        <div className="text-muted-foreground">Pending amount</div>
+                        <div className="font-medium">Rs {selectedStudent.pendingAmount.toLocaleString('en-IN')}</div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Invoice Months</div>
+                  {selectedStudent.invoices.map((invoice) => (
+                    <button
+                      key={invoice.id}
+                      type="button"
+                       onClick={() => setSelectedInvoiceId(invoice.id)}
+                      className={`w-full rounded-xl border p-4 text-left transition-colors hover:bg-muted/20 ${selectedInvoice?.id === invoice.id ? 'border-sky-400/50 bg-sky-500/5' : 'bg-background'}`}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="font-medium">{invoice.month_year.slice(0, 7)}</div>
+                          <div className="mt-1 text-sm text-muted-foreground">Due Rs {invoice.amount_due.toLocaleString('en-IN')} · Paid Rs {invoice.amount_paid.toLocaleString('en-IN')}</div>
+                        </div>
+                        <Badge variant="outline" className={STATUS_COLORS[invoice.payment_status]}>{invoice.payment_status}</Badge>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                {selectedInvoice && (
+                  <>
+                    <div className="space-y-3">
+                      <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Selected Invoice</div>
+                      <div className="rounded-xl border bg-background p-4">
+                        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                          <div>
+                            <div className="text-muted-foreground">Monthly fee</div>
+                            <div className="font-medium">Rs {selectedInvoice.monthly_fee.toLocaleString('en-IN')}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">Reward discount</div>
+                            <div className="font-medium">Rs {selectedInvoice.amount_discount.toLocaleString('en-IN')}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">Already paid</div>
+                            <div className="font-medium">Rs {selectedInvoice.amount_paid.toLocaleString('en-IN')}</div>
+                          </div>
+                          <div>
+                            <div className="text-muted-foreground">Payable now</div>
+                            <div className="font-medium">Rs {selectedInvoice.payable_amount.toLocaleString('en-IN')}</div>
+                          </div>
+                        </div>
+                        <div className="mt-4 rounded-lg border bg-muted/20 p-3 text-sm text-muted-foreground">
+                          Payable fee is calculated as `max(0, pending fees - reward points applied)`. Reward discount is visible separately so money payments and point redemption remain auditable.
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Reward Offset</div>
+                      <div className="grid gap-4 rounded-xl border bg-muted/20 p-4 md:grid-cols-[200px_1fr_auto]">
+                        <div className="space-y-2">
+                          <Label htmlFor="reward-discount">Total Reward Allocation (Rs)</Label>
+                          <Input id="reward-discount" type="number" step="1" min={0} max={Math.min(selectedStudentRawPending, selectedStudent.current_points + selectedStudentRewardAllocation)} value={discountInputValue} onChange={(event) => setDiscountTarget(event.target.value)} />
+                        </div>
+                        <div className="flex items-end text-sm text-muted-foreground">
+                          Reward allocation is applied oldest-first across all pending invoices for this student. Available points: {selectedStudent.current_points}. Raw pending before rewards: Rs {selectedStudentRawPending.toLocaleString('en-IN')}.
+                        </div>
+                        <div className="flex items-end">
+                          <Button variant="outline" onClick={() => void applyRewardDiscount(discountInputValue)} disabled={saving}>Apply</Button>
+                        </div>
+                      </div>
+                      <div className="rounded-xl border bg-background p-4">
+                        <div className="text-sm font-medium">Current allocation by invoice month</div>
+                        {currentAllocationBreakdown.length === 0 ? (
+                          <div className="mt-2 text-sm text-muted-foreground">No reward allocation is applied to this student right now.</div>
+                        ) : (
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            {currentAllocationBreakdown.map((entry) => (
+                              <div key={entry.month_year} className="rounded-lg border bg-muted/20 px-3 py-2 text-sm">
+                                <div className="text-muted-foreground">{entry.month_year.slice(0, 7)}</div>
+                                <div className="font-medium">Rs {entry.amount_discount.toLocaleString('en-IN')}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end">
+                      <Button onClick={() => setPayDialogOpen(true)} disabled={selectedInvoice.payable_amount <= 0}>
+                        <CreditCard className="mr-2 h-4 w-4" />Record Payment
+                      </Button>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Reward Allocation History</div>
+                      {detailsLoading ? (
+                        <div className="h-24 animate-pulse rounded-xl bg-muted/20" />
+                      ) : rewardAllocations.length === 0 ? (
+                        <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No reward allocation history exists for this invoice month yet.</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {rewardAllocations.map((allocation) => (
+                            <div key={allocation.id} className="rounded-xl border bg-background p-4">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <div className="font-medium">Reward allocation of Rs {allocation.allocation_amount.toLocaleString('en-IN')}</div>
+                                  <div className="mt-1 text-sm text-muted-foreground">{allocation.points_description || 'Reward allocation ledger entry'}</div>
+                                  <div className="mt-1 text-xs text-muted-foreground">Reason: {allocation.points_reason || 'N/A'} · By {allocation.created_by_name || 'Unknown'} · Logged {allocation.created_at.slice(0, 10)}</div>
+                                </div>
+                                {allocation.points_month_year && <div className="text-sm text-muted-foreground">{allocation.points_month_year.slice(0, 7)}</div>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Payment History</div>
+                      {detailsLoading ? (
+                        <div className="h-32 animate-pulse rounded-xl bg-muted/20" />
+                      ) : transactions.length === 0 ? (
+                        <div className="rounded-xl border border-dashed p-6 text-sm text-muted-foreground">No payments recorded for this invoice month yet.</div>
+                      ) : (
+                        <div className="space-y-3">
+                          {transactions.map((transaction) => (
+                            <div key={transaction.id} className="rounded-xl border bg-background p-4">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <div className="font-medium">Receipt {transaction.receipt_number}</div>
+                                  <div className="mt-1 text-sm text-muted-foreground">{transaction.payment_mode} payment on {transaction.payment_date}</div>
+                                  <div className="mt-1 text-xs text-muted-foreground">Collected by {transaction.collected_by_name || 'Unknown'} · Logged {transaction.created_at.slice(0, 10)}</div>
+                                </div>
+                                <div className="font-medium">Rs {Number(transaction.amount).toLocaleString('en-IN')}</div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      <ManageDialog
+        open={payDialogOpen}
+        onOpenChange={setPayDialogOpen}
+        title="Record Fee Payment"
+        description={selectedInvoice ? `Record a full or partial payment for ${selectedStudent?.student_name} (${selectedInvoice.month_year.slice(0, 7)})` : ''}
+        onSubmit={handleRecordPayment}
+        saving={saving}
+        submitLabel="Record Payment"
+      >
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="pay-amount">Amount (Rs) *</Label>
+            <Input id="pay-amount" type="number" min={1} max={selectedInvoice?.payable_amount ?? undefined} value={payAmount} onChange={(event) => setPayAmount(event.target.value)} placeholder="Enter full or partial amount" required />
+          </div>
+          <SelectField id="fees-pay-mode" label="Payment Mode *" value={payMode} onChange={(value) => setPayMode(value as 'cash' | 'online')} options={[{ value: 'cash', label: 'Cash' }, { value: 'online', label: 'Online' }]} />
+          <DatePickerField id="pay-date" label="Payment Date" value={payDate} onChange={setPayDate} max={format(new Date(), 'yyyy-MM-dd')} />
+        </div>
+      </ManageDialog>
+    </div>
+  )
 }

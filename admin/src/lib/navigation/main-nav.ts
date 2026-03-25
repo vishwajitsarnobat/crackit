@@ -1,7 +1,7 @@
 /**
  * Navigation Configuration
  * - MainNavItem type           — shape for nav items with optional subItems
- * - MAIN_NAV_ITEMS             — full nav tree (Dashboard, Analytics, Manage, Data Entry, Reports)
+ * - MAIN_NAV_ITEMS             — full nav tree (Dashboard, Analytics, Manage, Tasks, Reports)
  * - getVisibleMainNav(role)    — filters nav items by the user's AppRole
  * Each item specifies allowedRoles and an icon key that maps to lucide-react in nav-links.tsx.
  */
@@ -68,13 +68,7 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
                 label: "Centres",
                 href: "/manage/centres",
                 icon: "Building",
-                allowedRoles: ["ceo", "centre_head"],
-            },
-            {
-                label: "Courses",
-                href: "/manage/courses",
-                icon: "BookOpen",
-                allowedRoles: ["ceo", "centre_head"],
+                allowedRoles: ["ceo"],
             },
             {
                 label: "Batches",
@@ -89,84 +83,84 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [
                 allowedRoles: ["ceo", "centre_head"],
             },
             {
-                label: "Teachers",
-                href: "/manage/teachers",
-                icon: "UserCheck",
+                label: "Reward Points",
+                href: "/manage/reward-points",
+                icon: "Gift",
                 allowedRoles: ["ceo", "centre_head"],
             },
         ],
     },
     {
-        label: "Data Entry",
+        label: "Tasks",
         icon: "ClipboardEdit",
-        allowedRoles: ["ceo", "centre_head", "teacher", "accountant"],
+        allowedRoles: ["centre_head", "teacher", "accountant"],
         subItems: [
             {
                 label: "Attendance",
-                href: "/data-entry/attendance",
+                href: "/tasks/attendance",
                 icon: "CalendarCheck",
-                allowedRoles: ["ceo", "centre_head", "teacher"],
+                allowedRoles: ["teacher"],
             },
             {
                 label: "Marks Entry",
-                href: "/data-entry/marks",
+                href: "/tasks/marks",
                 icon: "FileCheck",
-                allowedRoles: ["ceo", "centre_head", "teacher"],
+                allowedRoles: ["teacher"],
             },
             {
                 label: "Content Library",
-                href: "/data-entry/content",
+                href: "/tasks/content",
                 icon: "Library",
-                allowedRoles: ["ceo", "centre_head", "teacher"],
+                allowedRoles: ["teacher"],
             },
             {
                 label: "Expenses",
-                href: "/data-entry/expenses",
+                href: "/tasks/expenses",
                 icon: "Receipt",
-                allowedRoles: ["ceo", "centre_head", "accountant"],
+                allowedRoles: ["centre_head", "accountant"],
             },
             {
                 label: "Salaries",
-                href: "/data-entry/salaries",
+                href: "/tasks/salaries",
                 icon: "Banknote",
-                allowedRoles: ["ceo", "centre_head", "accountant"],
+                allowedRoles: ["centre_head", "accountant"],
             },
             {
                 label: "Fee Management",
-                href: "/data-entry/fees",
+                href: "/tasks/fees",
                 icon: "Wallet",
-                allowedRoles: ["ceo", "centre_head", "accountant"],
+                allowedRoles: ["centre_head", "accountant"],
             },
             {
                 label: "Staff Attendance",
-                href: "/data-entry/staff-attendance",
+                href: "/tasks/staff-attendance",
                 icon: "UserCheck",
-                allowedRoles: ["ceo", "centre_head"],
+                allowedRoles: ["centre_head"],
             },
         ],
     },
     {
         label: "Reports",
         icon: "BarChart2",
-        allowedRoles: ["ceo", "centre_head", "teacher"],
+        allowedRoles: ["ceo", "centre_head"],
         subItems: [
             {
                 label: "Student Profile",
                 href: "/reports/student-profile",
                 icon: "UserCheck",
-                allowedRoles: ["ceo", "centre_head", "teacher"],
+                allowedRoles: ["ceo", "centre_head"],
             },
             {
                 label: "Attendance",
                 href: "/reports/attendance",
                 icon: "CalendarCheck",
-                allowedRoles: ["ceo", "centre_head", "teacher"],
+                allowedRoles: ["ceo", "centre_head"],
             },
             {
                 label: "Performance",
                 href: "/reports/performance",
                 icon: "TrendingUp",
-                allowedRoles: ["ceo", "centre_head", "teacher"],
+                allowedRoles: ["ceo", "centre_head"],
             },
         ],
     },

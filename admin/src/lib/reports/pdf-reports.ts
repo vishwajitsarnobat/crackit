@@ -9,6 +9,12 @@
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
+type AutoTableDoc = jsPDF & {
+    lastAutoTable?: {
+        finalY?: number
+    }
+}
+
 function addHeader(doc: jsPDF, title: string, subtitle?: string) {
     doc.setFontSize(18)
     doc.setFont('helvetica', 'bold')
@@ -56,7 +62,6 @@ export function generateStudentProfilePDF(data: {
     enrollments: Array<{
         batch_name: string
         centre_name: string
-        course_name: string
         enrollment_date: string
         status: string
     }>
@@ -86,7 +91,7 @@ export function generateStudentProfilePDF(data: {
 
     // Enrollments
     if (data.enrollments.length > 0) {
-        const finalY = (doc as any).lastAutoTable?.finalY ?? 100
+        const finalY = (doc as AutoTableDoc).lastAutoTable?.finalY ?? 100
 
         doc.setFontSize(12)
         doc.setFont('helvetica', 'bold')
@@ -95,9 +100,9 @@ export function generateStudentProfilePDF(data: {
         autoTable(doc, {
             startY: finalY + 16,
             theme: 'striped',
-            head: [['Batch', 'Centre', 'Course', 'Enrolled', 'Status']],
+            head: [['Batch', 'Centre', 'Enrolled', 'Status']],
             body: data.enrollments.map(e => [
-                e.batch_name, e.centre_name, e.course_name, e.enrollment_date, e.status,
+                e.batch_name, e.centre_name, e.enrollment_date, e.status,
             ]),
             headStyles: { fillColor: [59, 130, 246] },
             styles: { fontSize: 9 },
@@ -111,36 +116,52 @@ export function generateStudentProfilePDF(data: {
 // ── Attendance Report ──
 
 export function generateAttendanceReportPDF(data: {
-    batch_name: string
+    student_name: string
+    student_code: string | null
     date_range: string
-    students: Array<{
-        student_name: string
-        student_code: string
+    summary: {
         total_days: number
         present: number
         absent: number
         percentage: number
+    }
+    records: Array<{
+        date: string
+        batch_name: string
+        status: string
     }>
 }): ArrayBuffer {
     const doc = new jsPDF()
-    addHeader(doc, 'Attendance Report', `${data.batch_name} — ${data.date_range}`)
+    addHeader(doc, 'Attendance Report', `${data.student_name} — ${data.date_range}`)
 
     autoTable(doc, {
         startY: 42,
+        theme: 'grid',
+        head: [['Field', 'Value']],
+        body: [
+            ['Student', data.student_name],
+            ['Student Code', data.student_code || '—'],
+            ['Total Days', String(data.summary.total_days)],
+            ['Present', String(data.summary.present)],
+            ['Absent', String(data.summary.absent)],
+            ['Attendance %', `${data.summary.percentage.toFixed(1)}%`],
+        ],
+        headStyles: { fillColor: [16, 185, 129] },
+        styles: { fontSize: 10 },
+    })
+
+    autoTable(doc, {
+        startY: (doc as AutoTableDoc).lastAutoTable?.finalY ? ((doc as AutoTableDoc).lastAutoTable?.finalY ?? 42) + 10 : 42,
         theme: 'striped',
-        head: [['#', 'Code', 'Student Name', 'Total Days', 'Present', 'Absent', 'Attendance %']],
-        body: data.students.map((s, i) => [
+        head: [['#', 'Date', 'Batch', 'Status']],
+        body: data.records.map((s, i) => [
             i + 1,
-            s.student_code || '—',
-            s.student_name,
-            s.total_days,
-            s.present,
-            s.absent,
-            `${s.percentage.toFixed(1)}%`,
+            s.date,
+            s.batch_name,
+            s.status,
         ]),
         headStyles: { fillColor: [16, 185, 129] },
         styles: { fontSize: 9 },
-        columnStyles: { 6: { halign: 'right' } },
     })
 
     addFooter(doc)
@@ -150,31 +171,56 @@ export function generateAttendanceReportPDF(data: {
 // ── Performance Report ──
 
 export function generatePerformanceReportPDF(data: {
-    batch_name: string
-    exam_name: string
-    total_marks: number
-    students: Array<{
-        student_name: string
-        student_code: string
+    student_name: string
+    student_code: string | null
+    date_range: string
+    summary: {
+        exams_count: number
+        average_percentage: number
+        top_percentage: number
+    }
+    records: Array<{
+        exam_name: string
+        exam_date: string
+        batch_name: string
+        subject: string | null
         marks_obtained: number
+        total_marks: number
         is_absent: boolean
-        percentage: number
+        percentage: number | null
         status: string
     }>
 }): ArrayBuffer {
     const doc = new jsPDF()
-    addHeader(doc, 'Performance Report', `${data.batch_name} — ${data.exam_name} (Total: ${data.total_marks})`)
+    addHeader(doc, 'Performance Report', `${data.student_name} — ${data.date_range}`)
 
     autoTable(doc, {
         startY: 42,
+        theme: 'grid',
+        head: [['Field', 'Value']],
+        body: [
+            ['Student', data.student_name],
+            ['Student Code', data.student_code || '—'],
+            ['Exams Count', String(data.summary.exams_count)],
+            ['Average %', `${data.summary.average_percentage.toFixed(1)}%`],
+            ['Top %', `${data.summary.top_percentage.toFixed(1)}%`],
+        ],
+        headStyles: { fillColor: [139, 92, 246] },
+        styles: { fontSize: 10 },
+    })
+
+    autoTable(doc, {
+        startY: (doc as AutoTableDoc).lastAutoTable?.finalY ? ((doc as AutoTableDoc).lastAutoTable?.finalY ?? 42) + 10 : 42,
         theme: 'striped',
-        head: [['#', 'Code', 'Student Name', 'Marks', 'Percentage', 'Status']],
-        body: data.students.map((s, i) => [
+        head: [['#', 'Date', 'Exam', 'Subject', 'Batch', 'Marks', 'Percentage', 'Status']],
+        body: data.records.map((s, i) => [
             i + 1,
-            s.student_code || '—',
-            s.student_name,
-            s.is_absent ? 'Absent' : `${s.marks_obtained} / ${data.total_marks}`,
-            s.is_absent ? '—' : `${s.percentage.toFixed(1)}%`,
+            s.exam_date,
+            s.exam_name,
+            s.subject || '—',
+            s.batch_name,
+            s.is_absent ? 'Absent' : `${s.marks_obtained} / ${s.total_marks}`,
+            s.percentage === null ? '—' : `${s.percentage.toFixed(1)}%`,
             s.status,
         ]),
         headStyles: { fillColor: [139, 92, 246] },

@@ -19,7 +19,25 @@ export type CurrentUserContext = {
     userId: string;
     isActive: boolean;
     role: AppRole | null;
+    centreIds: string[];
 };
+
+type ProfileRow = {
+    is_active: boolean | null;
+    roles: { role_name: AppRole | null } | { role_name: AppRole | null }[] | null;
+};
+
+type CentreAssignmentRow = {
+    centre_id: string | null;
+};
+
+function resolveRoleName(roles: ProfileRow["roles"]): AppRole | null {
+    if (Array.isArray(roles)) {
+        return roles[0]?.role_name ?? null;
+    }
+
+    return roles?.role_name ?? null;
+}
 
 export async function getCurrentUserContext(): Promise<CurrentUserContext | null> {
     const supabase = await createClient();
@@ -51,17 +69,31 @@ export async function getCurrentUserContext(): Promise<CurrentUserContext | null
             userId: user.id,
             isActive: false,
             role: null,
+            centreIds: [],
         };
     }
 
-    // as any ignores typechecks
-    // role is always defined by design
-    const roleName = (profile.roles as any)?.role_name as AppRole | undefined;
+    const typedProfile = profile as ProfileRow;
+
+    const {data: centreAssignments, error: centreAssignmentsError} = await supabase
+        .from("user_centre_assignments")
+        .select("centre_id")
+        .eq("user_id", user.id)
+        .eq("is_active", true);
+
+    if (centreAssignmentsError) {
+        console.error("Failed to fetch centre assignments.");
+    }
+
+    const centreIds = ((centreAssignments ?? []) as CentreAssignmentRow[])
+        .map((assignment) => assignment.centre_id)
+        .filter((centreId): centreId is string => Boolean(centreId));
 
     return {
         userId: user.id,
         // === to check both value and type (false === 0 will be false)
-        isActive: profile.is_active === true,
-        role: roleName ?? null,
+        isActive: typedProfile.is_active === true,
+        role: resolveRoleName(typedProfile.roles),
+        centreIds,
     };
 }

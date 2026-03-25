@@ -1,124 +1,129 @@
 'use client'
 
-/**
- * Student Profile Report Component
- * UI for searching students by name or code and downloading their complete academic profile.
- * Supports exporting individual student data to PDF or Excel.
- */
+import { useMemo, useState } from 'react'
+import { Download, Search, UserSquare2 } from 'lucide-react'
 
-import { useState, useEffect } from 'react'
-import { toast } from 'sonner'
-import { Download, FileText, FileSpreadsheet, Search } from 'lucide-react'
-
+import { SelectField } from '@/components/shared/form/select-field'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardTitle, CardDescription } from '@/components/ui/card'
+import { Card, CardDescription, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import type { AppRole } from '@/lib/types/entities'
+import { useScopedFilters } from '@/lib/hooks/use-scoped-filters'
+import { useReportStudents } from '@/lib/hooks/use-report-students'
+import { useQueryErrorToast } from '@/lib/hooks/use-query-error-toast'
 
 type StudentResult = {
-    id: string
-    student_code: string | null
-    student_name: string
-    class_level: number
-    is_active: boolean
+  id: string
+  student_code: string | null
+  student_name: string
+  class_level: number
+  is_active: boolean
 }
 
 export function StudentProfileReport({ role }: { role: AppRole }) {
-    const [query, setQuery] = useState('')
-    const [students, setStudents] = useState<StudentResult[]>([])
-    const [loading, setLoading] = useState(false)
-    const [downloading, setDownloading] = useState<string | null>(null)
+  const [centreId, setCentreId] = useState('')
+  const [batchId, setBatchId] = useState('')
+  const [query, setQuery] = useState('')
+  const [downloading, setDownloading] = useState<string | null>(null)
 
-    async function handleSearch() {
-        if (query.length < 2) { toast.error('Enter at least 2 characters'); return }
-        setLoading(true)
-        try {
-            const res = await fetch(`/api/reports/student-profile?search=${encodeURIComponent(query)}`)
-            const json = await res.json()
-            if (res.ok) setStudents(json.students ?? [])
-            else toast.error(json.error || 'Search failed')
-        } finally {
-            setLoading(false)
-        }
-    }
+  const filtersQuery = useScopedFilters()
+  const studentsQuery = useReportStudents<StudentResult>({
+    endpoint: '/api/reports/student-profile',
+    query,
+    centreId,
+    batchId,
+  })
 
-    function downloadReport(studentId: string, format: 'pdf' | 'excel') {
-        setDownloading(`${studentId}-${format}`)
-        const url = `/api/reports/student-profile?student_id=${studentId}&format=${format}`
-        window.open(url, '_blank')
-        setTimeout(() => setDownloading(null), 2000)
-    }
+  useQueryErrorToast(filtersQuery.error, 'Failed to load report filters')
 
-    return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="font-serif text-3xl tracking-tight">Student Profile Report</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Search for a student and download their profile as PDF or Excel.</p>
-            </div>
+  const centres = useMemo(() => filtersQuery.data?.centres ?? [], [filtersQuery.data?.centres])
+  const batches = useMemo(() => filtersQuery.data?.batches ?? [], [filtersQuery.data?.batches])
+  const students = studentsQuery.data?.students ?? []
+  const loading = studentsQuery.isPending || studentsQuery.isFetching
 
-            <div className="flex items-end gap-3">
-                <div className="space-y-2 flex-1 max-w-md">
-                    <Label>Search Student</Label>
-                    <Input
-                        value={query}
-                        onChange={e => setQuery(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                        placeholder="Student name or code…"
-                    />
-                </div>
-                <Button onClick={handleSearch} disabled={loading}>
-                    <Search className="h-4 w-4 mr-2" />{loading ? 'Searching…' : 'Search'}
-                </Button>
-            </div>
+  const visibleBatches = useMemo(
+    () => batches.filter((batch) => !centreId || batch.centre_id === centreId),
+    [batches, centreId],
+  )
 
-            {students.length > 0 && (
-                <Card className="gap-0 py-0 overflow-hidden">
-                    <div className="border-b bg-muted/30 px-5 py-3.5">
-                        <CardTitle className="text-base tracking-tight">Search Results</CardTitle>
-                        <CardDescription className="mt-0.5">{students.length} student(s) found</CardDescription>
-                    </div>
-                    <Table>
-                        <TableHeader className="bg-muted/50">
-                            <TableRow>
-                                <TableHead>#</TableHead>
-                                <TableHead>Code</TableHead>
-                                <TableHead>Student Name</TableHead>
-                                <TableHead className="text-center">Class</TableHead>
-                                <TableHead className="text-center">Status</TableHead>
-                                <TableHead className="text-right pr-4">Download</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {students.map((s, i) => (
-                                <TableRow key={s.id} className="transition-colors hover:bg-muted/30">
-                                    <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                                    <TableCell className="font-mono text-xs">{s.student_code || '—'}</TableCell>
-                                    <TableCell className="font-medium">{s.student_name}</TableCell>
-                                    <TableCell className="text-center">{s.class_level}</TableCell>
-                                    <TableCell className="text-center">
-                                        <Badge variant="outline" className={s.is_active ? 'bg-emerald-500/10 text-emerald-600 border-emerald-200' : 'bg-red-500/10 text-red-600 border-red-200'}>
-                                            {s.is_active ? 'Active' : 'Inactive'}
-                                        </Badge>
-                                    </TableCell>
-                                    <TableCell className="text-right pr-4">
-                                        <div className="flex justify-end gap-1">
-                                            <Button variant="ghost" size="sm" onClick={() => downloadReport(s.id, 'pdf')} disabled={downloading === `${s.id}-pdf`}>
-                                                <FileText className="h-3.5 w-3.5 mr-1" />PDF
-                                            </Button>
-                                            <Button variant="ghost" size="sm" onClick={() => downloadReport(s.id, 'excel')} disabled={downloading === `${s.id}-excel`}>
-                                                <FileSpreadsheet className="h-3.5 w-3.5 mr-1" />Excel
-                                            </Button>
-                                        </div>
-                                    </TableCell>
-                                </TableRow>
-                            ))}
-                        </TableBody>
-                    </Table>
-                </Card>
-            )}
+  useQueryErrorToast(studentsQuery.error, 'Search failed')
+
+  function downloadReport(studentId: string) {
+    setDownloading(studentId)
+    const params = new URLSearchParams({ student_id: studentId, format: 'pdf' })
+    window.open(`/api/reports/student-profile?${params.toString()}`, '_blank')
+    setTimeout(() => setDownloading(null), 1500)
+  }
+
+  return (
+    <div className="space-y-6">
+      <section className="rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+        <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Reports</Badge>
+        <div className="mt-4 max-w-3xl">
+          <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Student Profile Reports</h1>
+          <p className="mt-3 text-base text-slate-300">Browse student cards immediately, narrow them with centre or batch filters, and generate a complete student profile PDF directly from each card.</p>
         </div>
-    )
+      </section>
+
+      <Card className="gap-0 overflow-hidden border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+        <div className="border-b bg-slate-950/35 px-5 py-3.5">
+          <CardTitle className="text-white">Report Filters</CardTitle>
+          <CardDescription className="text-slate-400">Student cards load immediately. CEO can filter by centre and batch, while centre head stays scoped to their centre.</CardDescription>
+        </div>
+        <div className="grid gap-4 px-5 py-5 md:grid-cols-[220px_240px_1fr]">
+          {role === 'ceo' && (
+            <SelectField id="student-profile-report-centre" label="Centre" value={centreId || 'all'} onChange={(value) => { setCentreId(value === 'all' ? '' : value); setBatchId('') }} options={[{ value: 'all', label: 'All centres' }, ...centres.map((centre) => ({ value: centre.id, label: centre.centre_name }))]} placeholder="All centres" />
+          )}
+
+          <SelectField id="student-profile-report-batch" label="Batch" value={batchId || 'all'} onChange={(value) => setBatchId(value === 'all' ? '' : value)} options={[{ value: 'all', label: 'All batches' }, ...visibleBatches.map((batch) => ({ value: batch.id, label: batch.batch_name }))]} placeholder="All batches" />
+
+          <div className="space-y-2">
+            <Label htmlFor="student-report-search">Search Student</Label>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input id="student-report-search" value={query} onChange={(event) => setQuery(event.target.value)} className="pl-9" placeholder="Student name or code" />
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {students.length > 0 ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {students.map((student) => (
+            <Card key={student.id} className="border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+              <div className="flex items-start justify-between gap-4 px-6 pt-6">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-sky-400/15 bg-slate-950/55 text-sky-300">
+                  <UserSquare2 className="h-5 w-5" />
+                </div>
+                <Badge variant="outline" className={student.is_active ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-300' : 'border-red-400/20 bg-red-500/10 text-red-300'}>
+                  {student.is_active ? 'Active' : 'Inactive'}
+                </Badge>
+              </div>
+              <div className="px-6 pb-6 pt-4">
+                <div className="text-xl font-semibold text-white">{student.student_name}</div>
+                <div className="mt-1 font-mono text-xs text-slate-400">{student.student_code || 'No code assigned'}</div>
+                <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/35 p-4 text-sm text-slate-300">
+                  <div className="flex items-center justify-between">
+                    <span>Class level</span>
+                    <span className="font-medium text-white">{student.class_level}</span>
+                  </div>
+                </div>
+                <div className="mt-5 flex justify-end">
+                  <Button onClick={() => downloadReport(student.id)} disabled={downloading === student.id}>
+                    <Download className="mr-2 h-4 w-4" />{downloading === student.id ? 'Preparing...' : 'Download PDF'}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <Card className="border-white/10 bg-slate-900/40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+          <div className="p-10 text-center text-sm text-slate-400">{loading ? 'Loading student report cards...' : 'No student cards match the current filters.'}</div>
+        </Card>
+      )}
+    </div>
+  )
 }

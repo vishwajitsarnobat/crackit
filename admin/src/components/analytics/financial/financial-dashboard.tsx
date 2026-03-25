@@ -1,487 +1,266 @@
 'use client'
 
-/**
- * Financial Dashboard Component
- * Data visualization for revenue (fees collected), expenses, and staff salaries.
- * Features: KPI stat cards, monthly/yearly trend line charts, expense donut charts, and detailed data tables.
- */
-
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { format } from 'date-fns'
-import { ArrowUpRight, ArrowDownRight, Wallet, ReceiptText, Banknote } from 'lucide-react'
-import {
-    Pie, PieChart, Cell,
-    Bar, BarChart, XAxis, YAxis,
-    Line, LineChart, CartesianGrid,
-    ComposedChart
-} from 'recharts'
+import { Banknote, ReceiptText, Search, TrendingDown, Wallet } from 'lucide-react'
+import { Bar, BarChart, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from 'recharts'
 import { toast } from 'sonner'
 
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
-import { Card, CardDescription, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
-
-import { StatCard } from '@/components/analytics/shared/stat-card'
-import { FilterBar, SelectFilter } from '@/components/analytics/shared/filter-bar'
+import { SelectField } from '@/components/shared/form/select-field'
+import { fetchJson } from '@/lib/http/fetch-json'
 import { EmptyState } from '@/components/analytics/shared/empty-state'
+import { FilterBar, SelectFilter, type FilterOption } from '@/components/analytics/shared/filter-bar'
 import { SectionCard } from '@/components/analytics/shared/section-card'
-
-/* ── Types ────────────────────────────────────────── */
-
-type ExpenseRow = {
-    id: string; centre_id: string; month_year: string
-    category: string; amount: number; description: string | null
-}
-type SalaryRow = {
-    id: string; staff_name: string; centre_name: string
-    amount_due: number; amount_paid: number; status: string; payment_date: string | null; month_year: string
-}
-type InvoiceRow = {
-    id: string; student_name: string; student_code: string | null; batch_name: string
-    amount_due: number; amount_paid: number; payment_status: string; month_year: string
-}
-type TrendPoint = { month: string; revenue: number; expenses: number; salaries: number; profit: number }
+import { StatCard } from '@/components/analytics/shared/stat-card'
+import { Badge } from '@/components/ui/badge'
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { useFinancialAnalyticsFilterStore } from '@/lib/stores/financial-analytics-filters'
 
 type FinancialPayload = {
-    viewMode: 'month' | 'year'
-    filters: { centres: { id: string; centre_name: string }[] }
-    summary: {
-        totalRevenue: number; totalExpenses: number; totalSalariesPaid: number
-        netProfit: number; pendingReceivables: number; expectedRevenue: number
-    }
-    visualizations: {
-        expenseBreakdown: { name: string; value: number }[]
-        collectionStatus: Record<string, number>
-    }
-    monthlyTrend: TrendPoint[]
-    tables: { expenses: ExpenseRow[]; salaries: SalaryRow[]; invoices: InvoiceRow[] }
+  filters: {
+    centres: { id: string; centre_name: string }[]
+    batches: { id: string; batch_name: string; centre_id: string }[]
+  }
+  summary: {
+    totalCollected: number
+    pendingDues: number
+    totalExpenses: number
+    salaryPaid: number
+  }
+  expenseBreakdown: { category: string; amount: number }[]
+  yearlyExpenseTrend: { month: string; expense: number; running_total: number }[]
+  salarySummaries: {
+    teacher_id: string
+    teacher_name: string
+    paid_till: string | null
+    pending_months: string[]
+    total_pending_amount: number
+    batch_names: string[]
+  }[]
+  feeSummaries: {
+    student_id: string
+    student_name: string
+    student_code: string | null
+    paid_till: string | null
+    pending_months: string[]
+    total_pending_amount: number
+    batch_names: string[]
+  }[]
 }
 
-/* ── Helpers ───────────────────────────────────────── */
-
-const formatInr = (amount: number) =>
-    new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount)
-
-const fmtCategory = (cat: string) =>
-    cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-
-const monthLabel = (m: string) => {
-    const [, mm] = m.split('-')
-    const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    return names[parseInt(mm) - 1] ?? m
+type AppliedFinancialFilters = {
+  centreId: string
+  month: string
+  year: string
 }
 
-/* ── Charts ───────────────────────────────────────── */
-
-const EXPENSE_COLORS: Record<string, string> = {
-    rent: '#3b82f6', electricity_bill: '#f59e0b', internet_bill: '#10b981',
-    stationery: '#8b5cf6', miscellaneous: '#64748b'
-}
-
-function ExpenseDonutChart({ data }: { data: FinancialPayload['visualizations']['expenseBreakdown'] }) {
-    if (!data.length) return <EmptyState title="No expenses" message="No expenses recorded for this period." />
-    const formattedData = data.map(d => ({ ...d, displayName: fmtCategory(d.name), color: EXPENSE_COLORS[d.name] || '#94a3b8' }))
-    const config = Object.fromEntries(formattedData.map(d => [d.name, { label: d.displayName, color: d.color }])) satisfies ChartConfig
-
-    return (
-        <ChartContainer config={config} className="mx-auto aspect-square max-h-[300px]">
-            <PieChart>
-                <ChartTooltip cursor={false} content={<ChartTooltipContent hideLabel />} />
-                <Pie data={formattedData} dataKey="value" nameKey="displayName" innerRadius={60} strokeWidth={2} paddingAngle={2}>
-                    {formattedData.map((entry, i) => <Cell key={`cell-${i}`} fill={entry.color} />)}
-                </Pie>
-            </PieChart>
-        </ChartContainer>
-    )
-}
-
-const STATUS_COLORS: Record<string, { label: string; color: string }> = {
-    paid: { label: 'Paid', color: '#10b981' }, partial: { label: 'Partial', color: '#f59e0b' },
-    pending: { label: 'Pending', color: '#64748b' }, overdue: { label: 'Overdue', color: '#ef4444' }
-}
-
-function CollectionStatusBar({ data }: { data: FinancialPayload['visualizations']['collectionStatus'] }) {
-    if (Object.keys(data).length === 0) return <EmptyState title="No invoices" message="No invoices issued for this period." />
-    const total = Object.values(data).reduce((s, v) => s + v, 0)
-    const order = ['paid', 'partial', 'pending', 'overdue']
-    const stackedData = [order.reduce((acc, key) => { if (data[key]) acc[key] = data[key]; return acc }, {} as Record<string, number>)]
-    const config = Object.fromEntries(order.map(key => [key, STATUS_COLORS[key]])) satisfies ChartConfig
-
-    return (
-        <div className="flex flex-col h-full justify-center space-y-4">
-            <ChartContainer config={config} className="h-[120px] w-full mt-4">
-                <BarChart data={stackedData} layout="vertical" margin={{ top: 0, right: 0, bottom: 0, left: 0 }}>
-                    <XAxis type="number" hide domain={[0, total]} />
-                    <YAxis type="category" hide />
-                    <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                    {order.map(key => data[key] ? (
-                        <Bar key={key} dataKey={key} stackId="a" fill={`var(--color-${key})`} maxBarSize={40} radius={
-                            key === order.find(k => data[k]) && key === [...order].reverse().find(k => data[k]) ? 4 :
-                                key === order.find(k => data[k]) ? [4, 0, 0, 4] :
-                                    key === [...order].reverse().find(k => data[k]) ? [0, 4, 4, 0] : 0
-                        } />
-                    ) : null)}
-                </BarChart>
-            </ChartContainer>
-            <div className="flex flex-wrap items-center justify-center gap-4 text-sm px-4">
-                {order.map(key => data[key] ? (
-                    <div key={key} className="flex items-center gap-1.5">
-                        <div className="h-3 w-3 rounded-sm" style={{ backgroundColor: STATUS_COLORS[key].color }} />
-                        <span className="text-muted-foreground">{STATUS_COLORS[key].label}</span>
-                        <span className="font-medium">({data[key]})</span>
-                    </div>
-                ) : null)}
-            </div>
-        </div>
-    )
-}
-
-/* ── Monthly Trend (Yearly view) ─────────────────── */
-
-const trendConfig = {
-    revenue: { label: 'Revenue', color: '#10b981' },
-    expenses: { label: 'Expenses', color: '#f59e0b' },
-    salaries: { label: 'Salaries', color: '#3b82f6' },
-    profit: { label: 'Net Profit', color: '#8b5cf6' },
+const chartConfig = {
+  expense: { label: 'Expense', color: '#fb7185' },
+  running_total: { label: 'Running total', color: '#38bdf8' },
 } satisfies ChartConfig
 
-function MonthlyTrendChart({ data }: { data: TrendPoint[] }) {
-    if (!data.length) return <EmptyState title="No data" message="No monthly data available for this year." />
-    const chartData = data.map(d => ({ ...d, monthLabel: monthLabel(d.month) }))
-
-    return (
-        <ChartContainer config={trendConfig} className="h-[300px] w-full">
-            <LineChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis dataKey="monthLabel" tickLine={false} axisLine={false} className="text-xs" />
-                <YAxis tickLine={false} axisLine={false} className="text-xs" tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Line type="monotone" dataKey="revenue" stroke="var(--color-revenue)" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="expenses" stroke="var(--color-expenses)" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="salaries" stroke="var(--color-salaries)" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="profit" stroke="var(--color-profit)" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-            </LineChart>
-        </ChartContainer>
-    )
+function prettyMonth(value: string) {
+  return format(new Date(`${value}-01T00:00:00`), 'MMM')
 }
 
-/* ── Net Profit Bar + Line (Yearly view) ─────────── */
-
-const profitConfig = {
-    profit: { label: 'Net Profit', color: '#8b5cf6' },
-} satisfies ChartConfig
-
-function ProfitBarLineChart({ data }: { data: TrendPoint[] }) {
-    if (!data.length) return <EmptyState title="No data" message="No monthly data available for this year." />
-    const chartData = data.map(d => ({
-        monthLabel: monthLabel(d.month),
-        profit: d.profit,
-        fill: d.profit >= 0 ? '#10b981' : '#ef4444',
-    }))
-
-    return (
-        <ChartContainer config={profitConfig} className="h-[300px] w-full">
-            <ComposedChart data={chartData} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis dataKey="monthLabel" tickLine={false} axisLine={false} className="text-xs" />
-                <YAxis tickLine={false} axisLine={false} className="text-xs" tickFormatter={(v: number) => `₹${(v / 1000).toFixed(0)}k`} />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="profit" radius={[4, 4, 0, 0]} maxBarSize={40}>
-                    {chartData.map((entry, i) => (
-                        <Cell key={`bar-${i}`} fill={entry.fill} />
-                    ))}
-                </Bar>
-                <Line type="monotone" dataKey="profit" stroke="#8b5cf6" strokeWidth={2.5} dot={{ r: 4, fill: '#8b5cf6' }} tooltipType="none" legendType="none" />
-            </ComposedChart>
-        </ChartContainer>
-    )
+function titleCase(value: string) {
+  return value.split('_').map((part) => part[0].toUpperCase() + part.slice(1)).join(' ')
 }
 
-/* ── Status Badge ────────────────────────────────── */
-
-function StatusBadge({ status }: { status: string }) {
-    const styles: Record<string, string> = {
-        paid: 'text-emerald-500 border-emerald-200 bg-emerald-50 dark:bg-emerald-950/20',
-        partial: 'text-amber-500 border-amber-200 bg-amber-50 dark:bg-amber-950/20',
-        overdue: 'text-rose-500 border-rose-200 bg-rose-50 dark:bg-rose-950/20',
-        pending: 'text-slate-500 border-slate-200 bg-slate-50 dark:bg-slate-950/20',
-        unpaid: 'text-rose-500 border-rose-200 bg-rose-50 dark:bg-rose-950/20',
-    }
-    return <Badge variant="outline" className={styles[status] ?? 'text-slate-500'}>{status.charAt(0).toUpperCase() + status.slice(1)}</Badge>
+function buildFinancialQueryString(filters: AppliedFinancialFilters) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) params.set(key, value)
+  }
+  return params.toString()
 }
-
-/* ── Data Tables ──────────────────────────────────── */
-
-function DetailedTabs({ data }: { data: FinancialPayload['tables'] }) {
-    return (
-        <Tabs defaultValue="invoices" className="w-full">
-            <div className="px-5 py-3">
-                <TabsList>
-                    <TabsTrigger value="invoices">Fee Collections</TabsTrigger>
-                    <TabsTrigger value="expenses">Centre Expenses</TabsTrigger>
-                    <TabsTrigger value="salaries">Staff Salaries</TabsTrigger>
-                </TabsList>
-            </div>
-
-            {/* Invoices */}
-            <TabsContent value="invoices" className="p-0 m-0 border-none outline-none">
-                {data.invoices.length === 0 ? <div className="p-5"><EmptyState title="No invoices" message="No student invoices found for this period." /></div> : (
-                    <div className="overflow-hidden rounded-lg border m-4">
-                        <ScrollArea className="w-full">
-                            <Table className="min-w-[800px]">
-                                <TableHeader>
-                                    <TableRow className="bg-muted/40">
-                                        <TableHead className="w-10">#</TableHead>
-                                        <TableHead>Student</TableHead>
-                                        <TableHead>Batch</TableHead>
-                                        <TableHead>Month</TableHead>
-                                        <TableHead className="text-right">Amount Due</TableHead>
-                                        <TableHead className="text-right">Amount Paid</TableHead>
-                                        <TableHead className="text-center">Status</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {data.invoices.map((inv, i) => (
-                                        <TableRow key={inv.id} className={`transition-colors hover:bg-muted/30 ${i % 2 === 0 ? 'bg-background' : 'bg-muted/10'}`}>
-                                            <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                                            <TableCell>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                                                        {inv.student_name.slice(0, 2).toUpperCase()}
-                                                    </div>
-                                                    <div>
-                                                        <p className="font-medium leading-none">{inv.student_name}</p>
-                                                        {inv.student_code && <p className="text-xs text-muted-foreground mt-1">{inv.student_code}</p>}
-                                                    </div>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>{inv.batch_name}</TableCell>
-                                            <TableCell className="text-muted-foreground">{monthLabel(inv.month_year)}</TableCell>
-                                            <TableCell className="text-right tabular-nums">{formatInr(Number(inv.amount_due))}</TableCell>
-                                            <TableCell className="text-right tabular-nums font-medium">{formatInr(Number(inv.amount_paid))}</TableCell>
-                                            <TableCell className="text-center"><StatusBadge status={inv.payment_status} /></TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                            <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
-                    </div>
-                )}
-            </TabsContent>
-
-            {/* Expenses */}
-            <TabsContent value="expenses" className="p-0 m-0 border-none outline-none">
-                {data.expenses.length === 0 ? <div className="p-5"><EmptyState title="No expenses" message="No centre expenses recorded for this period." /></div> : (
-                    <div className="overflow-hidden rounded-lg border m-4">
-                        <ScrollArea className="w-full">
-                            <Table className="min-w-[600px]">
-                                <TableHeader>
-                                    <TableRow className="bg-muted/40">
-                                        <TableHead className="w-10">#</TableHead>
-                                        <TableHead>Category</TableHead>
-                                        <TableHead>Description</TableHead>
-                                        <TableHead>Month</TableHead>
-                                        <TableHead className="text-right">Amount</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {data.expenses.map((exp, i) => (
-                                        <TableRow key={exp.id || i} className={`transition-colors hover:bg-muted/30 ${i % 2 === 0 ? 'bg-background' : 'bg-muted/10'}`}>
-                                            <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                                            <TableCell className="font-medium">{fmtCategory(exp.category)}</TableCell>
-                                            <TableCell className="text-muted-foreground">{exp.description || '-'}</TableCell>
-                                            <TableCell className="text-muted-foreground">{monthLabel(exp.month_year)}</TableCell>
-                                            <TableCell className="text-right tabular-nums font-medium">{formatInr(Number(exp.amount))}</TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                            <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
-                    </div>
-                )}
-            </TabsContent>
-
-            {/* Salaries */}
-            <TabsContent value="salaries" className="p-0 m-0 border-none outline-none">
-                {data.salaries.length === 0 ? <div className="p-5"><EmptyState title="No salaries" message="No staff salaries recorded for this period." /></div> : (
-                    <div className="overflow-hidden rounded-lg border m-4">
-                        <ScrollArea className="w-full">
-                            <Table className="min-w-[800px]">
-                                <TableHeader>
-                                    <TableRow className="bg-muted/40">
-                                        <TableHead className="w-10">#</TableHead>
-                                        <TableHead>Staff Name</TableHead>
-                                        <TableHead>Centre</TableHead>
-                                        <TableHead>Month</TableHead>
-                                        <TableHead className="text-right">Amount Due</TableHead>
-                                        <TableHead className="text-right">Amount Paid</TableHead>
-                                        <TableHead className="text-center">Status</TableHead>
-                                    </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                    {data.salaries.map((sal, i) => (
-                                        <TableRow key={sal.id || i} className={`transition-colors hover:bg-muted/30 ${i % 2 === 0 ? 'bg-background' : 'bg-muted/10'}`}>
-                                            <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                                            <TableCell>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                                                        {sal.staff_name.slice(0, 2).toUpperCase()}
-                                                    </div>
-                                                    <p className="font-medium">{sal.staff_name}</p>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell className="text-muted-foreground">{sal.centre_name}</TableCell>
-                                            <TableCell className="text-muted-foreground">{monthLabel(sal.month_year)}</TableCell>
-                                            <TableCell className="text-right tabular-nums">{formatInr(Number(sal.amount_due))}</TableCell>
-                                            <TableCell className="text-right tabular-nums font-medium">{formatInr(Number(sal.amount_paid))}</TableCell>
-                                            <TableCell className="text-center"><StatusBadge status={sal.status} /></TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-                            <ScrollBar orientation="horizontal" />
-                        </ScrollArea>
-                    </div>
-                )}
-            </TabsContent>
-        </Tabs>
-    )
-}
-
-/* ── Main Dashboard ───────────────────────────────── */
 
 export function FinancialDashboard() {
-    const [data, setData] = useState<FinancialPayload | null>(null)
-    const [loading, setLoading] = useState(true)
-    const [centreId, setCentreId] = useState('')
-    const [viewMode, setViewMode] = useState<'month' | 'year'>('month')
-    const [monthOffset, setMonthOffset] = useState(0)
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear().toString())
+  const {
+    centreId,
+    month,
+    year,
+    salarySearch,
+    salaryBatchFilter,
+    feeSearch,
+    feeBatchFilter,
+    setFilter,
+  } = useFinancialAnalyticsFilterStore()
+  const [appliedFilters, setAppliedFilters] = useState<AppliedFinancialFilters>({
+    centreId: '',
+    month: format(new Date(), 'yyyy-MM'),
+    year: String(new Date().getFullYear()),
+  })
 
-    async function loadData() {
-        setLoading(true)
-        const params = new URLSearchParams()
-        if (centreId) params.set('centreId', centreId)
+  const { data, error, isPending, isFetching } = useQuery({
+    queryKey: ['analytics-financials', appliedFilters],
+    queryFn: async () => {
+      const payload = await fetchJson<FinancialPayload>(`/api/analytics/financials?${buildFinancialQueryString(appliedFilters)}`, {
+        cache: 'no-store',
+        errorPrefix: 'Load financial analytics',
+      })
+      return payload
+    },
+    staleTime: 30_000,
+    retry: false,
+  })
 
-        if (viewMode === 'year') {
-            params.set('year', selectedYear)
-        } else {
-            const targetDate = new Date()
-            targetDate.setMonth(targetDate.getMonth() + monthOffset)
-            params.set('month', format(targetDate, 'yyyy-MM'))
-        }
+  const loading = isPending || isFetching
 
-        const res = await fetch(`/api/analytics/financials?${params}`, { cache: 'no-store' })
-        const payload = await res.json().catch(() => null)
-        setLoading(false)
-
-        if (!res.ok || !payload) {
-            toast.error(payload?.error ?? 'Failed to load financial data.')
-            return
-        }
-        setData(payload)
+  useEffect(() => {
+    if (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load financial analytics')
     }
+  }, [error])
 
-    useEffect(() => { loadData() }, [centreId, monthOffset, viewMode, selectedYear])
+  function applyFilters(next?: Partial<AppliedFinancialFilters>) {
+    setAppliedFilters((current) => ({
+      centreId,
+      month,
+      year,
+      ...current,
+      ...next,
+    }))
+  }
 
-    const centreOpts = [{ value: 'all', label: 'All centres' }, ...(data?.filters.centres.map(c => ({ value: c.id, label: c.centre_name })) ?? [])]
+  const centreOptions: FilterOption[] = [{ value: 'all', label: 'All centres' }, ...(data?.filters.centres.map((centre) => ({ value: centre.id, label: centre.centre_name })) ?? [])]
+  const batchOptions: FilterOption[] = [{ value: 'all', label: 'All batches' }, ...(data?.filters.batches.map((batch) => ({ value: batch.batch_name, label: batch.batch_name })) ?? [])]
 
-    const monthOpts = Array.from({ length: 12 }).map((_, i) => {
-        const d = new Date(); d.setMonth(d.getMonth() - i)
-        return { value: (-i).toString(), label: format(d, 'MMMM yyyy') }
-    })
+  const filteredSalarySummaries = useMemo(() => (data?.salarySummaries ?? []).filter((row) => {
+    const query = salarySearch.trim().toLowerCase()
+    const matchesSearch = !query || row.teacher_name.toLowerCase().includes(query)
+    const matchesBatch = salaryBatchFilter === 'all' || row.batch_names.includes(salaryBatchFilter)
+    return matchesSearch && matchesBatch
+  }), [data?.salarySummaries, salaryBatchFilter, salarySearch])
 
-    const yearOpts = Array.from({ length: 5 }).map((_, i) => {
-        const y = (new Date().getFullYear() - i).toString()
-        return { value: y, label: y }
-    })
+  const filteredFeeSummaries = useMemo(() => (data?.feeSummaries ?? []).filter((row) => {
+    const query = feeSearch.trim().toLowerCase()
+    const matchesSearch = !query || row.student_name.toLowerCase().includes(query) || (row.student_code ?? '').toLowerCase().includes(query)
+    const matchesBatch = feeBatchFilter === 'all' || row.batch_names.includes(feeBatchFilter)
+    return matchesSearch && matchesBatch
+  }), [data?.feeSummaries, feeBatchFilter, feeSearch])
 
-    const summary = data?.summary ?? {
-        totalRevenue: 0, totalExpenses: 0, totalSalariesPaid: 0,
-        netProfit: 0, pendingReceivables: 0, expectedRevenue: 0
-    }
-
-    return (
-        <div className="space-y-6 animate-fade-in">
-            {/* Header */}
-            <div>
-                <h1 className="font-serif text-3xl tracking-tight">Financial Overview</h1>
-                <p className="mt-1 text-sm text-muted-foreground">Monitor revenue, expenses, and overall centre profitability.</p>
-            </div>
-
-            {/* Filters */}
-            <FilterBar description="Filter by centre and time period.">
-                <SelectFilter id="f-centre" label="Centre" value={centreId || 'all'} options={centreOpts} onChange={v => setCentreId(v === 'all' ? '' : v)} />
-                <SelectFilter id="f-view" label="View" value={viewMode} options={[{ value: 'month', label: 'Monthly' }, { value: 'year', label: 'Yearly' }]} onChange={v => setViewMode(v as 'month' | 'year')} />
-                {viewMode === 'month' ? (
-                    <SelectFilter id="f-month" label="Month" value={monthOffset.toString()} options={monthOpts} onChange={v => setMonthOffset(parseInt(v))} />
-                ) : (
-                    <SelectFilter id="f-year" label="Year" value={selectedYear} options={yearOpts} onChange={setSelectedYear} />
-                )}
-            </FilterBar>
-
-            {/* KPI Cards */}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <StatCard
-                    label="Net Profit"
-                    value={formatInr(summary.netProfit)}
-                    icon={summary.netProfit >= 0 ? <ArrowUpRight className="h-5 w-5" /> : <ArrowDownRight className="h-5 w-5" />}
-                    accent={summary.netProfit >= 0 ? 'success' : 'danger'}
-                />
-                <StatCard
-                    label="Revenue (Fees Collected)"
-                    value={formatInr(summary.totalRevenue)}
-                    icon={<Wallet className="h-5 w-5" />}
-                />
-                <StatCard
-                    label="Total Outflow"
-                    value={formatInr(summary.totalExpenses + summary.totalSalariesPaid)}
-                    icon={<Banknote className="h-5 w-5" />}
-                    accent={summary.totalExpenses + summary.totalSalariesPaid > 0 ? 'danger' : 'default'}
-                />
-                <StatCard
-                    label="Pending Receivables"
-                    value={formatInr(summary.pendingReceivables)}
-                    icon={<ReceiptText className="h-5 w-5" />}
-                    accent={summary.pendingReceivables > 0 ? 'warning' : 'default'}
-                />
-            </div>
-
-            {/* Monthly Trend + Profit Chart (yearly view only) */}
-            {viewMode === 'year' && (
-                <>
-                    <SectionCard title="Monthly Trend" description="Month-by-month revenue, expenses, salaries, and net profit.">
-                        <MonthlyTrendChart data={data?.monthlyTrend ?? []} />
-                    </SectionCard>
-                    <SectionCard title="Net Profit" description="Monthly profit/loss with trend line — green for profit, red for loss.">
-                        <ProfitBarLineChart data={data?.monthlyTrend ?? []} />
-                    </SectionCard>
-                </>
-            )}
-
-            {/* Visualizations */}
-            <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-                <SectionCard title="Expense Breakdown" description={`Distribution of centre expenses by category.`}>
-                    <ExpenseDonutChart data={data?.visualizations?.expenseBreakdown ?? []} />
-                </SectionCard>
-                <SectionCard title="Fee Collection Status" description={`Breakdown of student invoices by payment status.`}>
-                    <CollectionStatusBar data={data?.visualizations?.collectionStatus ?? {}} />
-                </SectionCard>
-            </div>
-
-            {/* Data Tables */}
-            <Card className="gap-0 py-0 overflow-hidden">
-                <div className="border-b bg-muted/30 px-5 py-3.5">
-                    <CardTitle className="text-base tracking-tight">Detailed Reports</CardTitle>
-                    <CardDescription className="mt-0.5">Line-by-line financial records for the selected period.</CardDescription>
-                </div>
-                <DetailedTabs data={data?.tables ?? { expenses: [], salaries: [], invoices: [] }} />
-            </Card>
+  return (
+    <div className="space-y-6">
+      <section className="relative overflow-hidden rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_30%),radial-gradient(circle_at_right,rgba(34,197,94,0.12),transparent_26%),linear-gradient(180deg,rgba(15,23,42,0.52),rgba(2,6,23,0.86))]" />
+        <div className="relative space-y-4">
+          <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Analytics</Badge>
+          <div className="max-w-3xl">
+            <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Financial Overview</h1>
+            <p className="mt-3 text-base text-slate-300">Track centre liquidity, expense structure, teacher salary status, and student fee status with a cleaner finance-first dashboard.</p>
+          </div>
         </div>
-    )
+      </section>
+
+      <FilterBar title="Financial Filters" description="Use month for KPI and summary sections, and year for the yearly expense trend." gridClass="md:grid-cols-3" actions={null}>
+        {data?.filters.centres && data.filters.centres.length > 1 && <SelectFilter id="financial-centre" label="Centre" value={centreId || 'all'} options={centreOptions} onChange={(value) => { const next = value === 'all' ? '' : value; setFilter('centreId', next); applyFilters({ centreId: next }) }} />}
+        <div className="space-y-2"><Label htmlFor="financial-month">Month</Label><Input id="financial-month" type="month" value={month} onChange={(event) => { const next = event.target.value; setFilter('month', next); applyFilters({ month: next }) }} /></div>
+        <div className="space-y-2"><Label htmlFor="financial-year">Year</Label><Input id="financial-year" type="number" min="2000" max="2100" value={year} onChange={(event) => { const next = event.target.value; setFilter('year', next); applyFilters({ year: next }) }} /></div>
+      </FilterBar>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Collected This Month" value={`Rs ${(data?.summary.totalCollected ?? 0).toLocaleString('en-IN')}`} icon={<Wallet className="h-5 w-5" />} accent="success" />
+        <StatCard label="Pending Dues" value={`Rs ${(data?.summary.pendingDues ?? 0).toLocaleString('en-IN')}`} icon={<ReceiptText className="h-5 w-5" />} accent="warning" />
+        <StatCard label="Total Expenses" value={`Rs ${(data?.summary.totalExpenses ?? 0).toLocaleString('en-IN')}`} icon={<TrendingDown className="h-5 w-5" />} accent="danger" />
+        <StatCard label="Salary Paid" value={`Rs ${(data?.summary.salaryPaid ?? 0).toLocaleString('en-IN')}`} icon={<Banknote className="h-5 w-5" />} />
+      </div>
+
+      {loading ? (
+        <div className="h-40 animate-pulse rounded-[28px] border border-white/10 bg-slate-900/35" />
+      ) : (
+      <div className="grid gap-4 lg:grid-cols-[1fr_1.2fr]">
+        <SectionCard title="Expense Breakdown" description="Sorted by contribution for the selected month. This is the only category-level expense chart in the finance view.">
+          {!data?.expenseBreakdown.length ? (
+            <EmptyState title="No expense breakdown" message="No expense entries were recorded for the selected month." />
+          ) : (
+            <ChartContainer config={chartConfig} className="h-[320px] w-full aspect-auto">
+              <BarChart data={data.expenseBreakdown.map((row) => ({ name: titleCase(row.category), amount: row.amount }))} layout="vertical" margin={{ left: 24 }}>
+                <CartesianGrid horizontal={false} strokeDasharray="3 3" />
+                <XAxis type="number" tickLine={false} axisLine={false} />
+                <YAxis type="category" dataKey="name" tickLine={false} axisLine={false} width={120} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                <ChartLegend content={<ChartLegendContent />} />
+                <Bar dataKey="amount" fill="var(--color-expense)" radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ChartContainer>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Yearly Expense Tracking" description="Month-wise expense bars with a running-total line for the selected year.">
+          {!data?.yearlyExpenseTrend.length ? (
+            <EmptyState title="No yearly expense trend" message="No expense records exist for the selected year." />
+          ) : (
+            <ChartContainer config={chartConfig} className="h-[320px] w-full aspect-auto">
+              <ComposedChart data={data.yearlyExpenseTrend.map((row) => ({ ...row, label: prettyMonth(row.month) }))}>
+                <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                <YAxis yAxisId="expense" tickLine={false} axisLine={false} />
+                <YAxis yAxisId="running" orientation="right" tickLine={false} axisLine={false} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                <ChartLegend content={<ChartLegendContent />} />
+                <Bar yAxisId="expense" dataKey="expense" fill="var(--color-expense)" radius={[6, 6, 0, 0]} />
+                <Line yAxisId="running" type="monotone" dataKey="running_total" stroke="var(--color-running_total)" strokeWidth={3} dot={{ r: 4 }} />
+              </ComposedChart>
+            </ChartContainer>
+          )}
+        </SectionCard>
+      </div>
+      )}
+
+      <SectionCard title="Staff Salaries" description="Search or filter teachers and review paid-till month, pending months, and total pending amount. No extra charts are shown here to keep the page clean.">
+        <div className="mb-4 grid gap-4 md:grid-cols-[1fr_240px]">
+          <div className="space-y-2"><Label htmlFor="salary-search">Search teacher</Label><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input id="salary-search" value={salarySearch} onChange={(event) => setFilter('salarySearch', event.target.value)} className="pl-9" placeholder="Search teacher name" /></div></div>
+          <SelectField id="financial-salary-batch-filter" label="Batch filter" value={salaryBatchFilter} onChange={(value) => setFilter('salaryBatchFilter', value)} options={batchOptions} />
+        </div>
+
+        {!filteredSalarySummaries.length ? (
+          <EmptyState title="No salary summaries" message="No teacher salary summaries match the current filters." />
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filteredSalarySummaries.map((teacher) => (
+              <div key={teacher.teacher_id} className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+                <div className="font-semibold text-white">{teacher.teacher_name}</div>
+                <div className="mt-2 text-sm text-slate-400">Paid salary till month</div>
+                <div className="font-medium text-white">{teacher.paid_till ? teacher.paid_till.slice(0, 7) : 'Not paid yet'}</div>
+                <div className="mt-3 text-sm text-slate-400">Pending for months</div>
+                <div className="font-medium text-white">{teacher.pending_months.length ? teacher.pending_months.map((monthKey) => monthKey.slice(0, 7)).join(', ') : 'None'}</div>
+                <div className="mt-3 text-sm text-slate-400">Total pending amount</div>
+                <div className="font-medium text-white">Rs {teacher.total_pending_amount.toLocaleString('en-IN')}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Student Fees" description="Search or filter students and review paid-till month, pending months, and total pending amount. This section stays list-based for clarity.">
+        <div className="mb-4 grid gap-4 md:grid-cols-[1fr_240px]">
+          <div className="space-y-2"><Label htmlFor="fee-search">Search student</Label><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><Input id="fee-search" value={feeSearch} onChange={(event) => setFilter('feeSearch', event.target.value)} className="pl-9" placeholder="Search student name or code" /></div></div>
+          <SelectField id="financial-fee-batch-filter" label="Batch filter" value={feeBatchFilter} onChange={(value) => setFilter('feeBatchFilter', value)} options={batchOptions} />
+        </div>
+
+        {!filteredFeeSummaries.length ? (
+          <EmptyState title="No fee summaries" message="No student fee summaries match the current filters." />
+        ) : (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {filteredFeeSummaries.map((student) => (
+              <div key={student.student_id} className="rounded-2xl border border-white/10 bg-slate-950/45 p-4">
+                <div className="font-semibold text-white">{student.student_name}</div>
+                <div className="mt-1 font-mono text-xs text-slate-500">{student.student_code || '-'}</div>
+                <div className="mt-2 text-sm text-slate-400">Paid fees till month</div>
+                <div className="font-medium text-white">{student.paid_till ? student.paid_till.slice(0, 7) : 'Not paid yet'}</div>
+                <div className="mt-3 text-sm text-slate-400">Pending for months</div>
+                <div className="font-medium text-white">{student.pending_months.length ? student.pending_months.map((monthKey) => monthKey.slice(0, 7)).join(', ') : 'None'}</div>
+                <div className="mt-3 text-sm text-slate-400">Total pending amount</div>
+                <div className="font-medium text-white">Rs {student.total_pending_amount.toLocaleString('en-IN')}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  )
 }

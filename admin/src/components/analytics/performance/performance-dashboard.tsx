@@ -1,330 +1,254 @@
 'use client'
 
-/**
- * Performance Dashboard Component
- * Data visualization for exam results and student academic performance.
- * Features: Line charts for score trends, rank/consistency comparisons, and subject-wise radar charts.
- */
-
 import { useEffect, useMemo, useState } from 'react'
-import { format } from 'date-fns'
-import { BarChart3, BookOpen, TrendingUp, UserX, Trophy } from 'lucide-react'
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, XAxis, YAxis, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts'
+import { useQuery } from '@tanstack/react-query'
+import { BookOpen, Medal, Percent, Search, TrendingUp, UserRoundCheck } from 'lucide-react'
+import { Bar, BarChart, CartesianGrid, ComposedChart, Line, Radar, RadarChart, PolarAngleAxis, PolarGrid, PolarRadiusAxis, XAxis, YAxis } from 'recharts'
 import { toast } from 'sonner'
+import { format } from 'date-fns';
 
+import { fetchJson } from '@/lib/http/fetch-json'
+import { EmptyState } from '@/components/analytics/shared/empty-state'
+import { FilterBar, SelectFilter, type FilterOption } from '@/components/analytics/shared/filter-bar'
+import { SectionCard } from '@/components/analytics/shared/section-card'
+import { StatCard } from '@/components/analytics/shared/stat-card'
+import { DatePickerField } from '@/components/shared/form/date-picker-field'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent, type ChartConfig } from '@/components/ui/chart'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-
-import { StatCard } from '@/components/analytics/shared/stat-card'
-import { FilterBar, SelectFilter, DateFilter, type FilterOption } from '@/components/analytics/shared/filter-bar'
-import { EmptyState } from '@/components/analytics/shared/empty-state'
-import { SectionCard } from '@/components/analytics/shared/section-card'
-
-/* ── Types ────────────────────────────────────────── */
-
-type SubjectBreakdown = { subject: string; average: number; top: number; examCount: number }
 
 type PerformancePayload = {
   filters: {
-    centres: { id: string; centre_name: string }[]
     batches: { id: string; batch_name: string; centre_id: string }[]
-    students: { id: string; full_name: string | null; student_code: string | null; display_name?: string }[]
+    students: { id: string; display_name: string; student_code: string | null }[]
     subjects: string[]
-    selectedStudentId: string | null
   }
   summary: { examsCount: number; marksEntries: number; absentCount: number; averagePercentage: number | null; topPercentage: number | null }
-  trendMode: 'batch' | 'student'
-  trend: { exam_id: string; exam_name: string; exam_date: string; percentage: number | null }[]
-  batchComparison: { student_id: string; student_name: string | null; average_percentage: number; exam_count: number; consistency_score: number; score_deviation: number }[]
-  subjectBreakdown: SubjectBreakdown[]
-  marks: { exam_id: string; exam_name: string; exam_date: string; batch_name: string; student_id: string; student_name: string | null; student_code: string | null; marks_obtained: number; total_marks: number; is_absent: boolean; percentage: number | null; subject: string | null }[]
+  overallTrend: { exam_name: string; exam_date: string; average_percentage: number | null }[]
+  subjectTrend: { subject: string; average_percentage: number; top_percentage: number }[]
+  comparison: { student_id: string; student_name: string; average_percentage: number; consistency_score: number; exam_count: number; score_deviation: number; rank_position: number; consistency_rank: number | null }[]
+  marks: { exam_id: string; exam_name: string; exam_date: string; batch_name: string; student_id: string; student_name: string; student_code: string | null; marks_obtained: number; total_marks: number; is_absent: boolean; percentage: number | null; subject: string | null }[]
 }
 
-/* ── Helpers ───────────────────────────────────────── */
+const chartConfig = {
+  average: { label: 'Average %', color: '#38bdf8' },
+  top: { label: 'Top %', color: '#34d399' },
+  consistency: { label: 'Consistency', color: '#a78bfa' },
+} satisfies ChartConfig
 
-const fmt = (v: number | null) => v === null ? '-' : `${v.toFixed(1)}%`
+const fmt = (value: number | null) => value === null ? '-' : `${value.toFixed(1)}%`
 
-function fmtDate(d: string) {
-  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+type AppliedPerformanceFilters = {
+  batchId: string
+  studentId: string
+  subject: string
+  from: string
+  to: string
 }
 
-function tone(score: number) {
-  if (score >= 75) return { bar: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400', label: 'Strong' }
-  if (score >= 50) return { bar: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400', label: 'Moderate' }
-  return { bar: 'bg-rose-500', text: 'text-rose-600 dark:text-rose-400', label: 'Needs attention' }
+function buildPerformanceQueryString(filters: AppliedPerformanceFilters) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) params.set(key, value)
+  }
+  return params.toString()
 }
 
-/* ── Trend Chart ──────────────────────────────────── */
-
-function TrendChart({ points }: { points: PerformancePayload['trend'] }) {
-  type DotProps = { cx?: number; cy?: number; index?: number }
-
-  const plotted = useMemo(() =>
-    points.filter(p => p.percentage !== null).map(p => {
-      const words = p.exam_name.trim().split(/\s+/)
-      const short = words.length <= 2 ? p.exam_name : `${words[0]} ${words[1]}`
-      return { exam: p.exam_name, examDate: fmtDate(p.exam_date), xLabel: `${short} • ${format(new Date(p.exam_date), 'dd MMM')}`, percentage: Number(p.percentage) }
-    }), [points])
-
-  if (plotted.length < 2) return <EmptyState title="Not enough data" message="At least 2 exams needed for a trend chart." />
-
-  const UP = '#16a34a', DOWN = '#dc2626', FIRST = '#2563eb'
-  const chartData = plotted.map(p => ({ exam: p.exam, examDate: p.examDate, xLabel: p.xLabel, percentage: p.percentage }))
-  const segments = plotted.slice(1).map((p, i) => ({ from: plotted[i], to: p, color: p.percentage >= plotted[i].percentage ? UP : DOWN }))
-  const config = { percentage: { label: 'Percentage', color: 'var(--primary)' } } satisfies ChartConfig
-
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span>Y-axis: Score %</span><span>X-axis: Exam + Date</span>
-      </div>
-      <ScrollArea className="w-full pb-1">
-        <div style={{ width: `${chartData.length * 160}px` }}>
-          <ChartContainer config={config} className="h-[300px] w-full aspect-auto">
-            <LineChart data={chartData} margin={{ left: 28, right: 36, top: 12, bottom: 8 }}>
-              <CartesianGrid vertical={false} strokeDasharray="3 3" />
-              <ReferenceArea y1={0} y2={50} fill="hsl(var(--destructive))" fillOpacity={0.04} />
-              <ReferenceArea y1={50} y2={75} fill="hsl(var(--chart-4))" fillOpacity={0.05} />
-              <ReferenceArea y1={75} y2={100} fill="hsl(var(--chart-2))" fillOpacity={0.05} />
-              <XAxis dataKey="xLabel" tickLine={false} axisLine={false} tickMargin={10} interval={0} padding={{ left: 24, right: 24 }} />
-              <YAxis domain={[0, 100]} tickLine={false} axisLine={false} width={34} />
-              <ChartTooltip cursor={false} content={
-                <ChartTooltipContent
-                  labelFormatter={(_, payload) => {
-                    const row = payload?.[0]?.payload as { exam?: string; examDate?: string } | undefined
-                    return row?.exam ? `${row.exam} (${row.examDate ?? ''})` : ''
-                  }}
-                  formatter={(value, _, item) => {
-                    const idx = item?.payload ? chartData.findIndex(r => r.exam === item.payload.exam) : -1
-                    if (idx <= 0) return [fmt(Number(value)), 'Score']
-                    const prev = Number(chartData[idx - 1].percentage)
-                    const delta = Number(value) - prev
-                    return [`${fmt(Number(value))} (${delta >= 0 ? '+' : ''}${delta.toFixed(1)}%)`, 'Score']
-                  }}
-                />
-              } />
-              {segments.map((s, i) => (
-                <ReferenceLine key={`seg-${i}`} segment={[{ x: s.from.xLabel, y: s.from.percentage }, { x: s.to.xLabel, y: s.to.percentage }]} stroke={s.color} strokeWidth={3} ifOverflow="visible" />
-              ))}
-              <Line type="linear" dataKey="percentage" stroke="transparent" strokeWidth={0}
-                dot={(p: DotProps) => {
-                  const i = p.index ?? 0
-                  const fill = i === 0 ? FIRST : plotted[i].percentage >= plotted[i - 1].percentage ? UP : DOWN
-                  return <circle key={`d-${i}`} cx={p.cx} cy={p.cy} r={4.5} fill={fill} />
-                }}
-                activeDot={(p: DotProps) => {
-                  const i = p.index ?? 0
-                  const fill = i === 0 ? FIRST : plotted[i].percentage >= plotted[i - 1].percentage ? UP : DOWN
-                  return <circle key={`ad-${i}`} cx={p.cx} cy={p.cy} r={6} fill={fill} />
-                }}
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ChartContainer>
-        </div>
-        <ScrollBar orientation="horizontal" />
-      </ScrollArea>
-    </div>
-  )
-}
-
-/* ── Comparison Bars ──────────────────────────────── */
-
-function ComparisonBars({ rows }: { rows: PerformancePayload['batchComparison'] }) {
-  const [mode, setMode] = useState<'average' | 'consistency'>('average')
-  const sorted = useMemo(() => {
-    const arr = [...rows]
-    return mode === 'average' ? arr.sort((a, b) => b.average_percentage - a.average_percentage) : arr.sort((a, b) => b.consistency_score - a.consistency_score)
-  }, [rows, mode])
-
-  if (!rows.length) return <EmptyState title="No comparison data" message="Marks are needed to compare students." />
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <Button size="sm" variant={mode === 'average' ? 'default' : 'outline'} onClick={() => setMode('average')}>Rank by Average</Button>
-        <Button size="sm" variant={mode === 'consistency' ? 'default' : 'outline'} onClick={() => setMode('consistency')}>Rank by Consistency</Button>
-      </div>
-      <div className="rounded-lg border bg-background/60">
-        <ScrollArea className="h-[270px]">
-          <div className="space-y-2 p-2.5 pr-3">
-            {sorted.map((r, i) => {
-              const score = Number(mode === 'average' ? r.average_percentage.toFixed(2) : r.consistency_score.toFixed(2))
-              const t = tone(score)
-              return (
-                <div key={r.student_id} className="rounded-lg border bg-card p-2.5 transition-colors hover:bg-muted/30">
-                  <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <div className="min-w-0 flex items-center gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                        {(r.student_name ?? 'U').slice(0, 2).toUpperCase()}
-                      </div>
-                      <div>
-                        <p className="truncate text-sm font-medium">{r.student_name ?? 'Unknown'}</p>
-                        <p className="text-xs text-muted-foreground">Position {i + 1}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-sm font-semibold ${t.text}`}>{fmt(score)}</p>
-                      <p className="text-xs text-muted-foreground">{mode === 'average' ? `${r.exam_count} exams` : `σ ${r.score_deviation.toFixed(1)}`}</p>
-                      <p className={`text-[11px] ${t.text}`}>{t.label}</p>
-                    </div>
-                  </div>
-                  <div className="h-2 rounded-full bg-muted">
-                    <div className={`${t.bar} h-2 rounded-full transition-all`} style={{ width: `${Math.min(score, 100)}%` }} />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-          <ScrollBar orientation="vertical" />
-        </ScrollArea>
-      </div>
-    </div>
-  )
-}
-
-/* ── Subject Breakdown Chart ──────────────────────── */
-
-function SubjectChart({ data }: { data: SubjectBreakdown[] }) {
-  if (!data.length) return <EmptyState title="No subject data" message="Exams need a subject assigned to show this chart." />
-
-  const config = {
-    average: { label: 'Average %', color: 'hsl(var(--accent))' },
-    top: { label: 'Top %', color: 'hsl(var(--primary))' },
-  } satisfies ChartConfig
-
-  return (
-    <ChartContainer config={config} className="mx-auto aspect-[4/3] max-h-[300px]">
-      <RadarChart data={data} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-        <PolarGrid className="stroke-muted/30" />
-        <PolarAngleAxis dataKey="subject" className="text-xs font-medium" tick={{ fill: "currentColor" }} />
-        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-        <ChartTooltip cursor={false} content={
-          <ChartTooltipContent formatter={(value, name) => [fmt(Number(value)), name === 'average' ? 'Avg' : 'Top']} />
-        } />
-        <Radar dataKey="top" stroke="var(--color-top)" fill="var(--color-top)" fillOpacity={0.2} strokeWidth={2} />
-        <Radar dataKey="average" stroke="var(--color-average)" fill="var(--color-average)" fillOpacity={0.5} strokeWidth={2} />
-      </RadarChart>
-    </ChartContainer>
-  )
-}
-
-/* ── Main Dashboard ───────────────────────────────── */
-
-export function PerformanceDashboard({ initialData }: { initialData: PerformancePayload }) {
-  const [data, setData] = useState(initialData)
-  const [loading, setLoading] = useState(false)
-  const [centreId, setCentreId] = useState('')
+export function PerformanceDashboard() {
   const [batchId, setBatchId] = useState('')
   const [studentId, setStudentId] = useState('')
   const [subject, setSubject] = useState('')
-  const [fromDate, setFromDate] = useState<Date | undefined>()
-  const [toDate, setToDate] = useState<Date | undefined>()
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [appliedFilters, setAppliedFilters] = useState<AppliedPerformanceFilters>({
+    batchId: '',
+    studentId: '',
+    subject: '',
+    from: '',
+    to: '',
+  })
+  const [comparisonMode, setComparisonMode] = useState<'rank' | 'consistency'>('rank')
+  const [tableSearch, setTableSearch] = useState('')
 
-  const visibleBatches = useMemo(() =>
-    centreId ? data.filters.batches.filter(b => b.centre_id === centreId) : data.filters.batches,
-    [centreId, data.filters.batches])
+  const { data, error, isPending, isFetching } = useQuery({
+    queryKey: ['analytics-performance', appliedFilters],
+    queryFn: async () => {
+      const payload = await fetchJson<PerformancePayload>(`/api/analytics/performance?${buildPerformanceQueryString(appliedFilters)}`, {
+        cache: 'no-store',
+        errorPrefix: 'Load performance analytics',
+      })
+      return payload
+    },
+    staleTime: 30_000,
+    retry: false,
+  })
 
-  function buildParams(overrides?: Record<string, string>) {
-    const p = new URLSearchParams()
-    const vals = { centreId, batchId, studentId, subject, from: fromDate ? format(fromDate, 'yyyy-MM-dd') : '', to: toDate ? format(toDate, 'yyyy-MM-dd') : '', ...overrides }
-    for (const [k, v] of Object.entries(vals)) { if (v) p.set(k, v) }
-    return p
+  const loading = isPending || isFetching
+
+  useEffect(() => {
+    if (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load performance analytics')
+    }
+  }, [error])
+
+  function applyFilters() {
+    setAppliedFilters({
+      batchId,
+      studentId,
+      subject,
+      from: fromDate,
+      to: toDate,
+    })
   }
 
-  async function loadData(params?: URLSearchParams) {
-    setLoading(true)
-    const q = params ? `?${params}` : ''
-    const res = await fetch(`/api/analytics/performance${q}`, { cache: 'no-store' })
-    const payload = await res.json().catch(() => null)
-    setLoading(false)
-    if (!res.ok || !payload) { toast.error(payload?.error ?? 'Failed to load performance data.'); return }
-    setData(payload as PerformancePayload)
-    if (!params) { setCentreId(payload.filters.centres[0]?.id ?? ''); setBatchId(payload.filters.batches[0]?.id ?? ''); setStudentId(''); setSubject('') }
-  }
+  const batchOptions: FilterOption[] = [{ value: 'all', label: 'All batches' }, ...(data?.filters.batches.map((batch) => ({ value: batch.id, label: batch.batch_name })) ?? [])]
+  const studentOptions: FilterOption[] = [{ value: 'all', label: 'All students' }, ...(data?.filters.students.map((student) => ({ value: student.id, label: `${student.display_name}${student.student_code ? ` (${student.student_code})` : ''}` })) ?? [])]
+  const subjectOptions: FilterOption[] = [{ value: 'all', label: 'All subjects' }, ...(data?.filters.subjects.map((entry) => ({ value: entry, label: entry })) ?? [])]
 
-  function resetScopedFilters(nextCentreId: string) {
-    setCentreId(nextCentreId)
-    const first = nextCentreId === '' ? data.filters.batches[0] : data.filters.batches.find(b => b.centre_id === nextCentreId)
-    setBatchId(first?.id ?? ''); setStudentId(''); setSubject('')
-  }
+  const overallTrendData = useMemo(
+    () => (data?.overallTrend ?? []).map((item) => ({ label: item.exam_name, average: item.average_percentage })),
+    [data?.overallTrend],
+  )
 
-  async function handleBatchChange(next: string) {
-    setBatchId(next); setStudentId(''); setSubject('')
-    await loadData(buildParams({ batchId: next, studentId: '', subject: '' }))
-  }
+  const comparisonData = useMemo(() => {
+    const source = [...(data?.comparison ?? [])]
+    return comparisonMode === 'rank'
+      ? source.sort((left, right) => right.average_percentage - left.average_percentage)
+      : source.sort((left, right) => right.consistency_score - left.consistency_score)
+  }, [comparisonMode, data?.comparison])
 
-  async function applyFilters() { await loadData(buildParams()) }
-
-  useEffect(() => { loadData() }, [])
-
-  // ── Filter options ──
-  const centreOpts: FilterOption[] = [{ value: 'all', label: 'All centres' }, ...data.filters.centres.map(c => ({ value: c.id, label: c.centre_name }))]
-  const batchOpts: FilterOption[] = visibleBatches.map(b => ({ value: b.id, label: b.batch_name }))
-  const studentOpts: FilterOption[] = [{ value: 'all', label: 'All students (batch trend)' }, ...data.filters.students.map(s => ({ value: s.id, label: `${s.display_name ?? s.full_name ?? 'Unknown'}${s.student_code ? ` (${s.student_code})` : ''}` }))]
-  const subjectOpts: FilterOption[] = [{ value: 'all', label: 'All subjects' }, ...data.filters.subjects.map(s => ({ value: s, label: s }))]
+  const marksRows = useMemo(() => {
+    const query = tableSearch.trim().toLowerCase()
+    return (data?.marks ?? []).filter((row) => {
+      if (!query) return true
+      return row.student_name.toLowerCase().includes(query) || (row.student_code ?? '').toLowerCase().includes(query) || row.exam_name.toLowerCase().includes(query)
+    })
+  }, [data?.marks, tableSearch])
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div>
-        <h1 className="font-serif text-3xl tracking-tight">Student Performance</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Analyze marks by student, batch, and subject. Results filtered by your role.</p>
-      </div>
+    <div className="space-y-6">
+      <section className="relative overflow-hidden rounded-[28px] border border-white/10 bg-slate-900/45 px-8 py-8 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-xl">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.18),transparent_30%),radial-gradient(circle_at_right,rgba(52,211,153,0.10),transparent_26%),linear-gradient(180deg,rgba(15,23,42,0.52),rgba(2,6,23,0.86))]" />
+        <div className="relative space-y-4">
+          <Badge variant="outline" className="border-sky-400/30 bg-sky-400/10 text-sky-300">Analytics</Badge>
+          <div className="max-w-3xl">
+            <h1 className="font-serif text-4xl tracking-tight text-white sm:text-5xl">Performance Intelligence</h1>
+            <p className="mt-3 text-base text-slate-300">Compare overall performance, subject-wise strength, rank position, and consistency for students within your allowed scope.</p>
+          </div>
+        </div>
+      </section>
 
-      {/* Filters */}
-      <FilterBar gridClass="md:grid-cols-4 lg:grid-cols-4" description="Refine by centre, batch, student, subject, and date range." actions={
-        <>
-          <Button onClick={applyFilters} disabled={loading}>{loading ? 'Loading…' : 'Apply filters'}</Button>
-          <Button variant="outline" onClick={() => { setFromDate(undefined); setToDate(undefined) }}>Clear dates</Button>
-        </>
-      }>
-        <SelectFilter id="f-centre" label="Centre" value={centreId || 'all'} options={centreOpts} onChange={v => resetScopedFilters(v === 'all' ? '' : v)} />
-        <SelectFilter id="f-batch" label="Batch" value={batchId} options={batchOpts} placeholder="Select batch" onChange={handleBatchChange} />
-        <SelectFilter id="f-student" label="Student" value={studentId || 'all'} options={studentOpts} onChange={v => setStudentId(v === 'all' ? '' : v)} />
-        <SelectFilter id="f-subject" label="Subject" value={subject || 'all'} options={subjectOpts} onChange={v => setSubject(v === 'all' ? '' : v)} />
-        <DateFilter id="f-from" label="From" value={fromDate} onChange={setFromDate} />
-        <DateFilter id="f-to" label="To" value={toDate} onChange={setToDate} />
+      <FilterBar title="Performance Filters" description="Subject filters stay batch-aware so comparisons remain academically meaningful, so there is no centre-level filter on this page." gridClass="md:grid-cols-3 xl:grid-cols-5" actions={<Button onClick={applyFilters} disabled={loading}>{loading ? 'Loading...' : 'Apply filters'}</Button>}>
+        <SelectFilter id="perf-batch" label="Batch" value={batchId || 'all'} options={batchOptions} onChange={(value) => { setBatchId(value === 'all' ? '' : value); setStudentId(''); }} />
+        <SelectFilter id="perf-student" label="Student" value={studentId || 'all'} options={studentOptions} onChange={(value) => setStudentId(value === 'all' ? '' : value)} />
+        <SelectFilter id="perf-subject" label="Subject" value={subject || 'all'} options={subjectOptions} onChange={(value) => setSubject(value === 'all' ? '' : value)} />
+        <DatePickerField id="perf-from" label="From" value={fromDate} onChange={setFromDate} max={toDate || undefined} />
+        <DatePickerField id="perf-to" label="To" value={toDate} onChange={setToDate} min={fromDate || undefined} max={format(new Date(), 'yyyy-MM-dd')} />
       </FilterBar>
 
-      {/* Summary cards */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <StatCard label="Exams" value={data.summary.examsCount} icon={<BookOpen className="h-5 w-5" />} />
-        <StatCard label="Mark entries" value={data.summary.marksEntries} icon={<BarChart3 className="h-5 w-5" />} />
-        <StatCard label="Average %" value={fmt(data.summary.averagePercentage)} icon={<TrendingUp className="h-5 w-5" />} accent={data.summary.averagePercentage !== null ? (data.summary.averagePercentage >= 75 ? 'success' : data.summary.averagePercentage >= 50 ? 'warning' : 'danger') : 'default'} />
-        <StatCard label="Top %" value={fmt(data.summary.topPercentage)} icon={<Trophy className="h-5 w-5" />} accent="success" />
-        <StatCard label="Absent entries" value={data.summary.absentCount} icon={<UserX className="h-5 w-5" />} accent={data.summary.absentCount > 0 ? 'danger' : 'default'} />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <StatCard label="Exams" value={data?.summary.examsCount ?? 0} icon={<BookOpen className="h-5 w-5" />} />
+        <StatCard label="Mark Entries" value={data?.summary.marksEntries ?? 0} icon={<UserRoundCheck className="h-5 w-5" />} />
+        <StatCard label="Average %" value={fmt(data?.summary.averagePercentage ?? null)} icon={<TrendingUp className="h-5 w-5" />} accent="success" />
+        <StatCard label="Top %" value={fmt(data?.summary.topPercentage ?? null)} icon={<Medal className="h-5 w-5" />} accent="warning" />
+        <StatCard label="Absent Entries" value={data?.summary.absentCount ?? 0} icon={<Percent className="h-5 w-5" />} accent="danger" />
       </div>
 
-      {/* Trend + Comparison */}
-      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-        <SectionCard title={data.trendMode === 'batch' ? 'Batch Trend' : 'Individual Trend'} description={data.trendMode === 'batch' ? 'Exam-wise average % for the selected batch.' : 'Exam-wise trend for the selected student.'}>
-          <TrendChart points={data.trend} />
+      <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+        <SectionCard title="Overall Trend" description="Exam-wise performance trend for the selected batch or student.">
+          {!overallTrendData.length ? (
+            <EmptyState title="No performance trend" message="No exam data exists for the current filters." />
+          ) : (
+            <ChartContainer config={chartConfig} className="h-[300px] w-full aspect-auto">
+              <ComposedChart data={overallTrendData}>
+                <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                <YAxis domain={[0, 100]} tickLine={false} axisLine={false} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                <ChartLegend content={<ChartLegendContent />} />
+                <Bar dataKey="average" fill="var(--color-average)" radius={[6, 6, 0, 0]} />
+                <Line type="monotone" dataKey="average" stroke="var(--color-top)" strokeWidth={3} dot={{ r: 4 }} />
+              </ComposedChart>
+            </ChartContainer>
+          )}
         </SectionCard>
 
-        <SectionCard title="Batch Comparison" description="Student rankings in the current scope.">
-          <ComparisonBars rows={data.batchComparison} />
+        <SectionCard title="Subject-Wise View" description="Overall and subject-wise comparison without centre-level subject mixing.">
+          {!data?.subjectTrend.length ? (
+            <EmptyState title="No subject comparison" message="Subjects appear once exams include subject information." />
+          ) : (
+            <ChartContainer config={chartConfig} className="mx-auto aspect-[4/3] max-h-[320px]">
+              <RadarChart data={data.subjectTrend}>
+                <PolarGrid className="stroke-muted/30" />
+                <PolarAngleAxis dataKey="subject" />
+                <PolarRadiusAxis domain={[0, 100]} tick={false} axisLine={false} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                <Radar dataKey="average_percentage" stroke="var(--color-average)" fill="var(--color-average)" fillOpacity={0.35} />
+                <Radar dataKey="top_percentage" stroke="var(--color-top)" fill="var(--color-top)" fillOpacity={0.12} />
+              </RadarChart>
+            </ChartContainer>
+          )}
         </SectionCard>
       </div>
 
-      {/* Subject-Wise Analysis */}
-      {data.subjectBreakdown.length > 0 && (
-        <SectionCard title="Subject-Wise Analysis" description="Average and top percentages per subject.">
-          <SubjectChart data={data.subjectBreakdown} />
-        </SectionCard>
-      )}
+      <SectionCard title="Comparison View" description="Switch between rank-wise and consistency-wise comparison for the selected group.">
+        <div className="mb-4 flex gap-2">
+          <Button size="sm" variant={comparisonMode === 'rank' ? 'default' : 'outline'} onClick={() => setComparisonMode('rank')}>Rank-wise</Button>
+          <Button size="sm" variant={comparisonMode === 'consistency' ? 'default' : 'outline'} onClick={() => setComparisonMode('consistency')}>Consistency-wise</Button>
+        </div>
 
-      {/* Detailed Marks Table */}
-      <SectionCard title="Detailed Marks" description="Row-level exam scores for current filters.">
-        {data.marks.length === 0 ? <EmptyState title="No marks" message="No marks found for the selected filters." /> : (
-          <div className="overflow-hidden rounded-lg border">
-            <Table className="min-w-[900px]">
-              <TableHeader>
-                <TableRow className="bg-muted/40">
+        {!comparisonData.length ? (
+          <EmptyState title="No comparison data" message="Marks are required before student comparison can be calculated." />
+        ) : (
+          <div className="space-y-4">
+            <ChartContainer config={chartConfig} className="h-[320px] w-full aspect-auto">
+              <BarChart data={comparisonData.map((row) => ({ name: row.student_name, rank: row.average_percentage, consistency: row.consistency_score }))}>
+                <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                <XAxis dataKey="name" tickLine={false} axisLine={false} interval={0} minTickGap={16} />
+                <YAxis domain={[0, 100]} tickLine={false} axisLine={false} />
+                <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                <ChartLegend content={<ChartLegendContent />} />
+                <Bar dataKey={comparisonMode === 'rank' ? 'rank' : 'consistency'} fill={comparisonMode === 'rank' ? 'var(--color-average)' : 'var(--color-consistency)'} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ChartContainer>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {comparisonData.slice(0, 6).map((row) => (
+                <div key={row.student_id} className="rounded-xl border border-white/10 bg-slate-950/25 p-4 text-sm">
+                  <div className="font-medium">{row.student_name}</div>
+                  <div className="mt-2 grid gap-1 text-muted-foreground">
+                    <div>Rank position: <span className="font-medium text-foreground">#{row.rank_position}</span></div>
+                    <div>Consistency rank: <span className="font-medium text-foreground">{row.consistency_rank ? `#${row.consistency_rank}` : '-'}</span></div>
+                    <div>Average: <span className="font-medium text-foreground">{fmt(row.average_percentage)}</span></div>
+                    <div>Consistency: <span className="font-medium text-foreground">{fmt(row.consistency_score)}</span></div>
+                    <div>Exams used: <span className="font-medium text-foreground">{row.exam_count}</span></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Detailed Marks Table" description="Useful when a group of students is selected and you need row-level marks for each subject.">
+        <div className="mb-4 max-w-sm space-y-2">
+          <Label htmlFor="marks-search">Search marks rows</Label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input id="marks-search" value={tableSearch} onChange={(event) => setTableSearch(event.target.value)} className="pl-9" placeholder="Search student or exam" />
+          </div>
+        </div>
+
+        {!marksRows.length ? (
+          <EmptyState title="No marks table rows" message="No detailed marks match the current filters." />
+        ) : (
+          <div className="overflow-hidden rounded-xl border border-white/10">
+            <Table>
+              <TableHeader className="bg-slate-950/35">
+                <TableRow>
                   <TableHead>Date</TableHead>
                   <TableHead>Exam</TableHead>
                   <TableHead>Subject</TableHead>
@@ -335,38 +259,18 @@ export function PerformanceDashboard({ initialData }: { initialData: Performance
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.marks.map((r, i) => (
-                  <TableRow key={`${r.exam_id}-${r.student_id}`} className={`transition-colors hover:bg-muted/30 ${i % 2 === 0 ? 'bg-background' : 'bg-muted/10'}`}>
-                    <TableCell>{fmtDate(r.exam_date)}</TableCell>
-                    <TableCell>{r.exam_name}</TableCell>
-                    <TableCell>{r.subject ?? <span className="text-muted-foreground">-</span>}</TableCell>
-                    <TableCell>{r.batch_name}</TableCell>
+                {marksRows.map((row) => (
+                  <TableRow key={`${row.exam_id}-${row.student_id}`} className="hover:bg-white/5">
+                    <TableCell>{row.exam_date}</TableCell>
+                    <TableCell>{row.exam_name}</TableCell>
+                    <TableCell>{row.subject ?? '-'}</TableCell>
+                    <TableCell>{row.batch_name}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary">
-                          {(r.student_name ?? 'U').slice(0, 2).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="font-medium leading-none">{r.student_name ?? 'Unknown'}</p>
-                          {r.student_code && <p className="text-xs text-muted-foreground mt-1">{r.student_code}</p>}
-                        </div>
-                      </div>
+                      <div className="font-medium">{row.student_name}</div>
+                      <div className="font-mono text-xs text-muted-foreground">{row.student_code || '-'}</div>
                     </TableCell>
-                    <TableCell className="text-right font-medium tabular-nums">
-                      {r.is_absent ? <Badge variant="destructive">Absent</Badge> : `${r.marks_obtained}/${r.total_marks}`}
-                    </TableCell>
-                    <TableCell>
-                      {r.percentage === null ? (
-                        <span className="text-muted-foreground text-right block w-full">-</span>
-                      ) : (
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden hidden sm:block">
-                            <div className={`h-full ${tone(r.percentage).bar} transition-all`} style={{ width: `${r.percentage}%` }} />
-                          </div>
-                          <Badge variant="outline" className={`${tone(r.percentage).text} min-w-[4rem] justify-center`}>{fmt(r.percentage)}</Badge>
-                        </div>
-                      )}
-                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{row.is_absent ? 'Absent' : `${row.marks_obtained}/${row.total_marks}`}</TableCell>
+                    <TableCell className="text-right"><Badge variant="outline" className="border-sky-400/20 bg-sky-400/10 text-sky-300">{fmt(row.percentage)}</Badge></TableCell>
                   </TableRow>
                 ))}
               </TableBody>

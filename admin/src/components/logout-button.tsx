@@ -38,7 +38,7 @@ export function LogoutButton() {
             size="sm"
             onClick={handleLogout}
             disabled={loading}
-            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            className="rounded-xl border border-white/10 bg-slate-900/45 px-4 text-slate-300 hover:bg-red-500/10 hover:text-red-300"
         >
             {loading ? <Loader2 className="animate-spin" /> : <LogOut />}
             Logout

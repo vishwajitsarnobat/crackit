@@ -9,7 +9,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 type Role = 'ceo' | 'centre_head' | 'teacher' | 'accountant'
 
-const CENTRE_ROLES: Role[] = ['centre_head', 'teacher']
+const CENTRE_ROLES: Role[] = ['centre_head', 'teacher', 'accountant']
 
 export async function GET() {
   try {
