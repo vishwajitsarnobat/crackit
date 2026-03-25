@@ -4,12 +4,17 @@
  */
 
 import Link from 'next/link'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="relative min-h-screen overflow-hidden bg-background text-foreground lg:grid lg:grid-cols-[1fr_1.1fr]">
       <div className="pointer-events-none absolute inset-0 bg-[url('/obsidian-academic-bg.svg')] bg-cover bg-center opacity-[0.04] dark:opacity-[0.08]" />
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(148,198,145,0.26),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(4,231,254,0.08),transparent_20%)] dark:bg-[radial-gradient(circle_at_top_left,rgba(148,198,145,0.14),transparent_26%),radial-gradient(circle_at_bottom_right,rgba(4,231,254,0.08),transparent_16%)]" />
+
+      <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
+        <ThemeToggle />
+      </div>
 
       <div className="relative hidden border-r border-secondary/10 bg-white/30 p-10 backdrop-blur-2xl dark:bg-black/12 lg:flex lg:flex-col lg:justify-between">
         <div>
