@@ -1,4 +1,4 @@
--- CRACK IT COACHING INSTITUTE - DATABASE SCHEMA v3.3
+-- CRACK IT COACHING INSTITUTE - DATABASE SCHEMA v3.6
 -- PostgreSQL 14+ (Supabase) | 3NF | UUIDs | RLS | Triggers | Views
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -248,7 +248,7 @@ CREATE INDEX idx_transactions_date    ON fee_transactions(payment_date DESC);
 CREATE TABLE invoice_reward_allocations (
     id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     student_invoice_id    UUID NOT NULL REFERENCES student_invoices(id) ON DELETE CASCADE,
-    points_transaction_id UUID REFERENCES points_transactions(id) ON DELETE SET NULL,
+    points_transaction_id UUID,
     allocation_amount     DECIMAL(10,2) NOT NULL CHECK (allocation_amount <> 0),
     created_by            UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at            TIMESTAMPTZ DEFAULT NOW()
@@ -491,6 +491,12 @@ CREATE TABLE reward_rule_executions (
 CREATE INDEX idx_reward_exec_rule  ON reward_rule_executions(reward_rule_id);
 CREATE INDEX idx_reward_exec_month ON reward_rule_executions(run_month DESC);
 CREATE INDEX idx_reward_exec_time  ON reward_rule_executions(started_at DESC);
+
+ALTER TABLE invoice_reward_allocations
+    ADD CONSTRAINT fk_invoice_reward_allocations_points_transaction
+    FOREIGN KEY (points_transaction_id)
+    REFERENCES points_transactions(id)
+    ON DELETE SET NULL;
 
 
 -- SECTION 13: FUNCTIONS & TRIGGERS

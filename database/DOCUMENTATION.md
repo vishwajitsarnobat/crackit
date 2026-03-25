@@ -1,7 +1,7 @@
 # Crack It Coaching Institute - Database Documentation
-**Version:** 3.5 (Mar 2026)
+**Version:** 3.6 (Mar 2026)
 **Database:** PostgreSQL 14+ (Supabase)
-**Tables:** 26 | **Views:** 0 | **Triggers:** 34
+**Tables:** 26 | **Views:** 0 | **Triggers:** 35
 
 ## Deliverables
 
@@ -71,7 +71,7 @@ reward_rules
 | `user_active_sessions` | 1 row per user. Stores `fcm_token` for Firebase push (absent alerts etc.) |
 | `user_approval_requests` | Approval inbox. CEO approves centre_head/accountant. Centre head approves teacher/student |
 
-**Role hierarchy (level):** `ceo(1)` → `centre_head(4)` → `teacher/accountant(5)` → `student(6)`
+**Role hierarchy (level):** `ceo(1)` → `centre_head(2)` → `teacher(3)` → `accountant(4)` → `student(5)`
 
 **Approval flow:**
 ```
