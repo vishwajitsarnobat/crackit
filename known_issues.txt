@@ -1,0 +1,4 @@
+Unable to update attendance and marks. Possibly due to seeded student data. Need to check.
+Fees collection section stuck and nothing is loading, batch filter not working and nothing can be seen.
+Profile section bit inconsistent, like mail alignemnt, overall spacing.
+

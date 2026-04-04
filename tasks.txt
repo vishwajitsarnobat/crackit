@@ -1,0 +1,2 @@
+a. Import content library from 1 batch to another.
+When imported, it will all the unpublished and visible to student only when published.
